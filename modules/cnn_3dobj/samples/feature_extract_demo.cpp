@@ -33,18 +33,46 @@
  *
  */
 #include <opencv2/cnn_3dobj.hpp>
+#include <stdio.h>  // for snprintf
+#include <tr1/memory>
+#include <string>
+#include <vector>
+#include "google/protobuf/text_format.h"
+#include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
+#define CPU_ONLY
+#include "caffe/blob.hpp"
+#include "caffe/common.hpp"
+#include "caffe/net.hpp"
+#include "caffe/proto/caffe.pb.h"
+#include "caffe/util/io.hpp"
+#include "caffe/vision_layers.hpp"
+using caffe::Blob;
+using caffe::Caffe;
+using caffe::Datum;
+using caffe::Net;
+//using boost::shared_ptr;
+using std::string;
+//namespace db = caffe::db;
 using namespace cv;
 using namespace std;
 using namespace cv::cnn_3dobj;
 int main(int argc, char* argv[])
 {
 	const String keys = "{help | | this demo will convert a set of images in a particular path into leveldb database for feature extraction using Caffe.}"
-		     "{src_dir | ../data/images_all | Source direction of the images ready for being converted to leveldb dataset.}"
+		     "{src_dir | ../data/images_all/ | Source direction of the images ready for being converted to leveldb dataset.}"
 		     "{src_dst | ../data/dbfile | Aim direction of the converted to leveldb dataset. }"
 		     "{attach_dir | ../data/dbfile | Path for saving additional files which describe the transmission results. }"
 		     "{channel | 1 | Channel of the images. }"
 		     "{width | 64 | Width of images}"
-		     "{height | 64 | Height of images}";
+		     "{height | 64 | Height of images}"
+		     "{pretrained_binary_proto | ../data/3d_triplet_iter_10000.caffemodel | caffe model for feature exrtaction.}"
+		     "{feature_extraction_proto | ../data/3d_triplet_train_test.prototxt | network definition in .prototxt the path of the training samples must be wrotten in in .prototxt files in Phase TEST}"
+		     "{save_feature_dataset_names | ../data/feature/feature_iter_10000.bin | the output of the extracted feature in form of binary files together with the vector<cv::Mat> features as the feature.}"
+		     "{extract_feature_blob_names | feat | the layer used for feature extraction in CNN.}"
+		     "{num_mini_batches | 6 | batches suit for the batches defined in the .proto for the aim of extracting feature from all images.}"
+		     "{device | CPU | device}"
+		     "{dev_id | 0 | dev_id}";
 	cv::CommandLineParser parser(argc, argv, keys);
 	parser.about("Demo for Sphere View data generation");
 	if (parser.has("help"))
@@ -58,6 +86,14 @@ int main(int argc, char* argv[])
 	int channel = parser.get<int>("channel");
 	int width = parser.get<int>("width");
 	int height = parser.get<int>("height");
-	cv::cnn_3dobj::DataTrans Trans;
-	Trans.convert(src_dir,src_dst,attach_dir,channel,width,height);
+	string pretrained_binary_proto = parser.get<string>("pretrained_binary_proto");
+	string feature_extraction_proto = parser.get<string>("feature_extraction_proto");
+	string save_feature_dataset_names = parser.get<string>("save_feature_dataset_names");
+	string extract_feature_blob_names = parser.get<string>("extract_feature_blob_names");
+	int num_mini_batches = parser.get<int>("num_mini_batches");
+	string device = parser.get<string>("device");
+	int dev_id = parser.get<int>("dev_id");
+	cv::cnn_3dobj::DataTrans transTemp;
+	transTemp.convert(src_dir,src_dst,attach_dir,channel,width,height);
+	std::vector<cv::Mat> extractedFeature = transTemp.feature_extraction_pipeline(pretrained_binary_proto, feature_extraction_proto, save_feature_dataset_names, extract_feature_blob_names, num_mini_batches, device, dev_id);
 }
