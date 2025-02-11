@@ -21,6 +21,7 @@
 #include <cxxabi.h>
 #endif
 #include <opencv2/core/ocl.hpp>
+#include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
 #include <set>
 #include <unistd.h>
@@ -814,7 +815,7 @@ Tdst convert_pix(const Tsrc &src, double alpha = 1.0, double beta = 0.0) {
 	}
 
 	if constexpr (Tcode >= 0) {
-		cvtColor(srcArr, intermediateMat, Tcode);
+		cvtColor(srcArr, intermediateMat, Tcode, 0, cv::ALGO_HINT_DEFAULT);
 	}
 
 	std::array<dst_internal_t, 1> dstArr;
@@ -826,6 +827,7 @@ Tdst convert_pix(const Tsrc &src, double alpha = 1.0, double beta = 0.0) {
 			cvtColor(intermediateMat, intermediateMat, cv::COLOR_BGRA2BGR);
 			intermediateMat.convertTo(dstArr, dstType);
 		} else if constexpr (dstCn == 4) {
+			InputArray arrIm(intermediateMat);
 			cvtColor(intermediateMat, intermediateMat, cv::COLOR_BGR2BGRA);
 			intermediateMat.convertTo(dstArr, dstType);
 		}

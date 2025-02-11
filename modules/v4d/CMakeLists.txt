@@ -3,10 +3,10 @@ cmake_policy(SET CMP0079 NEW)
 OCV_OPTION(OPENCV_V4D_ENABLE_ES3 "Enable OpenGL ES 3.0 backend for V4D" OFF
   VERIFY HAVE_OPENGL)
 
-OCV_OPTION(OPENCV_V4D_ENABLE_BGFX "Enable bgfx for V4D" ON
+OCV_OPTION(OPENCV_V4D_ENABLE_BGFX "Enable bgfx for V4D" OFF
   VERIFY HAVE_OPENGL)
 
-OCV_OPTION(OPENCV_V4D_ENABLE_MALI "Enable mali gpu support for V4D" ON
+OCV_OPTION(OPENCV_V4D_ENABLE_MALI "Enable mali gpu support for V4D" OFF
   VERIFY HAVE_OPENGL)
 
 if(OPENCV_V4D_ENABLE_BGFX)
@@ -87,7 +87,7 @@ macro(add_binary_sample sample source)
   target_compile_features(${sample} PRIVATE cxx_std_20)
   # set_property(TARGET ${sample} PROPERTY POSITION_INDEPENDENT_CODE ON)
   target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
-  target_include_directories(${sample} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/")
+  target_include_directories(${sample} PRIVATE "${CMAKE_HOME_DIRECTORY}/modules/core/include" "${CMAKE_HOME_DIRECTORY}/modules/imgproc/include" "${CMAKE_HOME_DIRECTORY}/modules/video/include" "${CMAKE_HOME_DIRECTORY}/modules/videoio/include" "${CMAKE_HOME_DIRECTORY}/modules/dnn/include" "${CMAKE_HOME_DIRECTORY}/modules/tracking/include"  "${CMAKE_HOME_DIRECTORY}/modules/objdetect/include" "${CMAKE_HOME_DIRECTORY}/modules/stitching/include" "${CMAKE_HOME_DIRECTORY}/modules/imgcodecs/include" "${CMAKE_HOME_DIRECTORY}/modules/highgui/include" "${CMAKE_CURRENT_SOURCE_DIR}/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/")
   if(OPENCV_V4D_ENABLE_BGFX)
     target_include_directories(${sample} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
   endif()
@@ -105,11 +105,11 @@ endmacro()
 
 
 if (NOT (TARGET nanovg))
-#    if(OPENCV_V4D_ENABLE_ES3)
-#	    add_definitions(-DNANOVG_GLES3_IMPLEMENATION=1)
-#    else()
-#		add_definitions(-DNANOVG_GL3_IMPLEMENATION=1)
-#    endif()
+   if(OPENCV_V4D_ENABLE_ES3)
+      add_definitions(-DNANOVG_GLES3=1)
+    else()
+      add_definitions(-DNANOVG_GL3=1)
+    endif()
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/")
     target_compile_options(nanovg PUBLIC -Wno-error)
     target_compile_options(nanovg PUBLIC -pthread)
@@ -159,14 +159,14 @@ if(NOT (TARGET ${the_module}))
   file(GLOB imgui_backend_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp")
   file(GLOB imgui_glfw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
   ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/" ${imgui_sources} ${imgui_backend_sources} ${imgui_glfw_sources})
-  ocv_module_include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/")
+  ocv_module_include_directories("${CMAKE_CURRENT_LIST_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/")
    if(OPENCV_V4D_ENABLE_BGFX)
       ocv_module_include_directories(${sample} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
   endif()
   ocv_create_module()
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
 
-  ocv_add_samples(opencv_v4d)
+  #  ocv_add_samples(opencv_v4d)
   # Populate assets
   fetch_file("LBFMODEL" "https://github.com/kurnianggoro/GSOC2017/raw/master/data/lbfmodel.yaml" "70dd8b1657c42d1595d6bd13d97d932877b3bed54a95d3c4733a0f740d1fd66b")
 

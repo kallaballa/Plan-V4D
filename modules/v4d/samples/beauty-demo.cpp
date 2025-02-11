@@ -5,9 +5,9 @@
 #include <opencv2/v4d/v4d.hpp>
 #include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/face.hpp>
+#include <opencv2/objdetect/face.hpp>
 #include <opencv2/stitching/detail/blenders.hpp>
-#include <opencv2/tracking.hpp>
+#include <opencv2/video/tracking.hpp>
 #include <opencv2/highgui.hpp>
 
 #include <vector>
@@ -212,7 +212,7 @@ public:
 //adjusts the saturation of a UMat
 static void adjust_saturation(const cv::UMat &srcBGR, cv::UMat &dstBGR, float factor, std::vector<cv::UMat>& channel) {
 	cv::UMat tmp;
-	cvtColor(srcBGR, tmp, cv::COLOR_BGR2HLS);
+    cvtColor(srcBGR, tmp, cv::COLOR_BGR2HLS);
     split(tmp, channel);
     cv::multiply(channel[2], factor, channel[2]);
     merge(channel, tmp);
@@ -410,7 +410,7 @@ public:
 		->endBranch();
 
 		plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), CS(params_))
-		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
+		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA));
 	}
 };
 
@@ -434,9 +434,9 @@ public:
 		//context-call provides a nanovg context to the node emitteed
 		nvg(&FaceFeatures::drawFaceOvalMask, R(inputFeatures_))
 		//context-call provides a cv::UMat representation of the framebuffer to the node emitteed
-		->fb(cv::cvtColor, RW(inputOutputFrames_.faceOval_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
+		->fb(cv::cvtColor, RW(inputOutputFrames_.faceOval_), V(cv::COLOR_BGRA2GRAY))
 		->nvg(&FaceFeatures::drawEyesAndLipsMask, R(inputFeatures_))
-		->fb(cv::cvtColor, RW(inputOutputFrames_.eyesAndLipsMaskGrey_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
+		->fb(cv::cvtColor, RW(inputOutputFrames_.eyesAndLipsMaskGrey_), V(cv::COLOR_BGRA2GRAY))
 		//
 		->plain(prepare_masks, RW(inputOutputFrames_));
 	}

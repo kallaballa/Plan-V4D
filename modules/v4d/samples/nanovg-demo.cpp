@@ -122,6 +122,7 @@ class NanoVGDemoPlan : public Plan {
 
 	constexpr static auto SPLIT_ = _OL_(void, cv::split, cv::InputArray, cv::OutputArrayOfArrays);
 	constexpr static auto MERGE_ = _OL_(void, cv::merge, cv::InputArrayOfArrays, cv::OutputArray);
+//	constexpr static auto CONVERT_ = _OL_(void, cv::cvtColor, cv::InputArray, cv::OutputArray, int, int);
 public:
 	NanoVGDemoPlan() {
 	}
@@ -129,29 +130,31 @@ public:
 	void setup() override {
 		plain(&std::vector<cv::UMat>::reserve, RW(hsvChannels_), V(3));
 	}
+
 	void infer() override {
 		capture();
 
-		assign(RW(hue_), R((sinf(cv::getTickCount() / cv::getTickFrequency() * 0.12) + 1.0) * 127.5));
+		assign(RW(hue_), (F(&sinf, F(&cv::getTickCount) / F(&cv::getTickFrequency) * V(0.12)) + V(1.0)) * V(127.5));
 
 		//Acquire the framebuffer and convert it to RGB
-		fb(cv::cvtColor, RW(rgb_), V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT));
+//		fb<0>(cv::cvtColor, RW(rgb_), V(cv::COLOR_BGRA2RGB), V(0));
 
 		//Transform HSV space
-		plain(cv::cvtColor, R(rgb_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
-		->plain(SPLIT_, R(hsv_), RW(hsvChannels_))
-		->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), V(std::round(hue_)), V(cv::noArray()))
-		->plain(MERGE_, R(hsvChannels_), RW(hsv_))
-		->plain(cv::cvtColor, R(hsv_), RW(rgb_), V(cv::COLOR_HSV2RGB_FULL), V(0), V(cv::ALGO_HINT_DEFAULT));
+//		plain(CONVERT_, RW(rgb_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL), V(0))
+		plain(SPLIT_, R(hsv_), RW(hsvChannels_))
+		->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), R(hue_), V(cv::noArray()))
+		->plain(MERGE_, R(hsvChannels_), RW(hsv_));
+//		->plain(CONVERT_, RW(hsv_), RW(rgb_), V(cv::COLOR_HSV2RGB_FULL), V(0));
 
-		//Acquire the framebuffer and convert rgb_ into it
-		fb<1>(cv::cvtColor, RW(rgb_), V(cv::COLOR_BGR2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT));
+		//Convert to bgra and write to the framebuffer
+//		fb<1>(cv::cvtColor, R(rgb_), V(cv::COLOR_BGR2BGRA), V(0));
 
+		//assign width & height
 		assign(RW(width_), F(&cv::Rect::width, vp_))
 		->assign(RW(height_), F(&cv::Rect::height, vp_));
 
 		//Render using nanovg
-		nvg(draw_color_wheel, V(width_ - (width_ / 5)), V(height_ - (width_ / 5)), V(width_ / 6), V(width_ / 6), V(hue_));
+		nvg(draw_color_wheel, V(width_ - (width_ / 5)), V(height_ - (width_ / 5)), V(width_ / 6), V(width_ / 6), R(hue_));
 	}
 };
 
