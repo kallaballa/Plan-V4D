@@ -7,8 +7,7 @@
 #define SRC_OPENCV_V4D_SOURCE_HPP_
 
 #include <functional>
-#include <opencv2/core/cvdef.h>
-#include <opencv2/core/mat.hpp>
+#include <opencv2/core.hpp>
 #include <mutex>
 #include <string>
 

@@ -319,6 +319,7 @@ void V4D::swapContextBuffers() {
 }
 
 bool V4D::display() {
+	GL_CHECK(glFlush());
 	Global& global = Global::instance();
     if(!global.isMain()) {
     	global.apply<size_t>(Global::Keys::FRAME_COUNT, [](size_t& v){ return v++; });
@@ -383,7 +384,7 @@ bool V4D::display() {
 			}
 		}
 		TimeTracker::getInstance()->newCount();
-		GL_CHECK(glFlush());
+		GL_CHECK(glFinish());
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
 		global.set(Global::Keys::DISPLAY_READY, true);
 		GL_CHECK(glViewport(0, 0, size().width, size().height));
@@ -413,6 +414,7 @@ bool V4D::display() {
 			fbCtx()->blitFrameBufferToFrameBuffer(initial, size(), get<bool>(Keys::STRETCHING));
 			glfwSwapBuffers(fbCtx()->getGLFWWindow());
 		}
+		GL_CHECK(glFinish());
 	}
 
     return true;

@@ -4,7 +4,7 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include <opencv2/v4d/v4d.hpp>
-#include <opencv2/tracking.hpp>
+#include <opencv2/video/tracking.hpp>
 #include <opencv2/objdetect.hpp>
 
 #include <string>
@@ -228,7 +228,7 @@ public:
 	void infer() override {
 		capture();
 
-		fb(cv::cvtColor,RW(frames_.videoFrame_),V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
+		fb(cv::cvtColor,RW(frames_.videoFrame_),V(cv::COLOR_BGRA2RGB), V(0), V(0), V(cv::AlgorithmHint::CV_ALGO_DEFAULT))
 		->plain(prepare_frames, R(params_), RW(frames_));
 
 		//Try to track the pedestrian (if we currently are tracking one), else re-detect using HOG descriptor
