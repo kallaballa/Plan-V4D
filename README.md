@@ -206,38 +206,9 @@ mkdir opencv/build
 cd opencv/build
 ```
 
-### Minimal Plan-V4D Build (without examples, demos, and packages)
-```bash
-cmake -DCMAKE_BUILD_TYPE=Release \
-      -DOPENCV_V4D_ENABLE_ES3=OFF \
-      -DWITH_QT=ON \
-      -DWITH_OPENGL=ON \
-      -DWITH_FFMPEG=ON \
-      -DBUILD_EXAMPLES=OFF \
-      -DBUILD_PACKAGE=OFF \
-      -DBUILD_TESTS=OFF \
-      -DBUILD_PERF_TESTS=OFF \
-      -DBUILD_DOCS=OFF \
-      -DBUILD_SHARED_LIBS=ON \
-      -DWITH_OPENCL=ON \
-      -DOPENCV_EXTRA_MODULES_PATH="../../Plan-V4D/modules" ..
-```
-
 ### Full Plan-V4D Build (with examples, demos, and packages)
 ```bash
-cmake -DCMAKE_BUILD_TYPE=Release \
-      -DOPENCV_V4D_ENABLE_ES3=OFF \
-      -DWITH_QT=ON \
-      -DWITH_OPENGL=ON \
-      -DWITH_FFMPEG=ON \
-      -DBUILD_EXAMPLES=ON \
-      -DBUILD_PACKAGE=OFF \
-      -DBUILD_TESTS=OFF \
-      -DBUILD_PERF_TESTS=OFF \
-      -DBUILD_DOCS=OFF \
-      -DBUILD_SHARED_LIBS=ON \
-      -DWITH_OPENCL=ON \
-      -DOPENCV_EXTRA_MODULES_PATH="../../Plan-V4D/modules" ..
+cmake -DOPENCV_V4D_ENABLE_ES3=ON -DCMAKE_CXX_FLAGS="-DCL_TARGET_OPENCL_VERSION=120" -DINSTALL_BIN_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=Release -DINSTALL_CREATE_DISTRIB=OFF -DBUILD_SHARED_LIBS=ON -DWITH_OPENGL=ON -DOPENCV_ENABLE_EGL=ON -DOPENCV_ENABLE_GLX=OFF -DOPENCV_FFMPEG_ENABLE_LIBAVDEVICE=ON -DWITH_QT=ON -DWITH_FFMPEG=ON -DOPENCV_FFMPEG_SKIP_BUILD_CHECK=ON -DWITH_VA=ON -DWITH_VA_INTEL=ON -DBUILD_opencv_calib3d=ON -DBUILD_opencv_dnn=ON -DBUILD_opencv_features2d=ON -DBUILD_opencv_flann=ON -DBUILD_opencv_photo=ON -DBUILD_opencv_imgcodecs=ON -DBUILD_opencv_videoio=ON -DBUILD_opencv_highgui=ON -DBUILD_opencv_stitching=ON -DBUILD_opencv_ccalib=ON -DBUILD_opencv_face=ON -DBUILD_opencv_optflow=ON -DBUILD_opencv_plot=ON -DBUILD_opencv_tracking=ON -DBUILD_opencv_ximgproc=ON -DBUILD_opencv_world=OFF -DBUILD_EXAMPLES=ON -DBUILD_PACKAGE=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF -DWITH_PTHREADS_PF=ON -DBUILD_opencv_video=ON -DBUILD_opencv_v4d=ON -DGBFX_CONFIG_MULTITHREADED=OFF -DBGFX_CONFIG_PASSIVE=ON -DOPENCV_EXTRA_MODULES_PATH="../../Plan-V4D/modules" ..
 ```
 
 ### Build the Project
