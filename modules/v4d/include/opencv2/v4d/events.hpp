@@ -1030,7 +1030,6 @@ inline void init(
 
 	glfwGetWindowSize(win, &detail::Holder::window_size.first, &detail::Holder::window_size.second);
 
-	std::vector<detail::EventQueue*> *queues = new std::vector<detail::EventQueue*>();
 	glfwSetKeyCallback(win,
 			[](GLFWwindow *window, int key, int scancode, int action,
 					int mods) {

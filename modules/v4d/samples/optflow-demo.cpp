@@ -422,7 +422,6 @@ private:
     		cv::boxFilter(temp_.mmGrayFloat_, temp_.mmBlurGrayFloat_, -1, cv::Size(31, 31), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
     		temp_.mmBlurGrayFloat_.convertTo(temp_.mmGray_, CV_8U, 255.0);
     		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_,cv::MORPH_OPEN, bigElement_, cv::Point(bigElement_.cols >> 1, bigElement_.rows >> 1),2, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
-//    		cv::boxFilter(temp_.mmGray_, temp_.mmGray_, -1, cv::Size(11, 11), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
     		cv::normalize(temp_.mmGray_, temp_.mmGray_,120, 234, cv::NORM_MINMAX);
     		cv::threshold(temp_.mmGray_, temp_.mmGray_,128, 255, cv::THRESH_TOZERO);
     		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_, cv::MORPH_OPEN, smallElement_, cv::Point(smallElement_.cols >> 1, smallElement_.rows >> 1), 7, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
@@ -518,7 +517,7 @@ public:
 					F(sqrt, F(&cv::Rect::width, vp_) * F(&cv::Rect::height, vp_))
 					/ V(400.0)
 			)
-			->assign(RWS(params_.effectColor_[3]),RW(params_.effectColor_[3]) / F(pow, numWorkers_, V(0.5) / numWorkers_))
+			->assign(RWS(params_.effectColor_[3]),RW(params_.effectColor_[3]) / (numWorkers_ / V(2.0)))
 			->plain(UMAT_CREATE,
 						RWS(foreground_),
 						F(&cv::Rect::size, vp_),
@@ -587,7 +586,7 @@ int main(int argc, char **argv) {
     }
 
     cv::Rect viewport(0, 0, 1920, 1080);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 	auto src = Source::make(runtime, argv[1]);
 	runtime->setSource(src);
 	Plan::run<OptflowDemoPlan>(2);

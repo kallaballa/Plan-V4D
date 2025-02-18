@@ -32,6 +32,8 @@ namespace v4d {
 namespace detail {
 
 static void glfw_error_callback(int error, const char* description) {
+    CV_UNUSED(error);
+    CV_UNUSED(description);
     CV_LOG_DEBUG(nullptr, "GLFW Error: (" + std::to_string(error) + ") "+ description);
 }
 
@@ -65,14 +67,14 @@ static void draw_quad()
 }
 
 FrameBufferContext::FrameBufferContext(const string& title, cv::Ptr<FrameBufferContext> other) :
-				FrameBufferContext(other->framebufferSize_, title, other->major_,  other->minor_, other->samples_, other->parent_->glfwWindow_, other, false, other->configFlags() ) {
+				FrameBufferContext(other->framebufferSize_, title, other->major_,  other->minor_, other->samples_, other->glfwWindow_, other, false, other->configFlags() ) {
 }
 
 FrameBufferContext::FrameBufferContext(const cv::Size& framebufferSize,
         const string& title, int major, int minor, int samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, bool root, int confFlags) :
-        title_(title), major_(major), minor_(minor), samples_(samples), configFlags_(confFlags), isVisible_(!(confFlags & FBConfigFlags::OFFSCREEN)), framebufferSize_(framebufferSize), parent_(parent), framebuffer_(), view_(), isRoot_(root) {
-
-	index_ = Global::instance().apply<size_t>(Global::Keys::FRAMEBUFFER_INDEX, [](size_t& v){ return v++; });
+        title_(title), major_(major), minor_(minor), samples_(samples), configFlags_(confFlags), isVisible_(!(confFlags & FBConfigFlags::OFFSCREEN)), framebufferSize_(framebufferSize), parent_(parent), isRoot_(root), framebuffer_(), view_() {
+    CV_UNUSED(parentWindow);
+    index_ = Global::instance().apply<size_t>(Global::Keys::FRAMEBUFFER_INDEX, [](size_t& v){ return v++; });
 }
 
 
@@ -156,8 +158,7 @@ void FrameBufferContext::initBlend(const size_t& index) {
 }
 
 void FrameBufferContext::blendFramebuffer(const GLuint& otherID) {
-    float res[2] = {float(size().width), float(size().height)};
-	GL_CHECK(glDisable(GL_DEPTH_TEST));
+    GL_CHECK(glDisable(GL_DEPTH_TEST));
     GL_CHECK(glEnable(GL_BLEND));
     GL_CHECK(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
 
@@ -175,55 +176,6 @@ void FrameBufferContext::blendFramebuffer(const GLuint& otherID) {
     GL_CHECK(glEnable(GL_DEPTH_TEST));
 //    GL_CHECK(glFinish());
 }
-
-#if !defined(__APPLE__)
-void glDebugOutput(GLenum source,
-                            GLenum type,
-                            unsigned int id,
-                            GLenum severity,
-                            GLsizei length,
-                            const char *message,
-                            const void *userParam)
-{
-    // ignore non-significant error/warning codes
-    if(id == 131169 || id == 131185 || id == 131218 || id == 131204) return;
-
-    std::cout << "---------------" << std::endl;
-    std::cout << "Debug message (" << id << "): " <<  message << std::endl;
-//
-//    switch (source)
-//    {
-//        case GL_DEBUG_SOURCE_API:             std::cout << "Source: API"; break;
-//        case GL_DEBUG_SOURCE_WINDOW_SYSTEM:   std::cout << "Source: Window System"; break;
-//        case GL_DEBUG_SOURCE_SHADER_COMPILER: std::cout << "Source: Shader Compiler"; break;
-//        case GL_DEBUG_SOURCE_THIRD_PARTY:     std::cout << "Source: Third Party"; break;
-//        case GL_DEBUG_SOURCE_APPLICATION:     std::cout << "Source: Application"; break;
-//        case GL_DEBUG_SOURCE_OTHER:           std::cout << "Source: Other"; break;
-//    } std::cout << std::endl;
-//
-//    switch (type)
-//    {
-//        case GL_DEBUG_TYPE_ERROR:               std::cout << "Type: Error"; break;
-//        case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: std::cout << "Type: Deprecated Behaviour"; break;
-//        case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  std::cout << "Type: Undefined Behaviour"; break;
-//        case GL_DEBUG_TYPE_PORTABILITY:         std::cout << "Type: Portability"; break;
-//        case GL_DEBUG_TYPE_PERFORMANCE:         std::cout << "Type: Performance"; break;
-//        case GL_DEBUG_TYPE_MARKER:              std::cout << "Type: Marker"; break;
-//        case GL_DEBUG_TYPE_PUSH_GROUP:          std::cout << "Type: Push Group"; break;
-//        case GL_DEBUG_TYPE_POP_GROUP:           std::cout << "Type: Pop Group"; break;
-//        case GL_DEBUG_TYPE_OTHER:               std::cout << "Type: Other"; break;
-//    } std::cout << std::endl;
-//
-//    switch (severity)
-//    {
-//        case GL_DEBUG_SEVERITY_HIGH:         std::cout << "Severity: high"; break;
-//        case GL_DEBUG_SEVERITY_MEDIUM:       std::cout << "Severity: medium"; break;
-//        case GL_DEBUG_SEVERITY_LOW:          std::cout << "Severity: low"; break;
-//        case GL_DEBUG_SEVERITY_NOTIFICATION: std::cout << "Severity: notification"; break;
-//    } std::cout << std::endl;
-    std::cout << std::endl;
-}
-#endif
 
 GLuint FrameBufferContext::getFramebufferID() {
     return framebufferID_;
@@ -255,16 +207,6 @@ void FrameBufferContext::init() {
     }
 
     glfwSetErrorCallback(cv::v4d::detail::glfw_error_callback);
-
-#if !defined(__APPLE__)
-    if (!hasParent() && (configFlags() & FBConfigFlags::DEBUG_GL_CONTEXT)) {
-        glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
-//        glEnable(GL_DEBUG_OUTPUT);
-//        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-//        glDebugMessageCallback(glDebugOutput, nullptr);
-//        glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
-    }
-#endif
     glfwSetTime(0);
 #ifdef __APPLE__
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -290,7 +232,7 @@ void FrameBufferContext::init() {
     glfwWindowHint(GLFW_ALPHA_BITS, 8);
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
     glfwWindowHint(GLFW_DEPTH_BITS, 24);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, configFlags() & FBConfigFlags::RESIZEABLE ? GLFW_TRUE : GLFW_FALSE);
     glfwWindowHint(GLFW_VISIBLE, configFlags() & FBConfigFlags::OFFSCREEN ? GLFW_FALSE : GLFW_TRUE );
     glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
 
@@ -368,6 +310,7 @@ void FrameBufferContext::init() {
 				}
 				return false;
 			}, [](GLFWwindow *window, int w, int h) {
+				CV_UNUSED(window);
 				V4D::instance()->set(V4D::Keys::WINDOW_SIZE, cv::Size(w, h), false);
 				return false;
 			}
@@ -440,7 +383,7 @@ void FrameBufferContext::setup() {
     } else
     	CV_Assert(false);
 
-	currentFBO_ = framebufferID_;
+    currentFBO_ = framebufferID_;
 }
 
 void FrameBufferContext::teardown() {
@@ -540,8 +483,6 @@ void FrameBufferContext::toGLTexture2D(cv::UMat& u, const GLuint& texID) {
 void FrameBufferContext::fromGLTexture2D(const GLuint& texID, cv::UMat& u) {
 
 	using namespace cv::ocl;
-    const int dtype = CV_8UC4;
-    int textureType = dtype;
     cl_command_queue q = (cl_command_queue) context_.getQueue().ptr();
     cl_int status = 0;
 
@@ -803,6 +744,12 @@ void FrameBufferContext::setWindowSize(const cv::Size& sz) {
     glfwSetWindowSize(getGLFWWindow(), sz.width, sz.height);
 }
 
+cv::Size FrameBufferContext::getWindowSize() {
+	cv::Size sz;
+    glfwGetWindowSize(getGLFWWindow(), &sz.width, &sz.height);
+    return sz;
+}
+
 bool FrameBufferContext::isFullscreen() {
     return glfwGetWindowMonitor(getGLFWWindow()) != nullptr;
 }
@@ -811,9 +758,11 @@ void FrameBufferContext::setFullscreen(bool f) {
     auto monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
     if (f) {
-        glfwSetWindowMonitor(getGLFWWindow(), monitor, 0, 0, mode->width, mode->height,
+
+    	glfwSetWindowMonitor(getGLFWWindow(), monitor, 0, 0, mode->width, mode->height,
                 mode->refreshRate);
-        setWindowSize(getNativeFrameBufferSize());
+        std::cerr << cv::Size(mode->width, mode->height) << std::endl;
+        setWindowSize(cv::Size(mode->width, mode->height));
     } else {
         glfwSetWindowMonitor(getGLFWWindow(), nullptr, 0, 0, size().width,
                 size().height, 0);

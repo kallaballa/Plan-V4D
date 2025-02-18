@@ -60,11 +60,11 @@ public:
 
 int main() {
     // Define the viewport dimensions
-    cv::Rect viewport(0, 0, 2560, 1600);
+    cv::Rect viewport(0, 0, 960, 960);
 
     // Initialize the V4D runtime with NanoVG and IMGUI subsystems
     Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
     // Run the Plan with the specified image file
-    Plan::run<DisplayImageNVG>(6, samples::findFile("lena.jpg"));
+    Plan::run<DisplayImageNVG>(7, samples::findFile("lena.jpg"));
 }

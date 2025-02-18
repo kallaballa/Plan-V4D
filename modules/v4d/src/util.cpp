@@ -26,6 +26,7 @@ using std::endl;
 namespace cv {
 namespace v4d {
 namespace detail {
+void print_nth_line(const std::string& str, int n);
 void print_nth_line(const std::string& str, int n) {
     std::istringstream stream(str);
     std::string line;
@@ -163,8 +164,8 @@ void init_shaders(unsigned int handles[3], const string vShader, const string fS
 
             std::cmatch cm;
             if (std::regex_search(logMsg, cm, rex)) {
-            	for(size_t i = 0; i < cm.size(); ++i)
-            		print_nth_line(shaders[i].source, atoi(std::string(cm[1]).c_str()));
+            	for(size_t j = 0; j < cm.size(); ++j)
+            		print_nth_line(shaders[j].source, atoi(std::string(cm[1]).c_str()));
             }
             std::cerr << std::endl;
 
@@ -337,9 +338,14 @@ float aspect_preserving_scale(const cv::Size& scaled, const cv::Size& unscaled) 
 	double scale;
 	double scaleX =  double(scaled.width) / unscaled.width;
 	double scaleY = double(scaled.height) / unscaled.height;
-	scale = std::max(scaleX, scaleY);
-	if(scale <= 1.0)
+
+	if(scaleX < 1.0 && scaleY >= 1.0) {
+		scale =  double(unscaled.height) / scaled.height;
+	} else if(scaleX >= 1.0 && scaleY < 1.0) {
+		scale =  double(unscaled.width) / scaled.width;
+	} else
 		scale = std::min(scaleX, scaleY);
+
 	return scale;
 }
 
@@ -347,14 +353,14 @@ void resize_preserving_aspect_ratio(const cv::UMat& src, cv::UMat& output, const
     cv::UMat tmp;
 
     double f = aspect_preserving_scale(dstSize, src.size());
-    cv::resize(src, tmp, cv::Size(), f, f);
+	cv::resize(src, tmp, cv::Size(), f, f);
 
-    int top = (dstSize.height - tmp.rows) / 2;
-    int down = (dstSize.height - tmp.rows + 1) / 2;
-    int left = (dstSize.width - tmp.cols) / 2;
-    int right = (dstSize.width - tmp.cols + 1) / 2;
+	int top = std::abs((dstSize.height - tmp.rows) / 2);
+	int down = std::abs((dstSize.height - tmp.rows + 1) / 2);
+	int left = std::abs((dstSize.width - tmp.cols) / 2);
+	int right = std::abs((dstSize.width - tmp.cols + 1) / 2);
 
-    cv::copyMakeBorder(tmp, output, top, down, left, right, cv::BORDER_CONSTANT, bgcolor);
+	cv::copyMakeBorder(tmp, output, top, down, left, right, cv::BORDER_CONSTANT, bgcolor);
 }
 
 }

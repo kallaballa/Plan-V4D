@@ -516,7 +516,7 @@ public:
 	}
 };
 
-CV_EXPORTS class Global : public SharedVariables {
+class CV_EXPORTS Global : public SharedVariables {
 public:
 	struct Keys {
 		enum Enum {
@@ -536,7 +536,7 @@ public:
 		};
 	};
 private:
-	CV_EXPORTS ThreadSafeAnyMap<Keys::Enum> map_;
+	ThreadSafeAnyMap<Keys::Enum> map_;
 	CV_EXPORTS static Global* instance_;
 	std::mutex threadIDMtx_;
 	const std::thread::id defaultThreadID_;

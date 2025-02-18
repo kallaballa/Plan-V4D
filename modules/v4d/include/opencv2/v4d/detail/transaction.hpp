@@ -326,7 +326,10 @@ private:
 
 	Edge(cv::Ptr<Plan> plan) : plan_(plan) {
 	}
+
 public:
+	virtual ~Edge() {
+	}
 	using pass_t = typename std::disjunction<
 			values_equal<func_t::value, true, base_t>,
 			values_equal<byvalue_t::value, true, base_t>,

@@ -3,12 +3,12 @@
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 #include <opencv2/v4d/v4d.hpp>
-#include <opencv2/dnn.hpp>
+#include <opencv2/dnn/dnn.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect/face.hpp>
+#include <opencv2/face/facemark.hpp>
 #include <opencv2/stitching/detail/blenders.hpp>
 #include <opencv2/video/tracking.hpp>
-#include <opencv2/highgui.hpp>
 
 #include <vector>
 #include <string>
@@ -191,6 +191,7 @@ public:
 	bool extract(const cv::UMat& inputFrame, FaceFeatures& outputFeatures) {
 		shapes_.clear();
 		faceRects_.clear();
+		faces_ = cv::Mat();
 		//Detect faces in the down-scaled image
 		detector_->detect(inputFrame, faces_);
 
@@ -242,7 +243,7 @@ public:
 		//Enable or disable the effect
 		bool enabled_ = true;
 
-		size_t frame_cnt = 0;
+		size_t frame_cnt_ = 0;
 
 		enum State {
 			ON,
@@ -254,20 +255,15 @@ public:
 	struct Frames {
 		//BGR
 		cv::UMat orig_, stitched_, down_, faceOval_, eyesAndLips_, skin_;
-		//the frame holding the stitched image if detection went through
-
-		//in split mode the left and right half of the screen
-		cv::UMat lhalf_;
-		cv::UMat rhalf_;
+		//GREY
+		cv::UMat faceSkinMaskGrey_, eyesAndLipsMaskGrey_, backgroundMaskGrey_;
 
 		//the frame holding the final composed image
 		cv::UMat result_;
-
-		//GREY
-		cv::UMat faceSkinMaskGrey_, eyesAndLipsMaskGrey_, backgroundMaskGrey_;
 	};
 
 	FaceFeatures features_;
+
 private:
 	//Key spaces of different state machines of V4D
 	using G_ = Global::Keys;
@@ -275,13 +271,16 @@ private:
 	using K_ = V4D::Keys;
 	using M_ = Mouse::Type;
 
+	//shared
+	static Params params_;
+	static cv::Ptr<FaceFeatureExtractor> extractor_;
+
 	float scale_ = 1;
 	cv::Size size_;
 	const cv::Size downSize_ = { 640, 360 };
 
-	static Params params_;
 	Frames frames_;
-	cv::Ptr<FaceFeatureExtractor> extractor_;
+
 
 	//think of properties as data-pinholes into one of the v4d runtime's state-machines. Properties are in fact a special kind of edge.
 	Property<cv::Rect> vp_ = P<cv::Rect>(K_::VIEWPORT);
@@ -297,17 +296,23 @@ private:
 		frames.orig_.copyTo(frames.stitched_);
 	}
 
-	static void compose_result(const cv::Rect& vp, const cv::UMat& src, Frames& frames, const Params& params) {
+	static void compose_result(const cv::Rect& vp, Frames& frames, const Params& params) {
 		if (params.sideBySide_) {
 			//create side-by-side view with a result
-			cv::resize(frames.orig_, frames.lhalf_, cv::Size(0, 0), 0.5, 0.5);
-			cv::resize(src, frames.rhalf_, cv::Size(0, 0), 0.5, 0.5);
+			cv::UMat lhalf;
+			cv::UMat rhalf;
+			cv::resize(frames.orig_, lhalf, cv::Size(0, 0), 0.5, 0.5);
+			cv::resize(frames.stitched_, rhalf, cv::Size(0, 0), 0.5, 0.5);
+
+			cv::Rect lrect(0, 0, lhalf.cols, lhalf.rows);
+			cv::Rect rrect(frames.result_.cols / 2.0, 0, rhalf.cols, rhalf.rows);
 
 			frames.result_ = cv::Scalar::all(0);
-			frames.lhalf_.copyTo(frames.result_(cv::Rect(0, vp.height / 2.0, frames.lhalf_.size().width, frames.lhalf_.size().height)));
-			frames.rhalf_.copyTo(frames.result_(cv::Rect(vp.width / 2.0, vp.height / 2.0, frames.lhalf_.size().width, frames.lhalf_.size().height)));
+
+			lhalf.copyTo(frames.result_(lrect));
+			rhalf.copyTo(frames.result_(rrect));
 		} else {
-			src.copyTo(frames.result_);
+			frames.stitched_.copyTo(frames.result_);
 		}
 	}
 
@@ -367,17 +372,21 @@ public:
 	}
 
 	void setup() override {
-		//emits a node the performs and assignment. F creates and edge that reads the result of a funcion call-
-		assign(RW(size_), F(&cv::Rect::size, vp_));
-		assign(RW(scale_), F(aspect_preserving_scale, R(size_), R(downSize_)));
-		//emits a node that calls a contructor
-		construct(RW(extractor_), R(downSize_), R(scale_));
+		branch(BranchType::ONCE, always_)
+				//emits a node the performs an assignment. F creates an edge that reads the result of a function call
+			->assign(RW(size_), F(&cv::Rect::size, vp_))
+			->assign(RW(scale_), F(aspect_preserving_scale, R(size_), R(downSize_)))
+			//emits a node that calls a contructor
+			->construct(RWS(extractor_), R(downSize_), R(scale_))
+		->endBranch();
 	}
 
 	void infer() override {
 		//emits a node setting the states for "fullscreen" and "stretching" during execution of the graph reading values from the shared data by copying it.
-		set(_(K_::FULLSCREEN, CS(params_.fullscreen_)),
-			_(K_::STRETCHING, CS(params_.stretch_)));
+		set(
+				_(K_::FULLSCREEN, CS(params_.fullscreen_)),
+				_(K_::STRETCHING, CS(params_.stretch_))
+		);
 
 		//create a node the will capture video
 		capture();
@@ -392,9 +401,9 @@ public:
 											CS(params_.enabled_),
 											!CS(params_.enabled_)
 										))
-			//every numWorkers_ frames redect the face features.
-			->branch(++RWS(params_.frame_cnt) % numWorkers_ == workerIndex_)
-				->branch(!(F(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RW(features_))));
+			//every 3 frames redect the face features.
+			->branch(++RWS(params_.frame_cnt_) % V(3) == V(0))
+				->branch(!(F(&FaceFeatureExtractor::extract, RWS(extractor_), R(frames_.down_), RW(features_))));
 					//Set a shared state that will be displayed on-screen.
 					assign(RWS(params_.state_), V(Params::NOT_DETECTED))
 				->endBranch()
@@ -409,8 +418,8 @@ public:
 			->assign(RWS(params_.state_), V(Params::OFF))
 		->endBranch();
 
-		plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), CS(params_))
-		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA));
+		plain(compose_result, vp_, RW(frames_), CS(params_))
+		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
 	}
 };
 
@@ -434,9 +443,9 @@ public:
 		//context-call provides a nanovg context to the node emitteed
 		nvg(&FaceFeatures::drawFaceOvalMask, R(inputFeatures_))
 		//context-call provides a cv::UMat representation of the framebuffer to the node emitteed
-		->fb(cv::cvtColor, RW(inputOutputFrames_.faceOval_), V(cv::COLOR_BGRA2GRAY))
+		->fb(cv::cvtColor, RW(inputOutputFrames_.faceOval_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->nvg(&FaceFeatures::drawEyesAndLipsMask, R(inputFeatures_))
-		->fb(cv::cvtColor, RW(inputOutputFrames_.eyesAndLipsMaskGrey_), V(cv::COLOR_BGRA2GRAY))
+		->fb(cv::cvtColor, RW(inputOutputFrames_.eyesAndLipsMaskGrey_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
 		//
 		->plain(prepare_masks, RW(inputOutputFrames_));
 	}
@@ -488,6 +497,7 @@ public:
 };
 //Shared data
 BeautyDemoPlan::Params BeautyDemoPlan::params_;
+cv::Ptr<FaceFeatureExtractor> BeautyDemoPlan::extractor_;
 
 int main(int argc, char **argv) {
 	if (argc != 2) {
@@ -496,11 +506,11 @@ int main(int argc, char **argv) {
     }
 
 	cv::Rect viewport(0, 0, 1920, 1080);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::DEFAULT);
-	//V4D provides a source, sink system which is use mostly but not exclusively used with video data.
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+	//V4D provides a source, sink system which is used mostly but not exclusively with video data.
 	auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
-    Plan::run<BeautyDemoPlan>(0);
+    Plan::run<BeautyDemoPlan>(3);
 
     return 0;
 }

@@ -144,7 +144,7 @@ static auto make_function_ptr(Tfn&& fn, Args ... args) {
 //	return detail::Edge<cv::Ptr<fun_t>, false, read, false>::make(self<Plan>(), cv::makePtr<fun_t>(std::forward<Tfn>(fn)));
 //}
 }
-class Plan;
+class CV_EXPORTS Plan;
 class CV_EXPORTS V4D {
     friend class detail::FrameBufferContext;
     friend class detail::SourceContext;
@@ -176,7 +176,7 @@ public:
 private:
     CV_EXPORTS static thread_local std::mutex instance_mtx_;
     CV_EXPORTS static thread_local cv::Ptr<V4D> instance_;
-    CV_EXPORTS ThreadSafeAnyMap<Keys::Enum> properties_;
+    CV_EXPORTS static ThreadSafeAnyMap<Keys::Enum> properties_;
 
     int32_t workerIdx_ = -1;
 
@@ -212,22 +212,23 @@ public:
     }
 
     template<typename Tval>
-	void set(Keys::Enum key, const Tval& val, bool fire = true) {
+    CV_EXPORTS void set(Keys::Enum key, const Tval& val, bool fire = true) {
     	if(instance()->debugFlags() & DebugFlags::MONITOR_RUNTIME_PROPERTIES) {
     		stringstream ss;
     		ss << demangle(typeid(decltype(key)).name()) << " = " << size_t(&val) << " (fire: " << fire << ")";
     		CV_LOG_INFO(&mon_tag, ss.str());
     	}
-		properties_.set(key, val, fire);
+		V4D::properties_.set(key, val, fire);
 	}
 
     template<typename Tval>
-	const auto& get(Keys::Enum key) const {
-		return properties_.get<Tval>(key);
+    CV_EXPORTS const auto& get(Keys::Enum key) const {
+		return V4D::properties_.get<Tval>(key);
 	}
 
-	template <typename V> V apply(Keys::Enum k, std::function<V(V&)> f) {
-		return properties_.apply(k, f);
+	template <typename V>
+	CV_EXPORTS V apply(Keys::Enum k, std::function<V(V&)> f) {
+		return V4D::properties_.apply(k, f);
 	}
 
     /*!
@@ -367,6 +368,7 @@ public:
 							runGraph();
 							size_t seq = runtime->getSequenceNumber();
 							reseq.waitFor(seq, [](uint64_t s) {
+								CV_UNUSED(s);
 								frame_sync_render.acquire();
 							});
 
@@ -416,7 +418,7 @@ private:
 protected:
 	template<bool Tread, typename Tval>
 	void create(Keys::Enum key, const Tval& val, const std::function<void(const Tval& val)>& cb = std::function<void(const Tval& val)>()) {
-		properties_.create<Tread>(key, val, cb);
+		V4D::properties_.create<Tread>(key, val, cb);
 	}
 
     cv::Ptr<FrameBufferContext> fbCtx() const;
@@ -445,7 +447,7 @@ protected:
     bool isFocused();
     void setFocused(bool f);
 };
-class Plan {
+class CV_EXPORTS Plan {
 	friend class V4D;
     friend class detail::FrameBufferContext;
     friend class SharedVariables;
@@ -458,8 +460,8 @@ class Plan {
     	bool isLocked_ = false;
     };
 
-	cv::Ptr<V4D> runtime_ = V4D::instance();
-	std::string parent_;
+    cv::Ptr<V4D> runtime_ = V4D::instance();
+    std::string parent_;
     cv::UMat captureFrame_;
     cv::UMat writerFrame_;
     size_t parentOffset_ = 0;
@@ -1093,8 +1095,8 @@ public:
         branchStack_.push_front({id, BranchType::PARALLEL});
         emit_access(id, R(*this));
         (emit_access(id, args ),...);
-		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... args){
-			return runtime_->workerIndex() == workerIdx && wrapInner(args...);
+		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... innerArgs){
+			return runtime_->workerIndex() == workerIdx && wrapInner(innerArgs...);
 		};
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
@@ -1129,8 +1131,8 @@ public:
         branchStack_.push_front({id, type});
         emit_access(id, R(*this));
         (emit_access(id, args ),...);
-		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... args){
-			return runtime_->workerIndex() == workerIdx && wrapInner(args...);
+		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... innerArgs){
+			return runtime_->workerIndex() == workerIdx && wrapInner(innerArgs...);
 		};
 
 		add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
@@ -1450,6 +1452,7 @@ public:
 		constexpr size_t sz = std::tuple_size<tuple_t>::value;
 		static_assert(std::is_enum<typename std::tuple_element<0, tuple_t>::type>::value, "Can not set a property without a key as first argument");
 		static_assert(sz > 1, "Can not set a property without value");
+
 		auto key = std::get<0>(values);
 		auto val = std::get<1>(values);
 		if constexpr(!is_callable<decltype(val)>::value) {
@@ -1469,8 +1472,10 @@ public:
 	}
 
 	template <typename TwrapFn, typename Ttuple, size_t ... idx>
-	cv::Ptr<Plan> set(const string& id, TwrapFn wrap, Ttuple&& args, std::index_sequence<idx...>) {
-        emit_access(id, R(*this));
+	cv::Ptr<Plan> set(const string& id, TwrapFn fn, Ttuple&& args, std::index_sequence<idx...>) {
+        auto wrap = wrap_callable<decltype(std::get<0>(args))>(fn);
+
+		emit_access(id, R(*this));
         (emit_access(id, std::get<idx>(args)),...);
         add_transaction(runtime_->plainCtx(), id, wrap, std::get<idx>(args)...);
 		return self<Plan>();
@@ -1962,7 +1967,7 @@ public:
 					cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
 				}
 
-				for (size_t i = 0; i < workers; ++i) {
+				for (int32_t i = 0; i < workers; ++i) {
 					threads.push_back(
 						new std::thread(
 							[plan, i, workers, src, sink, &args...] {
@@ -2039,6 +2044,7 @@ public:
 			V4D::run(plan->runtime_, [plan](){
 				TimeTracker::getInstance()->execute("iteration", [plan](){
 					plan->runGraph();
+					GL_CHECK(glFlush());
 				});
 			});
 			CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
