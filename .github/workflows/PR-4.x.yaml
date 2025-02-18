@@ -1,9 +1,9 @@
-name: PR:4.x
+name: PUSH:next_release
 
 on:
-  pull_request:
+  push:
     branches:
-      - 4.x
+      - next_release
 
 jobs:
   Linux:
