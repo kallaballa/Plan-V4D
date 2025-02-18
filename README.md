@@ -36,16 +36,16 @@ V4D and Plan share a tightly bonded design, simplifying combined use cases. Howe
 3. **Parallelism and Pipelining:** Multiple OpenGL contexts can be created and utilized in parallel, making V4D a robust solution for high-performance graphics applications.
 4. **Algorithm Modularity:** By structuring algorithms into smaller, reusable fragments or sub-Plans, Plan fosters modular development and scalability.
 
-## Selected Commented Examples (read sequentially)
+## Selected commented Examples (read sequentially)
 The following examples have been selected to deepen your understanding of Plan-V4D. There are many more.
 
-### Blue Sreen using OpenGL
+![Screenshot of "Blue screen using OpenGL"](img/blue.png?raw=True Blue screen using OpenGL)
 [source](modules/v4d/samples/render_opengl.cpp)
 
-### Displaying an Image using NanoVG
+![Screenshot of "Displaying an image using NanoVG"](img/blue.png?raw=True Displaying an image using NanoVG)
 [source](modules/v4d/samples/display_image_nvg.cpp)
 
-### A realtime beauty filter (using sub-plans)
+![Screenshot of "A realtime beauty filter"](img/blue.png?raw=True A realtime beauty filter)
 [source](modules/v4d/samples/beauty-demo.cpp)
 
 ## Why Plan-V4D?
