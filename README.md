@@ -39,13 +39,13 @@ V4D and Plan share a tightly bonded design, simplifying combined use cases. Howe
 ## Selected commented Examples (read sequentially)
 The following examples have been selected to deepen your understanding of Plan-V4D. There are many more.
 
-![Screenshot of "Blue screen using OpenGL"](img/blue.png?raw=True Blue screen using OpenGL)
+![Blue screen using OpenGL](img/blue.png)
 [source](modules/v4d/samples/render_opengl.cpp)
 
-![Screenshot of "Displaying an image using NanoVG"](img/blue.png?raw=True Displaying an image using NanoVG)
+![Displaying an image using NanoVG](img/display.png)
 [source](modules/v4d/samples/display_image_nvg.cpp)
 
-![Screenshot of "A realtime beauty filter"](img/blue.png?raw=True A realtime beauty filter)
+![A realtime beauty filter](img/beauty.png)
 [source](modules/v4d/samples/beauty-demo.cpp)
 
 ## Why Plan-V4D?
