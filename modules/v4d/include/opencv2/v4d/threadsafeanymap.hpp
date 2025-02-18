@@ -58,9 +58,8 @@ public:
 
 template<typename K>
 class AnyPropertyMap {
-	static_assert(std::is_enum<K>::value);
 private:
-    std::vector<Value> properties_;
+	std::vector<Value> properties_;
     template<typename V>
     constexpr void check_value_type() const {
     	using U = std::remove_cv_t<std::remove_reference_t<V>>;
@@ -78,26 +77,31 @@ private:
     	}
     }
 
+    static_assert(std::is_enum<K>::value);
 public:
+	AnyPropertyMap() {
+		properties_.reserve(100);
+	}
+
     template<bool Tread, typename V>
     void create(K key, const V& value, std::function<void(const V& val)> cb) {
     	check_value_type<V>();
-    	properties_.reserve(100);
+
 //    	CV_Assert(properties_.size() == key);
     	CV_Assert(!Tread || (Tread && !cb));
     	if constexpr(Tread) {
     		Value val(Tread);
-    		val.callback_ = [](const Value& val){};
+    		val.callback_ = [](const Value& v){ CV_UNUSED(v); };
     		val = value;
     		properties_.emplace_back(val);
     	} else {
     		if(!cb)
-    			cb = [](const V& v){};
+    			cb = [](const V& v){ CV_UNUSED(v); };
 
     		properties_.emplace_back(Value(Tread));
     		properties_[key] = value;
     		Value& val = properties_[key];
-    		val.callback_ = [cb](const Value& val){ cb(std::any_cast<V>(val)); };
+    		val.callback_ = [cb](const Value& v){ cb(std::any_cast<V>(v)); };
     	}
     }
 
@@ -108,9 +112,10 @@ public:
     	V* p = std::any_cast<V>(&properties_[key]);
 
     	if(!p)
-    		CV_Error(cv::Error::StsBadArg, string("Type mistmatch for key: ") + std::to_string(int(key)) + ". Expected: " + detail::demangle(properties_[key].type().name()) + ", Got: " + detail::type_name<V>() + ".");
+    		CV_Error(cv::Error::StsBadArg, string("Type mismatch for key: ") + std::to_string(int(key)) + ". Expected: " + detail::demangle(properties_[key].type().name()) + ", Got: " + detail::type_name<V>() + ".");
     	V oldVal = *p;
     	*p = value;
+
     	if(fire && memcmp(&oldVal, p, sizeof(V)) != 0)
     		properties_[key].callback_(properties_[key]);
     }
@@ -143,7 +148,7 @@ template<typename K>
 class ThreadSafeAnyMap : public AnyPropertyMap<K> {
 private:
 	AnyPropertyMap<K> mutexes_;
-    cv::Ptr<std::shared_mutex> mapMutexPtr_ = cv::makePtr<std::shared_mutex>();
+	cv::Ptr<std::shared_mutex> mapMutexPtr_ = cv::makePtr<std::shared_mutex>();
     using parent_t = AnyPropertyMap<K>;
 public:
     template<bool Tread, typename V>

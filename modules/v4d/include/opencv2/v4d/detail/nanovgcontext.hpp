@@ -59,6 +59,7 @@ public:
      * and performs drawing using cv::viz::nvg
      */
     virtual int execute(const cv::Rect& vp, std::function<void()> fn) override;
+    int render(const cv::Rect& vp, std::function<void()> fn);
 
     cv::Ptr<FrameBufferContext> fbCtx();
 private:

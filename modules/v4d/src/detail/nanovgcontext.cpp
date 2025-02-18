@@ -41,14 +41,26 @@ int NanoVGContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	{
 		FrameBufferContext::WindowScope winScope(fbCtx());
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
+		return render(vp, fn);
+	}
+}
+
+int NanoVGContext::render(const cv::Rect& vp, std::function<void()> fn) {
+	{
+		glEnable(GL_SCISSOR_TEST);
+		glScissor(0, 0, vp.size().width, vp.size().height);
+		glViewport(vp.x, vp.y, vp.width, vp.height);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-//		glViewport(vp.x, vp.y, vp.width, vp.height);
+
 		NanoVGContext::Scope nvgScope(*this, vp);
 		cv::v4d::nvg::detail::NVG::initializeContext(context_);
 		fn();
+		glDisable(GL_SCISSOR_TEST);
+
 		return 1;
 	}
 }
+
 
 
 void NanoVGContext::begin(const cv::Rect& viewport) {

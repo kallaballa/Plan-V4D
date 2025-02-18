@@ -18,6 +18,7 @@ namespace v4d {
 
 CV_EXPORTS thread_local std::mutex V4D::instance_mtx_;
 CV_EXPORTS thread_local cv::Ptr<V4D> V4D::instance_;
+CV_EXPORTS ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
 
 cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
 	std::lock_guard guard(instance_mtx_);
@@ -48,21 +49,27 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, Allocat
     create<false>(Keys::STRETCHING, true);
     create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
     create<false,string>(Keys::NAMESPACE, "default");
-    create<false, bool>(Keys::FULLSCREEN, false, [this](const bool& b){ fbCtx()->setFullscreen(b); });
+    create<false>(Keys::FULLSCREEN, false);
     create<false>(Keys::DISABLE_VIDEO_IO, false);
     create<false>(Keys::DISABLE_INPUT_EVENTS, false);
 
     int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::VSYNC : 0)
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
 			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : 0)
-			| (configFlags() &  ConfigFlags::OFFSCREEN ? FBConfigFlags::OFFSCREEN : 0);
+			| (configFlags() &  ConfigFlags::OFFSCREEN ? FBConfigFlags::OFFSCREEN : 0)
+			| (configFlags() &  ConfigFlags::RESIZEABLE ? FBConfigFlags::RESIZEABLE : 0);
+
     mainFbContext_ = detail::FrameBufferContext::make(fbsize.empty() ? viewport.size() : fbsize, title, 3,
                 2, samples, nullptr, nullptr, true, fbFlags);
+    CLExecScope_t scope(mainFbContext_->getCLExecContext());
     sourceContext_ = new detail::SourceContext(mainFbContext_);
     sinkContext_ = new detail::SinkContext(mainFbContext_);
 
     if(allocateFlags() & AllocateFlags::IMGUI)
         imguiContext_ = new detail::ImGuiContextImpl(mainFbContext_);
+
+    if(getShowFPS())
+       	nvgContext_ = new detail::NanoVGContext(mainFbContext_);
 }
 
 V4D::V4D(const V4D& other, const string& title) :
@@ -74,7 +81,7 @@ V4D::V4D(const V4D& other, const string& title) :
     create<false>(Keys::STRETCHING, true);
     create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
     create<false,string>(Keys::NAMESPACE, "default");
-    create<false, bool>(Keys::FULLSCREEN, false, [this](const bool& b){ fbCtx()->setFullscreen(b); });
+    create<false>(Keys::FULLSCREEN, false);
     create<false>(Keys::DISABLE_VIDEO_IO, false);
     create<false>(Keys::DISABLE_INPUT_EVENTS, false);
 
@@ -319,7 +326,6 @@ void V4D::swapContextBuffers() {
 }
 
 bool V4D::display() {
-	GL_CHECK(glFlush());
 	Global& global = Global::instance();
     if(!global.isMain()) {
     	global.apply<size_t>(Global::Keys::FRAME_COUNT, [](size_t& v){ return v++; });
@@ -329,6 +335,10 @@ bool V4D::display() {
 		}
     }
 	if (global.isMain()) {
+		bool isFS = fbCtx()->isFullscreen();
+		if(isFS != get<bool>(Keys::FULLSCREEN))
+			fbCtx()->setFullscreen(!isFS);
+
 		bool countLockContention = debugFlags() & DebugFlags::PRINT_LOCK_CONTENTION;
 		auto start = global.get<uint64_t>(Global::Keys::START_TIME);
 		auto now = get_epoch_nanos();
@@ -364,30 +374,51 @@ bool V4D::display() {
 		{
 			FrameBufferContext::WindowScope winScope(fbCtx());
 			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
-			cv::Rect initial = get<cv::Rect>(Keys::INIT_VIEWPORT);
-			initial.y = (fbCtx()->size().height - initial.height) + initial.y;
+			cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
+			vp.y = (fbCtx()->size().height - vp.height) + vp.y;
 
 			GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 			assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-
-			fbCtx()->blitFrameBufferToFrameBuffer(initial, size(), get<bool>(Keys::STRETCHING));
+			fbCtx()->blitFrameBufferToFrameBuffer(vp, fbCtx()->size(), get<bool>(Keys::STRETCHING));
 		}
 		{
-			FrameBufferContext::WindowScope winScope(fbCtx());
-			FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0);
-			if(hasImguiCtx()) {
+//			if(getShowFPS()) {
+//				FrameBufferContext::WindowScope winScope(fbCtx());
+//				FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0);
+//#if !defined(OPENCV_V4D_USE_ES3)
+//				GL_CHECK(glDrawBuffer(GL_BACK));
+//#endif
+//
+//				cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
+//				nvgCtx()->render(vp, [](){
+//					using namespace cv::v4d::nvg;
+//
+//					string strFPS = std::to_string(Global::instance().get<double>(Global::Keys::FPS));
+//					fillColor(Scalar(140, 140, 140, 120));
+//					roundedRect(10, 10, 400, 70, 50);
+//					fill();
+//					fontSize(40.0f);
+//					fontFace("sans-bold");
+//					fillColor(Scalar(40, 40, 40, 200));
+//					textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+//					text(25, 25, strFPS.c_str(), strFPS.c_str() + strFPS.size());
+//				});
+//			}
+
+			if(allocateFlags() & AllocateFlags::IMGUI) {
+				FrameBufferContext::WindowScope winScope(fbCtx());
+				FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0);
+
 #if !defined(OPENCV_V4D_USE_ES3)
 				GL_CHECK(glDrawBuffer(GL_BACK));
 #endif
-				if(allocateFlags() & AllocateFlags::IMGUI)
-					imguiCtx()->render(getShowFPS());
+				imguiCtx()->render(getShowFPS());
 			}
 		}
 		TimeTracker::getInstance()->newCount();
 		GL_CHECK(glFinish());
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
 		global.set(Global::Keys::DISPLAY_READY, true);
-		GL_CHECK(glViewport(0, 0, size().width, size().height));
 		GL_CHECK(glClearColor(0,0,0,1));
 		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
 		return !glfwWindowShouldClose(getGLFWWindow());

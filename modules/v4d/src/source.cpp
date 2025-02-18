@@ -42,7 +42,7 @@ cv::Ptr<Source> Source::makeAnyHWSource(cv::Ptr<V4D> window, const string& input
 cv::Ptr<Source> Source::make(cv::Ptr<V4D> window, const string& inputFilename) {
 #ifdef HAVE_VA
 	if (is_intel_va_supported()) {
-        return makeVaSource(window, inputFilename, 0);
+        return makeVaSource(window, inputFilename, 1);
     } else
 #endif
     {

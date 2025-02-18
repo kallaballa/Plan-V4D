@@ -34,7 +34,8 @@ struct FBConfigFlags {
 		ONSCREEN_CHILD_CONTEXTS = 4,
 		VSYNC = 8,
 		DISPLAY_MODE = 16,
-		DEFAULT = NONE
+		RESIZEABLE = 32,
+		DEFAULT = RESIZEABLE
 	};
 };
 
@@ -292,6 +293,8 @@ public:
     bool isResizable();
     void setResizable(bool r);
     void setWindowSize(const cv::Size& sz);
+    cv::Size getWindowSize();
+
     bool isFullscreen();
     void setFullscreen(bool f);
     cv::Size getNativeFrameBufferSize();

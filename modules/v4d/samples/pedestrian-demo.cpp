@@ -4,7 +4,7 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include <opencv2/v4d/v4d.hpp>
-#include <opencv2/video/tracking.hpp>
+#include <opencv2/tracking.hpp>
 #include <opencv2/objdetect.hpp>
 
 #include <string>
@@ -188,10 +188,10 @@ private:
 		}
 
 		void save(const Params& params, cv::Rect& tracked) const {
-			tracked.x = (params.newTracked_.x + tracked.x) / 2.0;
-			tracked.y = (params.newTracked_.y + tracked.y) / 2.0;
-			tracked.width = (params.newTracked_.width + tracked.width) / 2.0;
-			tracked.height = (params.newTracked_.height+ tracked.height) / 2.0;
+			tracked.x = (params.newTracked_.x + tracked.x * 3) / 4.0;
+			tracked.y = (params.newTracked_.y + tracked.y * 3) / 4.0;
+			tracked.width = (params.newTracked_.width + tracked.width * 3) / 4.0;
+			tracked.height = (params.newTracked_.height + tracked.height * 3) / 4.0;
 		}
 	} tracking;
 
@@ -228,7 +228,7 @@ public:
 	void infer() override {
 		capture();
 
-		fb(cv::cvtColor,RW(frames_.videoFrame_),V(cv::COLOR_BGRA2RGB), V(0), V(0), V(cv::AlgorithmHint::CV_ALGO_DEFAULT))
+		fb(cv::cvtColor,RW(frames_.videoFrame_),V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->plain(prepare_frames, R(params_), RW(frames_));
 
 		//Try to track the pedestrian (if we currently are tracking one), else re-detect using HOG descriptor
@@ -255,7 +255,7 @@ int main(int argc, char **argv) {
     }
 
     cv::Rect viewport(0, 0, 1280, 720);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
     auto src = Source::make(runtime, argv[1]);
     auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 200, viewport.size());
     runtime->setSource(src);

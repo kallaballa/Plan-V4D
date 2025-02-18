@@ -21,6 +21,7 @@ struct ConfigFlags {
 		DEFAULT = 0,
 		OFFSCREEN = 1,
 		DISPLAY_MODE = 2,
+		RESIZEABLE = 4,
 	};
 };
 
