@@ -57,7 +57,7 @@ public:
 };
 
 template<typename K>
-class AnyPropertyMap {
+class CV_EXPORTS AnyPropertyMap {
 private:
 	std::vector<Value> properties_;
     template<typename V>
@@ -86,8 +86,7 @@ public:
     template<bool Tread, typename V>
     void create(K key, const V& value, std::function<void(const V& val)> cb) {
     	check_value_type<V>();
-
-//    	CV_Assert(properties_.size() == key);
+    	CV_Assert(properties_.size() == key);
     	CV_Assert(!Tread || (Tread && !cb));
     	if constexpr(Tread) {
     		Value val(Tread);
@@ -145,13 +144,13 @@ public:
 };
 
 template<typename K>
-class ThreadSafeAnyMap : public AnyPropertyMap<K> {
+class CV_EXPORTS ThreadSafeAnyMap : public AnyPropertyMap<K> {
 private:
 	AnyPropertyMap<K> mutexes_;
 	cv::Ptr<std::shared_mutex> mapMutexPtr_ = cv::makePtr<std::shared_mutex>();
     using parent_t = AnyPropertyMap<K>;
 public:
-    template<bool Tread, typename V>
+   template<bool Tread, typename V>
    void create(K key, const V& value, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
     	std::function<void(const cv::Ptr<std::shared_mutex>&)> emptyFn;
     	mutexes_.template create<Tread>(key, cv::makePtr<std::shared_mutex>(), emptyFn);

@@ -79,6 +79,7 @@ FrameBufferContext::FrameBufferContext(const cv::Size& framebufferSize,
 
 
 cv::Ptr<FrameBufferContext> FrameBufferContext::make(const string& title, cv::Ptr<FrameBufferContext> other){
+	std::lock_guard guard(makeMtx_);
 	cv::Ptr<FrameBufferContext> ptr = new FrameBufferContext(title, other);
 	ptr->self_ = ptr;
 	ptr->init();
@@ -86,6 +87,7 @@ cv::Ptr<FrameBufferContext> FrameBufferContext::make(const string& title, cv::Pt
 }
 
 cv::Ptr<FrameBufferContext> FrameBufferContext::make(const cv::Size& sz, const string& title, const int& major, const int& minor, const int& samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, const bool& root, const int& confFlags){
+	std::lock_guard guard(makeMtx_);
 	cv::Ptr<FrameBufferContext> ptr = new FrameBufferContext(sz, title, major, minor, samples, parentWindow, parent, root, confFlags);
 	ptr->self_ = ptr;
 	ptr->init();
@@ -187,7 +189,7 @@ GLuint FrameBufferContext::getTextureID() {
 
 void FrameBufferContext::init() {
 	static std::mutex initMtx;
-	std::unique_lock<std::mutex> lock(initMtx);
+	std::lock_guard lock(initMtx);
 
     if(parent_) {
         if(isRoot()) {

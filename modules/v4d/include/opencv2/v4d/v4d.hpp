@@ -165,7 +165,6 @@ public:
     		VIEWPORT,
 			WINDOW_SIZE,
 			FRAMEBUFFER_SIZE,
-			STRETCHING,
 			CLEAR_COLOR,
 			NAMESPACE,
 			FULLSCREEN,
@@ -212,7 +211,7 @@ public:
     }
 
     template<typename Tval>
-    CV_EXPORTS void set(Keys::Enum key, const Tval& val, bool fire = true) {
+    static void set(Keys::Enum key, const Tval& val, bool fire = true) {
     	if(instance()->debugFlags() & DebugFlags::MONITOR_RUNTIME_PROPERTIES) {
     		stringstream ss;
     		ss << demangle(typeid(decltype(key)).name()) << " = " << size_t(&val) << " (fire: " << fire << ")";
@@ -222,12 +221,12 @@ public:
 	}
 
     template<typename Tval>
-    CV_EXPORTS const auto& get(Keys::Enum key) const {
+    static const auto& get(Keys::Enum key) {
 		return V4D::properties_.get<Tval>(key);
 	}
 
 	template <typename V>
-	CV_EXPORTS V apply(Keys::Enum k, std::function<V(V&)> f) {
+	static V apply(Keys::Enum k, std::function<V(V&)> f) {
 		return V4D::properties_.apply(k, f);
 	}
 
@@ -417,7 +416,7 @@ private:
     bool display();
 protected:
 	template<bool Tread, typename Tval>
-	void create(Keys::Enum key, const Tval& val, const std::function<void(const Tval& val)>& cb = std::function<void(const Tval& val)>()) {
+	static void create(Keys::Enum key, const Tval& val, const std::function<void(const Tval& val)>& cb = std::function<void(const Tval& val)>()) {
 		V4D::properties_.create<Tread>(key, val, cb);
 	}
 

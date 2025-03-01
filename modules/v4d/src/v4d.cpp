@@ -22,36 +22,50 @@ CV_EXPORTS ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
 
 cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
 	std::lock_guard guard(instance_mtx_);
-	instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
-	return instance_;
-}
+	if(instance_ == nullptr)
+		instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
 
-cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbsize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
-	std::lock_guard guard(instance_mtx_);
-	instance_ = new V4D(viewport, fbsize, title, allocFlags, confFlags, debFlags, samples);
-	return instance_;
-}
-
-cv::Ptr<V4D> V4D::init(const V4D& other, const string& title) {
-	std::lock_guard guard(instance_mtx_);
-	instance_ = new V4D(other, title);
-	return instance_;
-}
-
-V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) :
-        allocateFlags_(allocFlags), configFlags_(confFlags), debugFlags_(debFlags), samples_(samples) {
-	if(fbsize.empty())
-    	fbsize = viewport.size();
 	create<true>(Keys::INIT_VIEWPORT, viewport);
     create<false>(Keys::VIEWPORT, viewport);
-    create<false, cv::Size>(Keys::WINDOW_SIZE, viewport.size(), [this](const cv::Size& sz){ fbCtx()->setWindowSize(sz); });
-	create<true>(Keys::FRAMEBUFFER_SIZE, fbsize);
-    create<false>(Keys::STRETCHING, true);
+    create<false, cv::Size>(Keys::WINDOW_SIZE, viewport.size(), [instance_](const cv::Size& sz){ instance_->fbCtx()->setWindowSize(sz); });
+	create<true>(Keys::FRAMEBUFFER_SIZE, viewport.size());
     create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
     create<false,string>(Keys::NAMESPACE, "default");
     create<false>(Keys::FULLSCREEN, false);
     create<false>(Keys::DISABLE_VIDEO_IO, false);
     create<false>(Keys::DISABLE_INPUT_EVENTS, false);
+
+	return instance_;
+}
+
+cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbSize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
+	std::lock_guard guard(instance_mtx_);
+	if(instance_ == nullptr)
+		instance_ = new V4D(viewport, fbSize, title, allocFlags, confFlags, debFlags, samples);
+
+	create<true>(Keys::INIT_VIEWPORT, viewport);
+	create<false>(Keys::VIEWPORT, viewport);
+    create<false, cv::Size>(Keys::WINDOW_SIZE, viewport.size(), [instance_](const cv::Size& sz){ instance_->fbCtx()->setWindowSize(sz); });
+	create<true>(Keys::FRAMEBUFFER_SIZE, fbSize);
+	create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
+    create<false,string>(Keys::NAMESPACE, "default");
+    create<false>(Keys::FULLSCREEN, false);
+    create<false>(Keys::DISABLE_VIDEO_IO, false);
+    create<false>(Keys::DISABLE_INPUT_EVENTS, false);
+
+	return instance_;
+}
+
+cv::Ptr<V4D> V4D::init(const V4D& other, const string& title) {
+	std::lock_guard guard(instance_mtx_);
+	if(instance_ == nullptr)
+		instance_ = new V4D(other, title);
+
+	return instance_;
+}
+
+V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) :
+        allocateFlags_(allocFlags), configFlags_(confFlags), debugFlags_(debFlags), samples_(samples) {
 
     int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::VSYNC : 0)
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
@@ -74,16 +88,6 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, Allocat
 
 V4D::V4D(const V4D& other, const string& title) :
 		allocateFlags_(other.allocateFlags_), configFlags_(other.configFlags_), debugFlags_(other.debugFlags_), samples_(other.samples_) {
-	create<true>(Keys::INIT_VIEWPORT, other.get<cv::Rect>(Keys::INIT_VIEWPORT));
-    create<false>(Keys::VIEWPORT, other.get<cv::Rect>(Keys::VIEWPORT));
-    create<false, cv::Size>(Keys::WINDOW_SIZE, other.get<cv::Size>(Keys::WINDOW_SIZE), [this](const cv::Size& sz){ fbCtx()->setWindowSize(sz); });
-	create<true>(Keys::FRAMEBUFFER_SIZE, other.get<cv::Size>(Keys::FRAMEBUFFER_SIZE));
-    create<false>(Keys::STRETCHING, true);
-    create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
-    create<false,string>(Keys::NAMESPACE, "default");
-    create<false>(Keys::FULLSCREEN, false);
-    create<false>(Keys::DISABLE_VIDEO_IO, false);
-    create<false>(Keys::DISABLE_INPUT_EVENTS, false);
 
 	workerIdx_ = Global::instance().apply<size_t>(Global::Keys::WORKER_CNT, [](size_t& v){ return v++; });
     RunState::instance().set<size_t>(RunState::Keys::WORKER_INDEX, workerIdx_);
@@ -296,7 +300,7 @@ void V4D::swapContextBuffers() {
 //		initial.y = (fbCtx()->size().height - initial.height) + initial.y;
         GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
         assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-        glCtx(i)->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), get<bool>(Keys::STRETCHING));
+        glCtx(i)->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), false);
         GL_CHECK(glFinish());
         glfwSwapBuffers(glCtx(i)->fbCtx()->getGLFWWindow());
     }
@@ -307,7 +311,7 @@ void V4D::swapContextBuffers() {
 
 		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
         assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-		nvgCtx()->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), get<bool>(Keys::STRETCHING));
+		nvgCtx()->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), false);
 //        GL_CHECK(glFinish());
 		glfwSwapBuffers(nvgCtx()->fbCtx()->getGLFWWindow());
     }
@@ -318,7 +322,7 @@ void V4D::swapContextBuffers() {
 
         GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
         assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-		bgfxCtx()->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), get<bool>(Keys::STRETCHING));
+		bgfxCtx()->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), false);
 //        GL_CHECK(glFinish());
 		glfwSwapBuffers(bgfxCtx()->fbCtx()->getGLFWWindow());
     }
@@ -379,7 +383,7 @@ bool V4D::display() {
 
 			GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 			assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-			fbCtx()->blitFrameBufferToFrameBuffer(vp, fbCtx()->size(), get<bool>(Keys::STRETCHING));
+			fbCtx()->blitFrameBufferToFrameBuffer(vp, fbCtx()->size(), false);
 		}
 		{
 //			if(getShowFPS()) {
@@ -442,7 +446,7 @@ bool V4D::display() {
 	        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 	        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 
-			fbCtx()->blitFrameBufferToFrameBuffer(initial, size(), get<bool>(Keys::STRETCHING));
+			fbCtx()->blitFrameBufferToFrameBuffer(initial, size(), false);
 			glfwSwapBuffers(fbCtx()->getGLFWWindow());
 		}
 		GL_CHECK(glFinish());
