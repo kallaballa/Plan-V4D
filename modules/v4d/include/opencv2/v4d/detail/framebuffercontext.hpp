@@ -131,7 +131,7 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     std::map<size_t, GLuint> shader_program_hdls_;
     std::map<size_t, GLuint> copyFramebuffers_;
     std::map<size_t, GLuint> copyTextures_;
-
+    inline static std::mutex makeMtx_;
     /*!
      * Create a FrameBufferContext with given size.
      * @param frameBufferSize The frame buffer size.

@@ -18,6 +18,7 @@ using namespace cv::v4d;
 class PedestrianDemoPlan : public Plan {
 private:
 	struct Params {
+		cv::Size size_;
 		cv::Size downSize_;
 		cv::Size_<float> scale_;
 		cv::Rect newTracked_;
@@ -188,10 +189,20 @@ private:
 		}
 
 		void save(const Params& params, cv::Rect& tracked) const {
-			tracked.x = (params.newTracked_.x + tracked.x * 3) / 4.0;
-			tracked.y = (params.newTracked_.y + tracked.y * 3) / 4.0;
-			tracked.width = (params.newTracked_.width + tracked.width * 3) / 4.0;
-			tracked.height = (params.newTracked_.height + tracked.height * 3) / 4.0;
+			cv::Rect oldTracked = tracked;
+			size_t diffX = std::abs(oldTracked.x - params.newTracked_.x);
+			size_t diffY = std::abs(oldTracked.y - params.newTracked_.y);
+			size_t diffW = std::abs(oldTracked.width - params.newTracked_.width);
+			size_t diffH = std::abs(oldTracked.height - params.newTracked_.height);
+			double threshW = params.size_.width / 650.0;
+			double threshH = params.size_.height / 650.0;
+
+			if(diffW > threshW && diffH > threshH && diffX > threshW && diffY > threshH) {
+				tracked.x = (params.newTracked_.x + tracked.x * 4) / 5.0;
+				tracked.y = (params.newTracked_.y + tracked.y * 4) / 5.0;
+				tracked.width = (params.newTracked_.width + tracked.width * 4) / 5.0;
+				tracked.height = (params.newTracked_.height + tracked.height * 4) / 5.0;
+			}
 		}
 	} tracking;
 
@@ -202,13 +213,13 @@ private:
 		using namespace cv::v4d::nvg;
 		float width = tracked.width * params.scale_.width;
 		float height = tracked.height * params.scale_.height;
-		float cx = (params.scale_.width * tracked.x + (width / 2.0));
-		float cy = (params.scale_.height * tracked.y + ((height) / 2.0));
+		float cx = (params.scale_.width * tracked.x + (width / 2));
+		float cy = (params.scale_.height * tracked.y + (height / 2));
 		clearScreen();
 		beginPath();
 		strokeWidth(std::fmax(5.0, vp.width / 960.0));
 		strokeColor(cv::v4d::convert_pix(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
-		ellipse(cx, cy, (width), (height));
+		ellipse(cx, cy, (width / 1.25), (height / 1.5));
 		stroke();
 		}
 	} marker_;
@@ -220,7 +231,8 @@ public:
     		detection.params_.compressed_size = 1;
     		detection.tracker_ = cv::TrackerKCF::create(detection.params_);
     		detection.hog_.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
-    		params.downSize_ = { 640 , 360 };
+    		params.size_ = vp.size();
+    		params.downSize_ = { vp.width / 4 , vp.height / 4 };
     		params.scale_ = { float(vp.width) / params.downSize_.width, float(vp.height) / params.downSize_.height };
     	}, vp_, RW(detection_), RW(params_));
 	}
@@ -254,12 +266,12 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    cv::Rect viewport(0, 0, 1280, 720);
+    cv::Rect viewport(0, 0, 2560, 1600);
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
     auto src = Source::make(runtime, argv[1]);
     auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 200, viewport.size());
     runtime->setSource(src);
     runtime->setSink(sink);
-    Plan::run<PedestrianDemoPlan>(7);
+    Plan::run<PedestrianDemoPlan>(2);
     return 0;
 }

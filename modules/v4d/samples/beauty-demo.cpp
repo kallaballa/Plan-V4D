@@ -191,7 +191,7 @@ public:
 	bool extract(const cv::UMat& inputFrame, FaceFeatures& outputFeatures) {
 		shapes_.clear();
 		faceRects_.clear();
-		faces_ = cv::Mat();
+
 		//Detect faces in the down-scaled image
 		detector_->detect(inputFrame, faces_);
 
@@ -229,7 +229,7 @@ class BeautyDemoPlan : public Plan {
 public:
 	struct Params {
 		//Saturation boost factor for eyes and lips
-		float eyesAndLipsSaturation_ = 1.85f;
+		float eyesAndLipsSaturation_ = 1.25f;
 		//Saturation boost factor for skin
 		float skinSaturation_ = 1.35f;
 		//Contrast factor skin
@@ -378,15 +378,13 @@ public:
 			->assign(RW(scale_), F(aspect_preserving_scale, R(size_), R(downSize_)))
 			//emits a node that calls a contructor
 			->construct(RWS(extractor_), R(downSize_), R(scale_))
+			->plain(RWS(std::cerr) << V("ONCE: ") << V(scale_) << V('\n'))
 		->endBranch();
 	}
 
 	void infer() override {
-		//emits a node setting the states for "fullscreen" and "stretching" during execution of the graph reading values from the shared data by copying it.
-		set(
-				_(K_::FULLSCREEN, CS(params_.fullscreen_)),
-				_(K_::STRETCHING, CS(params_.stretch_))
-		);
+		//emits a node setting the states for "fullscreen" during execution of the graph reading values from the shared data by copying it.
+		set(K_::FULLSCREEN, CS(params_.fullscreen_));
 
 		//create a node the will capture video
 		capture();
@@ -401,8 +399,8 @@ public:
 											CS(params_.enabled_),
 											!CS(params_.enabled_)
 										))
-			//every 3 frames redect the face features.
-			->branch(++RWS(params_.frame_cnt_) % V(3) == V(0))
+			//every 4 frames redect the face features.
+			->branch((++RWS(params_.frame_cnt_) % V(8)) == V(0))
 				->branch(!(F(&FaceFeatureExtractor::extract, RWS(extractor_), R(frames_.down_), RW(features_))));
 					//Set a shared state that will be displayed on-screen.
 					assign(RWS(params_.state_), V(Params::NOT_DETECTED))
@@ -420,6 +418,8 @@ public:
 
 		plain(compose_result, vp_, RW(frames_), CS(params_))
 		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
+
+		write();
 	}
 };
 
@@ -505,12 +505,14 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-	cv::Rect viewport(0, 0, 1920, 1080);
+	cv::Rect viewport(0, 0, 1980, 1280);
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 	//V4D provides a source, sink system which is used mostly but not exclusively with video data.
 	auto src = Source::make(runtime, argv[1]);
+	auto sink = Sink::make(runtime, "beauty-demo.mkv", 60, cv::Size(1280, 720));
     runtime->setSource(src);
-    Plan::run<BeautyDemoPlan>(3);
+    runtime->setSink(sink);
+    Plan::run<BeautyDemoPlan>(0);
 
     return 0;
 }
