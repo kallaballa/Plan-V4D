@@ -327,6 +327,7 @@ public:
 		->endBranch();
 
         gl(&MandelbrotScene::render, R(scene_), vp_, CS(params_.settings_), CS(params_.camera_));
+        write();
     }
 
     void teardown() override {
@@ -343,12 +344,14 @@ int main(int argc, char** argv) {
     }
 
     cv::Rect viewport(0, 0, 1280, 720);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Mandelbrot Shader Demo", AllocateFlags::IMGUI, ConfigFlags::DEFAULT);//, DebugFlags::PRINT_CONTROL_FLOW);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Mandelbrot Shader Demo", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);//, DebugFlags::PRINT_CONTROL_FLOW);
 	auto src = Source::make(runtime, argv[1]);
+	auto sink = Sink::make(runtime, "shader-demo.mkv", 60, viewport.size());
 	runtime->setSource(src);
+	runtime->setSink(sink);
 
-	//0 extra workers, 15 seconds auto zoom
-	Plan::run<ShaderDemoPlan>(0, 30);
+	//2 extra workers, 30 seconds auto zoom
+	Plan::run<ShaderDemoPlan>(4, 15);
 
 	return 0;
 }

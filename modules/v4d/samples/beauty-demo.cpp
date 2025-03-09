@@ -495,6 +495,7 @@ public:
 		->plain(stitch_face, RW(blender_), RW(inputOutputFrames_), RW(stitchedFloat_));
 	}
 };
+
 //Shared data
 BeautyDemoPlan::Params BeautyDemoPlan::params_;
 cv::Ptr<FaceFeatureExtractor> BeautyDemoPlan::extractor_;
