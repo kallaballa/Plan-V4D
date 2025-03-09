@@ -36,7 +36,7 @@ struct GlowEffect {
 public:
 
 	//Glow post-processing effect
-	void perform(const cv::UMat& srcFloat, cv::UMat& dstFloat, const int ksize) {
+	void perform(const cv::UMat& srcFloat, cv::UMat& dstFloat, const int& ksize, const int& gain) {
 		srcFloat.convertTo(temp_.src_, CV_8U, 127.0);
 
 		cv::bitwise_not(temp_.src_, temp_.dst_);
@@ -52,41 +52,51 @@ public:
 	    cv::multiply(temp_.dst_, temp_.high_, temp_.dst_, 1.0/255.0, CV_8U);
 
 	    cv::bitwise_not(temp_.dst_, temp_.dst_);
-
-	    temp_.dst_.convertTo(dstFloat, CV_32F, 1.0/255.0);
+        temp_.dst_.convertTo(dstFloat, CV_32F, 1.0/255.0);
+        //apply gain
+        cv::multiply(dstFloat, 0.01 * gain, dstFloat);
+        // add the images and truncate to 1.0
+        cv::add(srcFloat, dstFloat, dstFloat);
+        cv::threshold(dstFloat, dstFloat, 1.0, 0.0, cv::THRESH_TRUNC);
 	}
 };
 
 struct BloomEffect {
 	struct Temp {
-		cv::UMat bgr_;
-		cv::UMat hls_;
+		cv::UMat bgrFloat_;
+		cv::UMat hlsFloat_;
+		cv::UMat lsFoat_;
 		cv::UMat ls16_;
-		cv::UMat ls_;
 		cv::UMat blur_;
+		cv::UMat logFloat_;
+		cv::UMat baseFloat_;
+		cv::UMat blurFloat_;
 		std::vector<cv::UMat> hlsChannels_;
 	} temp_;
 public:
 	//Bloom post-processing effect
-	void perform(const cv::UMat& srcFloat, cv::UMat &dstFloat, int ksize = 3, int threshValue = 235, float gain = 4) {
+	void perform(const cv::UMat& srcFloat, cv::UMat &dstFloat, int ksize = 3, float gain = 4) {
 	    //remove alpha channel
-	    cv::cvtColor(srcFloat, temp_.bgr_, cv::COLOR_BGRA2RGB);
-	    //convert to hls
-	    cv::cvtColor(temp_.bgr_, temp_.hls_, cv::COLOR_BGR2HLS);
-	    //split channels
-	    cv::split(temp_.hls_, temp_.hlsChannels_);
-	    //invert lightness
-	    cv::bitwise_not(temp_.hlsChannels_[2], temp_.hlsChannels_[2]);
-	    //multiply lightness and saturation
-	    cv::multiply(temp_.hlsChannels_[1], temp_.hlsChannels_[2], temp_.ls_, 255.0, CV_8U);
-	    //binary threhold according to threshValue
-	    cv::threshold(temp_.ls_, temp_.blur_, threshValue, 255, cv::THRESH_BINARY);
-	    //blur
-	    cv::boxFilter(temp_.blur_, temp_.blur_, -1, cv::Size(ksize, ksize), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
-	    //convert to BGRA
-	    cv::cvtColor(temp_.blur_, temp_.blur_, cv::COLOR_GRAY2BGRA);
-	    //add src and the blurred L-S-product according to gain
-	    addWeighted(srcFloat, 1.0, temp_.blur_, gain, 0, dstFloat);
+        cv::cvtColor(srcFloat, temp_.bgrFloat_, cv::COLOR_BGRA2RGB);
+        //convert to hls
+        cv::cvtColor(temp_.bgrFloat_, temp_.hlsFloat_, cv::COLOR_BGR2HLS);
+        //split channels
+        cv::split(temp_.hlsFloat_, temp_.hlsChannels_);
+        //multiply lightness and saturation and convert to 16U
+        cv::multiply(temp_.hlsChannels_[1], temp_.hlsChannels_[2], temp_.lsFoat_);
+        //convert to U8 for faster blur
+        temp_.lsFoat_.convertTo(temp_.blur_, CV_8U, 255);
+        //blur
+        cv::boxFilter(temp_.blur_, temp_.blur_, -1, cv::Size(ksize, ksize), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
+        //convert to BGRA
+        cv::cvtColor(temp_.blur_, temp_.blur_, cv::COLOR_GRAY2BGRA);
+        //convert to float and apply gain
+        temp_.blur_.convertTo(temp_.blurFloat_, CV_32F, 1.0/255.0);
+        // apply gain
+        cv::multiply(temp_.blurFloat_, 0.01 * gain, temp_.blurFloat_);
+        // add the images and truncate to 1.0
+        cv::add(srcFloat, temp_.blurFloat_, dstFloat);
+        cv::threshold(dstFloat, dstFloat, 1.0, 0.0, cv::THRESH_TRUNC);
 	}
 };
 
@@ -101,13 +111,13 @@ public:
 	    DISABLED
 	};
 
-	void perform(const cv::UMat& srcFloat, cv::UMat& dstFloat, const Modes& mode, const int& ksize, const int& bloomThresh, const int& bloomGain) {
+	void perform(const cv::UMat& srcFloat, cv::UMat& dstFloat, const Modes& mode, const int& ksize, const int& gain) {
 	    switch (mode) {
 	    case GLOW:
-	        glow_.perform(srcFloat, dstFloat, ksize);
+	        glow_.perform(srcFloat, dstFloat, ksize, gain);
 	        break;
 	    case BLOOM:
-	        bloom_.perform(srcFloat, dstFloat, ksize, bloomThresh, bloomGain);
+	        bloom_.perform(srcFloat, dstFloat, ksize, gain);
 	        break;
 	    case DISABLED:
 	        srcFloat.copyTo(dstFloat);
@@ -210,7 +220,7 @@ class Compositor {
 	} temp_;
 public:
 	//Compose the different layers into the final image
-	void perform(const cv::UMat& background, cv::UMat& foreground, cv::UMat& framebuffer, const BackgroundStyle::Modes& bgMode, const PostProcessor::Modes& ppMode, const int& ksize, const int& bloomThresh, const int& bloomGain, const float& fgLoss, const size_t& numWorkers) {
+	void perform(const cv::UMat& background, cv::UMat& foreground, cv::UMat& framebuffer, const BackgroundStyle::Modes& bgMode, const PostProcessor::Modes& ppMode, const int& ksize, const int& gain, const float& fgLoss, const size_t& numWorkers) {
 		if(temp_.onesFloat_.empty()) {
 			temp_.onesFloat_ = cv::UMat(framebuffer.size(), CV_32FC4, cv::Scalar(1));
 		}
@@ -222,7 +232,7 @@ public:
 		    foreground.convertTo(temp_.fgFloat_, CV_32F, 1.0/255.0);
 		    double loss = 1.0 - (fgLoss / 100.0);
 	        cv::multiply(temp_.fgFloat_, cv::Scalar::all(loss), temp_.fgFloat_);
-	        postProcessor_.perform(temp_.fgFloat_, temp_.fgFloat_, ppMode, ksize, bloomThresh, bloomGain);
+	        postProcessor_.perform(temp_.fgFloat_, temp_.fgFloat_, ppMode, ksize, gain);
 		} else {
 		    temp_.bgFloat_.copyTo(temp_.fgFloat_);
 		}
@@ -256,7 +266,7 @@ public:
 	void visualize(const cv::UMat &prevGrey, const cv::UMat &nextGrey, const vector<cv::Point2f> &detectedPoints, const float& maxStroke, const size_t& maxPoints, const float& pointLoss, const float& fgScale, cv::Scalar_<float> effectColor) {
 		//less then 5 points is a degenerate case (e.g. the corners of a video frame)
 	    if (detectedPoints.size() > 4) {
-	        cv::convexHull(detectedPoints, temp_.hull_);
+	        cv::convexHull(detectedPoints, temp_.hull_, false, true);
 	        float area = cv::contourArea(temp_.hull_);
 	        //make sure the area of the point cloud is positive
 	        if (area > 0) {
@@ -353,15 +363,13 @@ private:
 		// Generate the foreground at this scale.
 		float fgScale_ = 0.5f;
 		// On every frame the foreground loses on brightness. Specifies the loss in percent.
-		float fgLoss_ = 20.0f;
+		float fgLoss_ = 25.0f;
 
 		PostProcessor::Modes postProcMode_ = PostProcessor::GLOW;
 		// Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
-		int kernelSize_ = 0;
-		//The lightness selection threshold
-		int bloomThresh_ = 210;
-		//The intensity of the bloom filter
-		float bloomGain_ = 3;
+		int kernelSize_ = 15;
+		//The intensity of the glow or bloom filter
+		int gain_ = 50;
 		//Convert the background to greyscale
 		BackgroundStyle::Modes backgroundMode_ = BackgroundStyle::GREY;
 		// Peak thresholds for the scene change detection. Lowering them makes the detection more sensitive but
@@ -492,7 +500,7 @@ public:
 	        thread_local int* ppm = (int*)&params.postProcMode_;
 	        ListBox("Effect",ppm, ppm_items, 3, 3);
 	        SliderInt("Kernel Size",&params.kernelSize_, 1, 63);
-	        SliderFloat("Gain", &params.bloomGain_, 0.1f, 20.0f);
+	        SliderInt("Bloom Gain", &params.gain_, 2, 100);
 	        End();
 
 	        Begin("Settings");
@@ -520,12 +528,12 @@ public:
 
     void setup() override {
     	construct(RW(featurePoints_), F(cv::FastFeatureDetector::create, V(10), V(false), V(cv::FastFeatureDetector::TYPE_9_16)));
-    	branch(BranchType::ONCE, always_)
-			->assign(RWS(params_.kernelSize_),
-					F(sqrt, F(&cv::Rect::width, vp_) * F(&cv::Rect::height, vp_))
-					/ V(400.0)
-			)
-		->endBranch();
+//    	branch(BranchType::ONCE, always_)
+//			->assign(RWS(params_.kernelSize_),
+//					F(sqrt, F(&cv::Rect::width, vp_) * F(&cv::Rect::height, vp_))
+//					/ V(400.0)
+//			)
+//		->endBranch();
 
     	plain(UMAT_CREATE,
                     RWS(foreground_),
@@ -580,13 +588,13 @@ public:
 							CS(params_.backgroundMode_),
 							CS(params_.postProcMode_),
 							CS(params_.kernelSize_),
-							CS(params_.bloomThresh_),
-							CS(params_.bloomGain_),
+							CS(params_.gain_),
 							CS(params_.fgLoss_),
 							numWorkers_
 		);
+
 		plain(UMAT_COPY_TO_, R(frames_.downNextGrey_), RW(frames_.downPrevGrey_));
-		write();
+        write();
 	}
 };
 
@@ -604,7 +612,7 @@ int main(int argc, char **argv) {
 	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
 	runtime->setSource(src);
 	runtime->setSink(sink);
-	Plan::run<OptflowDemoPlan>(0);
+	Plan::run<OptflowDemoPlan>(2);
 
     return 0;
 }
