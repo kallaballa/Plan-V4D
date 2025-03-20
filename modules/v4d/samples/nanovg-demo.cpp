@@ -5,9 +5,15 @@
 
 #include <opencv2/v4d/v4d.hpp>
 
-static void draw_color_wheel(float x, float y, float w, float h, double hue) {
+
+static void draw_color_wheel(float w, float h, float hue) {
     //color wheel drawing code taken from https://github.com/memononen/nanovg/blob/master/example/demo.c
     using namespace cv::v4d::nvg;
+    float x = (w - (w / 5));;
+    float y = (h - (w / 5));
+    w = (w / 6);
+    h = w;
+
     int i;
     float r0, r1, ax, ay, bx, by, cx, cy, aeps, r;
     Paint paint;
@@ -76,7 +82,7 @@ static void draw_color_wheel(float x, float y, float w, float h, double hue) {
     lineTo(ax, ay);
     lineTo(bx, by);
     closePath();
-    paint = linearGradient(r, 0, ax, ay, cv::v4d::convert_pix<cv::COLOR_HLS2BGR_FULL, cv::Vec3b, cv::Vec4f>(cv::Vec3b(uchar(hue), 128, 255)), cv::Scalar(255, 255, 255, 255));
+    paint = linearGradient(r, 0, ax, ay, cv::v4d::convert_pix<cv::COLOR_HLS2BGR_FULL, cv::Vec3b, cv::Vec4f>(cv::Vec3b(uchar(hue), 128, 128)), cv::Scalar(255, 255, 255, 255));
     fillPaint(paint);
     fill();
     paint = linearGradient((r + ax) * 0.5f, (0 + ay) * 0.5f, bx, by, cv::Scalar(0, 0, 0, 0), cv::Scalar(0, 0, 0, 255));
@@ -115,24 +121,25 @@ class NanoVGDemoPlan : public Plan {
 	cv::UMat bgra_;
 	cv::UMat hsv_;
 	cv::UMat hueChannel_;
-	double hue_ = 0;
+	float hue_ = 0;
 	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
-	size_t width_ = 0;
-	size_t height_ = 0;
-
+	float width_ = 0;
+	float height_ = 0;
+	constexpr static auto RESIZE_VEC_ = _OLM_(void, std::vector<cv::UMat>, &std::vector<cv::UMat>::resize, size_t);
 	constexpr static auto SPLIT_ = _OL_(void, cv::split, cv::InputArray, cv::OutputArrayOfArrays);
 	constexpr static auto MERGE_ = _OL_(void, cv::merge, cv::InputArrayOfArrays, cv::OutputArray);
+	constexpr static auto ROUND_ = _OL_(double, std::round, double);
 public:
 	NanoVGDemoPlan() {
 	}
 
 	void setup() override {
-		plain(&std::vector<cv::UMat>::reserve, RW(hsvChannels_), V(3));
+		plain(RESIZE_VEC_, RW(hsvChannels_), V(size_t(3)));
 	}
 	void infer() override {
 		capture();
 
-		assign(RW(hue_), R((sinf(cv::getTickCount() / cv::getTickFrequency() * 0.12) + 1.0) * 127.5));
+		assign(RW(hue_), (F(&sinf,(F(&cv::getTickCount) / F(&cv::getTickFrequency)) * V(0.12) + V(1))) * V(255.0));
 
 		//Acquire the framebuffer and convert it to RGB
 		fb(cv::cvtColor, RW(rgb_), V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT));
@@ -140,18 +147,20 @@ public:
 		//Transform HSV space
 		plain(cv::cvtColor, R(rgb_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->plain(SPLIT_, R(hsv_), RW(hsvChannels_))
-		->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), V(std::round(hue_)), V(cv::noArray()))
+		->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), F(&fmod, F(&fabs,R(hue_) - V(255)) - V(81), V(255)), V(cv::noArray()))
 		->plain(MERGE_, R(hsvChannels_), RW(hsv_))
-		->plain(cv::cvtColor, R(hsv_), RW(rgb_), V(cv::COLOR_HSV2RGB_FULL), V(0), V(cv::ALGO_HINT_DEFAULT));
+		->plain(cv::cvtColor, R(hsv_), RW(rgb_), V(cv::COLOR_HSV2RGB_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
+		->plain(&std::vector<cv::UMat>::clear, RW(hsvChannels_));
 
 		//Acquire the framebuffer and convert rgb_ into it
-		fb<1>(cv::cvtColor, RW(rgb_), V(cv::COLOR_BGR2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT));
+		fb<1>(cv::cvtColor, RW(rgb_), V(cv::COLOR_RGB2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT));
 
-		assign(RW(width_), F(&cv::Rect::width, vp_))
-		->assign(RW(height_), F(&cv::Rect::height, vp_));
+
+        assign(RW(width_), F(&cv::Rect::width, vp_))
+        ->assign(RW(height_), F(&cv::Rect::height, vp_));
 
 		//Render using nanovg
-		nvg(draw_color_wheel, V(width_ - (width_ / 5)), V(height_ - (width_ / 5)), V(width_ / 6), V(width_ / 6), V(hue_));
+		nvg(draw_color_wheel, R(width_), R(height_), R(hue_));
 	}
 };
 
@@ -165,7 +174,7 @@ int main(int argc, char **argv) {
     cv::Ptr<V4D> runtime = V4D::init(viewport, "NanoVG Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
-    Plan::run<NanoVGDemoPlan>(0);
+    Plan::run<NanoVGDemoPlan>(16);
 
     return 0;
 }
