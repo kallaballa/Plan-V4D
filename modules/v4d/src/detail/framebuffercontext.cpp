@@ -669,6 +669,9 @@ void FrameBufferContext::acquireFromGL(cv::UMat& m) {
             flip();
             GL_CHECK(fromGLTexture2D(textureFlippedID_, m));
             return;
+        } catch(std::exception& ex) {
+                    CV_LOG_WARNING(nullptr, "CL-GL failed to acquire: " + std::string(ex.what()));
+                    clglSharing_ = false;
         } catch(...) {
         	CV_LOG_WARNING(nullptr, "CL-GL failed to acquire.");
             clglSharing_ = false;
