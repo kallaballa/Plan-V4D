@@ -170,11 +170,12 @@ int main(int argc, char **argv) {
         exit(1);
 	}
 
-    cv::Rect viewport(0, 0, 1280, 720);
+    cv::Rect viewport(0, 0, 1920, 1080);
     cv::Ptr<V4D> runtime = V4D::init(viewport, "NanoVG Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
-    Plan::run<NanoVGDemoPlan>(16);
+
+    Plan::run<NanoVGDemoPlan>(7);
 
     return 0;
 }
