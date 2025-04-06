@@ -58,6 +58,19 @@ size_t cnz(const cv::UMat& m) {
     return cv::countNonZero(grey);
 }
 
+size_t cnz(const cv::Mat& m) {
+    cv::Mat grey;
+    if(m.channels() == 1) {
+        grey = m;
+    } else if(m.channels() == 3) {
+        cvtColor(m, grey, cv::COLOR_BGR2GRAY);
+    } else if(m.channels() == 4) {
+        cvtColor(m, grey, cv::COLOR_BGRA2GRAY);
+    } else {
+        assert(false);
+    }
+    return cv::countNonZero(grey);
+}
 CV_EXPORTS Global* Global::instance_ = nullptr;
 CV_EXPORTS thread_local RunState* RunState::instance_ = nullptr;
 

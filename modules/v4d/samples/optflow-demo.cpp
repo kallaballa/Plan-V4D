@@ -77,7 +77,7 @@ public:
 	//Bloom post-processing effect
 	void perform(const cv::UMat& srcFloat, cv::UMat &dstFloat, int ksize = 3, float gain = 4) {
 	    //remove alpha channel
-        cv::cvtColor(srcFloat, temp_.bgrFloat_, cv::COLOR_BGRA2RGB);
+        cv::cvtColor(srcFloat, temp_.bgrFloat_, cv::COLOR_BGRA2BGR);
         //convert to hls
         cv::cvtColor(temp_.bgrFloat_, temp_.hlsFloat_, cv::COLOR_BGR2HLS);
         //split channels
@@ -101,6 +101,12 @@ public:
 };
 
 struct PostProcessor {
+    struct Temp {
+        cv::UMat bgrFloat_;
+        cv::UMat hlsFloat_;
+        std::vector<cv::UMat> hlsChannels_;
+    } temp_;
+
 	GlowEffect glow_;
 	BloomEffect bloom_;
 public:
@@ -370,6 +376,7 @@ private:
 		int kernelSize_ = 15;
 		//The intensity of the glow or bloom filter
 		int gain_ = 50;
+
 		//Convert the background to greyscale
 		BackgroundStyle::Modes backgroundMode_ = BackgroundStyle::GREY;
 		// Peak thresholds for the scene change detection. Lowering them makes the detection more sensitive but
@@ -606,7 +613,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    cv::Rect viewport(0, 0, 1920, 1080);
+    cv::Rect viewport(0, 0, 1280, 720);
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 	auto src = Source::make(runtime, argv[1]);
 	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
