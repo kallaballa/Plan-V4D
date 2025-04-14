@@ -91,7 +91,7 @@ cv::Ptr<Sink> Sink::make(cv::Ptr<V4D> window, const string& outputFilename, cons
 		const cv::Size& frameSize, int fourcc) {
 #ifdef HAVE_VA
 	if (is_intel_va_supported()) {
-        return makeVaSink(window, outputFilename, fourcc, fps, frameSize, 1);
+        return makeVaSink(window, outputFilename, fourcc, fps, frameSize, 0);
     } else
 #endif
     {
