@@ -155,7 +155,7 @@ if (NOT (TARGET nanovg))
 # Add the opencv module
 if(NOT (TARGET ${the_module}))
   if(BUILD_EXAMPLES)
-     ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs glfw nanovg)
+     ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_tracking glfw nanovg)
   else()
      ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video)
   endif()
