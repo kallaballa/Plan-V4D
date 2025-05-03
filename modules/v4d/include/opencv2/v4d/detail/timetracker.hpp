@@ -106,6 +106,9 @@ public:
     }
 
     void print(ostream &os) {
+        if(!enabled_)
+            return;
+
         std::unique_lock lock(mapMtx_);
         stringstream ss;
         ss << "Time tracking info: " << std::endl;
@@ -122,6 +125,9 @@ public:
     }
 
     void reset() {
+        if(!enabled_)
+            return;
+
         std::unique_lock lock(mapMtx_);
         tiMap_.clear();
     }
@@ -141,6 +147,8 @@ public:
     }
 
     void newCount() {
+        if(!enabled_)
+            return;
         std::unique_lock lock(mapMtx_);
         for (auto& pair : getMap()) {
             pair.second.newCount();

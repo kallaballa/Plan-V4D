@@ -26,9 +26,9 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
 		FrameBufferContext::WindowScope winScope(fbCtx());
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 #if defined(OPENCV_V4D_USE_ES3)
-		context_ = nvgCreateGLES3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
+		context_ = nvgCreateGLES3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 #else
-		context_ = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
+		context_ = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 #endif
 		if (!context_)
 			CV_Error(Error::StsError, "Could not initialize NanoVG!");
@@ -47,15 +47,15 @@ int NanoVGContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 
 int NanoVGContext::render(const cv::Rect& vp, std::function<void()> fn) {
 	{
-		glEnable(GL_SCISSOR_TEST);
-		glScissor(0, 0, vp.size().width, vp.size().height);
-		glViewport(vp.x, vp.y, vp.width, vp.height);
+//		glEnable(GL_SCISSOR_TEST);
+//		glScissor(0, 0, vp.size().width, vp.size().height);
+//		glViewport(vp.x, vp.y, vp.width, vp.height);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		NanoVGContext::Scope nvgScope(*this, vp);
 		cv::v4d::nvg::detail::NVG::initializeContext(context_);
 		fn();
-		glDisable(GL_SCISSOR_TEST);
+//		glDisable(GL_SCISSOR_TEST);
 
 		return 1;
 	}

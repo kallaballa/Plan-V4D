@@ -1034,7 +1034,7 @@ inline void init(
 			[](GLFWwindow *window, int key, int scancode, int action,
 					int mods) {
 				if (!detail::Holder::keyboardCallback || !detail::Holder::keyboardCallback(window, key, scancode, action, mods)) {
-					if (key != GLFW_KEY_UNKNOWN) {
+				    if (key != GLFW_KEY_UNKNOWN) {
 						Keyboard::Key v4d_key = detail::v4d_key(key);
 						Keyboard::Type type = detail::v4d_keyboard_event_type(action);
 						std::shared_ptr<Keyboard> event = std::make_shared<Keyboard>(type, v4d_key);

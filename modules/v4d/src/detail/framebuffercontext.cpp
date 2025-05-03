@@ -221,6 +221,12 @@ void FrameBufferContext::init() {
     glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
     glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 #else
+    if (glfwPlatformSupported(GLFW_PLATFORM_WAYLAND)) {
+      glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
+    } else {
+        CV_LOG_WARNING(nullptr, "No Wayland Support");
+    }
+
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, major_);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, minor_);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -228,15 +234,20 @@ void FrameBufferContext::init() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API) ;
 #endif
     glfwWindowHint(GLFW_SAMPLES, samples_);
-    glfwWindowHint(GLFW_RED_BITS, 8);
-    glfwWindowHint(GLFW_GREEN_BITS, 8);
-    glfwWindowHint(GLFW_BLUE_BITS, 8);
+    auto monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+    glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+    glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+    glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+    glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+
     glfwWindowHint(GLFW_ALPHA_BITS, 8);
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
     glfwWindowHint(GLFW_DEPTH_BITS, 24);
     glfwWindowHint(GLFW_RESIZABLE, configFlags() & FBConfigFlags::RESIZEABLE ? GLFW_TRUE : GLFW_FALSE);
     glfwWindowHint(GLFW_VISIBLE, configFlags() & FBConfigFlags::OFFSCREEN ? GLFW_FALSE : GLFW_TRUE );
-    glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
+//    glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
 
     glfwWindow_ = glfwCreateWindow(framebufferSize_.width, framebufferSize_.height, title_.c_str(), nullptr, parent_ ? parent_->getGLFWWindow() : nullptr);
 
@@ -284,39 +295,39 @@ void FrameBufferContext::init() {
 
     setup();
     if(Global::instance().isMain() && !parent_) {
-    	event::init<cv::Point>(
-			[](GLFWwindow *window, int key, int scancode, int action, int mods){
-				if(ImGui::GetCurrentContext()) {
-					ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
-					return ImGui::GetIO().WantCaptureKeyboard;
-				} else {
-					return false;
-				}
-			}, [](GLFWwindow *window, int button, int action, int mods) {
-				if(ImGui::GetCurrentContext()) {
-					ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
-					return ImGui::GetIO().WantCaptureMouse;
-				} else {
-					return false;
-				}
-			}, [](GLFWwindow *window, double xoffset, double yoffset) {
-				if(ImGui::GetCurrentContext()) {
-					ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-					return ImGui::GetIO().WantCaptureMouse;
-				}
-				return false;
-			}, [](GLFWwindow *window, double xpos, double ypos) {
-				if(ImGui::GetCurrentContext()) {
-					ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
-					return ImGui::GetIO().WantCaptureMouse;
-				}
-				return false;
-			}, [](GLFWwindow *window, int w, int h) {
-				CV_UNUSED(window);
-				V4D::instance()->set(V4D::Keys::WINDOW_SIZE, cv::Size(w, h), false);
-				return false;
-			}
-    	);
+        event::init<cv::Point>(
+          [](GLFWwindow *window, int key, int scancode, int action, int mods){
+              ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+              if(ImGui::GetCurrentContext()) {
+                  return ImGui::GetIO().WantCaptureKeyboard;
+              } else {
+                  return false;
+              }
+          }, [](GLFWwindow *window, int button, int action, int mods) {
+              ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+              if(ImGui::GetCurrentContext()) {
+                  return ImGui::GetIO().WantCaptureMouse;
+              } else {
+                  return false;
+              }
+          }, [](GLFWwindow *window, double xoffset, double yoffset) {
+              ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+              if(ImGui::GetCurrentContext()) {
+                  return ImGui::GetIO().WantCaptureMouse;
+              }
+              return false;
+          }, [](GLFWwindow *window, double xpos, double ypos) {
+              ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
+              if(ImGui::GetCurrentContext()) {
+                  return ImGui::GetIO().WantCaptureMouse;
+              }
+              return false;
+          }, [](GLFWwindow *window, int w, int h) {
+              CV_UNUSED(window);
+              V4D::instance()->set(V4D::Keys::WINDOW_SIZE, cv::Size(w, h), false);
+              return false;
+          }
+      );
     }
 }
 
@@ -583,19 +594,22 @@ void FrameBufferContext::blitFrameBufferToFrameBuffer(const cv::Rect& srcViewpor
     double fbws = framebufferSize_.width * f;
     double fbhs = framebufferSize_.height * f;
 
+    double diffw = (targetFbSize.width - srcViewport.width) / 2.0;
+    double diffh = (targetFbSize.height - srcViewport.height) / 2.0;
+
     double marginw = (targetFbSize.width - framebufferSize_.width) / 2.0;
     double marginh = (targetFbSize.height - framebufferSize_.height) / 2.0;
     double marginws = (targetFbSize.width - fbws) / 2.0;
     double marginhs = (targetFbSize.height - fbhs) / 2.0;
 
-    GLint srcX0 = srcViewport.x;
-    GLint srcY0 = srcViewport.y;
-    GLint srcX1 = srcViewport.x + srcViewport.width;
-    GLint srcY1 = srcViewport.y + srcViewport.height;
-    GLint dstX0 = stretch ? marginws : marginw;
-    GLint dstY0 = stretch ? marginhs : marginh;
-    GLint dstX1 = stretch ? marginws + fbws : marginw + framebufferSize_.width;
-    GLint dstY1 = stretch ? marginhs + fbhs : marginh + framebufferSize_.height;
+    GLint srcX0 = 0;
+    GLint srcY0 = 0;
+    GLint srcX1 = srcViewport.width;
+    GLint srcY1 = srcViewport.height;
+    GLint dstX0 = stretch ? marginws : srcViewport.x;
+    GLint dstY0 = stretch ? marginhs : srcViewport.y;
+    GLint dstX1 = stretch ? marginws + fbws : srcViewport.x + srcViewport.width;
+    GLint dstY1 = stretch ? marginhs + fbhs : srcViewport.y + srcViewport.height;
     if(flipY) {
         GLint tmp = dstY0;
         dstY0 = dstY1;
@@ -605,6 +619,10 @@ void FrameBufferContext::blitFrameBufferToFrameBuffer(const cv::Rect& srcViewpor
     GL_CHECK(glBlitFramebuffer( srcX0, srcY0, srcX1, srcY1,
             dstX0, dstY0, dstX1, dstY1,
             GL_COLOR_BUFFER_BIT, GL_NEAREST));
+
+//    std::cerr << "BLIT: " << srcX0 <<  " " << srcY0 <<  " " << srcX1 <<  " " << srcY1 <<
+//            " " << dstX0 <<  " " << dstY0 <<  " " << dstX1 <<  " " << dstY1 << std::endl;
+
 }
 
 cv::UMat& FrameBufferContext::fb() {
@@ -630,7 +648,8 @@ void FrameBufferContext::end(bool copyBack) {
 		GLint fbHeight = dims[3];
 		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copyFramebuffers_[currentFBO_]));
 	    assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), size(), false, false);
+	    cv::Rect vp = V4D::instance()->get<cv::Rect>(V4D::Keys::VIEWPORT);
+		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), vp.size(), false, false);
 		blendFramebuffer(currentFBO_);
 	}
 }
@@ -762,12 +781,11 @@ bool FrameBufferContext::isFullscreen() {
 void FrameBufferContext::setFullscreen(bool f) {
     auto monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    std::cerr << mode->refreshRate << std::endl;
     if (f) {
-
-    	glfwSetWindowMonitor(getGLFWWindow(), monitor, 0, 0, mode->width, mode->height,
-                mode->refreshRate);
-        std::cerr << cv::Size(mode->width, mode->height) << std::endl;
-        setWindowSize(cv::Size(mode->width, mode->height));
+    	glfwSetWindowMonitor(getGLFWWindow(), monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+        std::cerr << mode->refreshRate << std::endl;
+    	setWindowSize(cv::Size(mode->width, mode->height));
     } else {
         glfwSetWindowMonitor(getGLFWWindow(), nullptr, 0, 0, size().width,
                 size().height, 0);
