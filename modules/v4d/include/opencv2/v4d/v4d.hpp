@@ -169,7 +169,9 @@ public:
 			NAMESPACE,
 			FULLSCREEN,
 			DISABLE_VIDEO_IO,
-			DISABLE_INPUT_EVENTS
+			DISABLE_INPUT_EVENTS,
+			SHOW_GUI,
+	        TIME_TRACKER
     	};
     };
 private:
@@ -1077,7 +1079,8 @@ public:
     }
 
     template <typename Tfn, typename ... Args>
-    cv::Ptr<Plan> branch(Tfn fn, Args ... args) {
+    typename std::enable_if<!std::is_integral_v<Tfn>, cv::Ptr<Plan>>::type
+    branch(Tfn fn, Args ... args) {
         auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
         const string id = make_id(this->space(), "branch", fn, args...);
         branchStack_.push_front({id, BranchType::PARALLEL});
@@ -1099,6 +1102,20 @@ public:
 		};
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
+    }
+
+    template <typename Tfn, typename ... Args>
+    cv::Ptr<Plan> branch(int workerIdx, BranchType::Enum type, Tfn fn, Args ... args) {
+        auto wrapInner = wrap_callable<typename Args::ref_t ...>(fn);
+        const string id = make_id(this->space(), "branch-pin" + std::to_string(workerIdx), fn, args...);
+        branchStack_.push_front({id, BranchType::PARALLEL});
+        emit_access(id, R(*this));
+        (emit_access(id, args ),...);
+        std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... innerArgs){
+            return runtime_->workerIndex() == workerIdx && wrapInner(innerArgs...);
+        };
+        add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
+        return self<Plan>();
     }
 
     template <typename Tedge>
@@ -1262,8 +1279,8 @@ public:
 		}
     }
 
-    cv::Ptr<Plan> clear() {
-    	gl([](const cv::Scalar& bgra){
+    cv::Ptr<Plan> clear(const int32_t& glIndex = -1) {
+    	gl<-1>(V(glIndex), [](const cv::Scalar& bgra){
     		const float& b = bgra[0] / 255.0f;
 		    const float& g = bgra[1] / 255.0f;
 		    const float& r = bgra[2] / 255.0f;
@@ -1941,6 +1958,9 @@ public:
 		cv::Ptr<Tplan> plan;
 		Global& global = Global::instance();
 
+        static std::mutex worker_init_mtx_;
+
+
 		std::vector<std::thread*> threads;
 		{
 			static std::mutex runMtx;
@@ -1960,7 +1980,7 @@ public:
 				auto sink = plan->runtime_->getSink();
 				global.set<size_t>(Global::Keys::WORKERS_STARTED, workers);
 //				std::cerr << "workers: " << global.get<size_t>(Global::Keys::WORKERS_STARTED) << std::endl;
-				static std::mutex worker_init_mtx_;
+
 				if(!(plan->runtime_->debugFlags() & DebugFlags::DONT_PAUSE_LOG)) {
 					CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
 					cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
@@ -1971,9 +1991,10 @@ public:
 						new std::thread(
 							[plan, i, workers, src, sink, &args...] {
 								CV_LOG_DEBUG(&v4d_tag, "Creating worker: " << i);
+								cv::Ptr<V4D> worker;
 								{
 									std::lock_guard guard(worker_init_mtx_);
-									cv::Ptr<V4D> worker = V4D::init(*plan->runtime_.get(), plan->runtime_->title() + "-worker-" + std::to_string(i));
+									worker = V4D::init(*plan->runtime_.get(), plan->runtime_->title() + "-worker-" + std::to_string(i));
 
 									if (src) {
 										worker->setSource(src);

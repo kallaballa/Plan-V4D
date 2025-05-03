@@ -12,6 +12,7 @@
 #include "../include/opencv2/v4d/v4d.hpp"
 #include "../include/opencv2/v4d/detail/framebuffercontext.hpp"
 #include "../include/opencv2/v4d/detail/gl.hpp"
+#include "../../third/imgui/backends/imgui_impl_glfw.h"
 
 namespace cv {
 namespace v4d {
@@ -34,6 +35,8 @@ cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, AllocateFl
     create<false>(Keys::FULLSCREEN, false);
     create<false>(Keys::DISABLE_VIDEO_IO, false);
     create<false>(Keys::DISABLE_INPUT_EVENTS, false);
+    create<false>(Keys::SHOW_GUI, true);
+    create<false>(Keys::TIME_TRACKER, true);
 
 	return instance_;
 }
@@ -52,7 +55,8 @@ cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbSize, const s
     create<false>(Keys::FULLSCREEN, false);
     create<false>(Keys::DISABLE_VIDEO_IO, false);
     create<false>(Keys::DISABLE_INPUT_EVENTS, false);
-
+    create<false>(Keys::SHOW_GUI, true);
+    create<false>(Keys::TIME_TRACKER, true);
 	return instance_;
 }
 
@@ -84,6 +88,7 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, Allocat
 
     if(getShowFPS())
        	nvgContext_ = new detail::NanoVGContext(mainFbContext_);
+
 }
 
 V4D::V4D(const V4D& other, const string& title) :
@@ -379,11 +384,9 @@ bool V4D::display() {
 			FrameBufferContext::WindowScope winScope(fbCtx());
 			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
 			cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
-			vp.y = (fbCtx()->size().height - vp.height) + vp.y;
-
 			GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 			assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-			fbCtx()->blitFrameBufferToFrameBuffer(vp, fbCtx()->size(), false);
+			fbCtx()->blitFrameBufferToFrameBuffer(vp, fbCtx()->size(), false, false);
 		}
 		{
 //			if(getShowFPS()) {
@@ -409,7 +412,7 @@ bool V4D::display() {
 //				});
 //			}
 
-			if(allocateFlags() & AllocateFlags::IMGUI) {
+			if((allocateFlags() & AllocateFlags::IMGUI) && get<bool>(Keys::SHOW_GUI)) {
 				FrameBufferContext::WindowScope winScope(fbCtx());
 				FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0);
 
@@ -419,6 +422,8 @@ bool V4D::display() {
 				imguiCtx()->render(getShowFPS());
 			}
 		}
+
+		TimeTracker::getInstance()->setEnabled(get<bool>(Keys::TIME_TRACKER));
 		TimeTracker::getInstance()->newCount();
 		GL_CHECK(glFinish());
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
@@ -442,11 +447,12 @@ bool V4D::display() {
 			FrameBufferContext::WindowScope winScope(fbCtx());
 			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
 			cv::Rect initial = get<cv::Rect>(Keys::INIT_VIEWPORT);
+//			cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
 			initial.y = (fbCtx()->size().height - initial.height) + initial.y;
 	        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 	        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 
-			fbCtx()->blitFrameBufferToFrameBuffer(initial, size(), false);
+			fbCtx()->blitFrameBufferToFrameBuffer(initial, fbCtx()->size(), false, false);
 			glfwSwapBuffers(fbCtx()->getGLFWWindow());
 		}
 		GL_CHECK(glFinish());

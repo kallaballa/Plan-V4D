@@ -140,7 +140,7 @@ void init_fragment_shader(unsigned int handles[2], const char* fshader) {
     }
 }
 
-void init_shaders(unsigned int handles[3], const string vShader, const string fShader, const string outputAttributeName) {
+void init_shaders(unsigned int handles[3], const string vShader, const string fShader, const string outputAttributeName0, const string outputAttributeName1, const string outputAttributeName2, const string outputAttributeName3) {
 #if !defined(OPENCV_V4D_USE_ES3)
 	const string version="#version 330\n";
 #else
@@ -191,9 +191,17 @@ void init_shaders(unsigned int handles[3], const string vShader, const string fS
     }
 #if !defined(OPENCV_V4D_USE_ES3)
     /* Link output */
-    glBindFragDataLocation(program, 0, outputAttributeName.c_str());
-#else
-    CV_UNUSED(outputAttributeName);
+    if(!outputAttributeName0.empty())
+        glBindFragDataLocation(program, 0, outputAttributeName0.c_str());
+    if(!outputAttributeName1.empty())
+        glBindFragDataLocation(program, 1, outputAttributeName1.c_str());
+    if(!outputAttributeName2.empty())
+        glBindFragDataLocation(program, 2, outputAttributeName2.c_str());
+    if(!outputAttributeName3.empty())
+        glBindFragDataLocation(program, 3, outputAttributeName3.c_str());
+
+    #else
+    CV_UNUSED(outputAttributeName0);
 #endif
     /* link  and error check */
     glLinkProgram(program);

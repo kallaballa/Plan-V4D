@@ -907,7 +907,7 @@ CV_EXPORTS void gl_check_error(const std::filesystem::path& file, unsigned int l
 #define GL_CHECK(expr)                            \
     expr;
 #endif
-CV_EXPORTS void init_shaders(unsigned int handles[3], const string vShader, const string fShader, const string outputAttributeName);
+CV_EXPORTS void init_shaders(unsigned int handles[3], const string vShader, const string fShader, const string outputAttributeName0, const string outputAttributeName1 = "", const string outputAttributeName2 = "", const string outputAttributeName3 = "");
 CV_EXPORTS void init_fragment_shader(unsigned int handles[2], const char* fshader);
 /*!
  * Returns the OpenGL vendor string

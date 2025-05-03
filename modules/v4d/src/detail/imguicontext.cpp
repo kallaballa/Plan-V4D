@@ -26,7 +26,10 @@ ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext) :
 	ImGuiIO& io = ImGui::GetIO();
 	(void)io;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+//	io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+//	io.ConfigFlags |= ImGuiConfigFlags_NoKeyboard;
+//	io.BackendUsingLegacyNavInputArray = false;
 	ImGui::StyleColorsDark();
 
 	ImGui_ImplGlfw_InitForOpenGL(mainFbContext_->getGLFWWindow(), false);
@@ -75,21 +78,24 @@ void ImGuiContextImpl::render(bool showFPS) {
 		size_t workers = Global::instance().get<size_t>(Global::Keys::WORKER_CNT);
 		ImGui::Text("%.4f ms/frame (%.1f FPS), workers: %ld", (1000.0f / fps), fps, workers);
 		ImGui::End();
-		ImGui::PopStyleColor(1);
-		std::stringstream ss;
-		TimeTracker::getInstance()->print(ss);
-		std::string line;
-		ImFont* font = ImGui::GetFont();
-		font->Scale = 2.0;
-		ImGui::PushFont(font);
-		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
-		ImGui::Begin("Time Tracking");
-		while(getline(ss, line)) {
-			ImGui::Text("%s", line.c_str());
+        ImGui::PopStyleColor(1);
+		if(V4D::instance()->get<bool>(V4D::Keys::TIME_TRACKER)) {
+	        std::stringstream ss;
+	        TimeTracker::getInstance()->print(ss);
+	        std::string line;
+	        ImFont* font = ImGui::GetFont();
+	        font->Scale = 2.0;
+	        ImGui::PushFont(font);
+	        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
+
+		    ImGui::Begin("Time Tracking");
+	        while(getline(ss, line)) {
+	            ImGui::Text("%s", line.c_str());
+	        }
+	        ImGui::End();
+	        ImGui::PopStyleColor(1);
+	        ImGui::PopFont();
 		}
-		ImGui::End();
-		ImGui::PopStyleColor(1);
-		ImGui::PopFont();
 	}
 	if (renderCallback_)
 		renderCallback_();
