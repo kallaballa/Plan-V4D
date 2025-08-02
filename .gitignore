@@ -11,3 +11,8 @@ tegra/
 *.i
 .download*
 /Debug/
+.cproject
+.project
+.settings/
+CMakeCache.txt
+CMakeFiles/
