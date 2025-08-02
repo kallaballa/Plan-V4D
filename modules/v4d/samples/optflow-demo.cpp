@@ -226,7 +226,7 @@ class Compositor {
 	} temp_;
 public:
 	//Compose the different layers into the final image
-	void perform(const cv::UMat& background, cv::UMat& foreground, cv::UMat& framebuffer, const BackgroundStyle::Modes& bgMode, const PostProcessor::Modes& ppMode, const int& ksize, const int& gain, const float& fgLoss, const size_t& numWorkers) {
+	void perform(const cv::UMat& background, cv::UMat& foreground, cv::UMat& framebuffer, const BackgroundStyle::Modes& bgMode, const PostProcessor::Modes& ppMode, const int& ksize, const int& gain, const float& fgLoss) {
 		if(temp_.onesFloat_.empty()) {
 			temp_.onesFloat_ = cv::UMat(framebuffer.size(), CV_32FC4, cv::Scalar(1));
 		}
@@ -419,7 +419,6 @@ private:
 
 
 	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
-	Property<size_t> numWorkers_ = P<size_t>(Global::Keys::WORKERS_STARTED);
 
     class PrepareMasksPlan : public Plan {
     	struct Temp {
@@ -605,8 +604,7 @@ public:
 		                                CS(params_.postProcMode_),
 		                                CS(params_.kernelSize_),
 		                                CS(params_.gain_),
-		                                CS(params_.fgLoss_),
-		                                numWorkers_
+		                                CS(params_.fgLoss_)
 		);
 		plain(UMAT_COPY_TO_, R(frames_.downNextGrey_), RW(frames_.downPrevGrey_));
         write();

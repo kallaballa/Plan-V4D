@@ -432,10 +432,12 @@ void FrameBufferContext::teardown() {
     GL_CHECK(glDeleteRenderbuffers(1, &renderBufferID_));
     GL_CHECK(glDeleteTextures(1, &textureID_));
     GL_CHECK(glDeleteFramebuffers(1, &framebufferID_));
-    if(textureFlippedID_)
-    GL_CHECK(glDeleteTextures(1, &textureFlippedID_));
-    if(framebufferFlippedID_)
-    GL_CHECK(glDeleteFramebuffers(1, &framebufferFlippedID_));
+    if(textureFlippedID_) {
+        GL_CHECK(glDeleteTextures(1, &textureFlippedID_));
+    }
+    if(framebufferFlippedID_) {
+        GL_CHECK(glDeleteFramebuffers(1, &framebufferFlippedID_));
+    }
 }
 
 void FrameBufferContext::flip() {
@@ -594,11 +596,11 @@ void FrameBufferContext::blitFrameBufferToFrameBuffer(const cv::Rect& srcViewpor
     double fbws = framebufferSize_.width * f;
     double fbhs = framebufferSize_.height * f;
 
-    double diffw = (targetFbSize.width - srcViewport.width) / 2.0;
-    double diffh = (targetFbSize.height - srcViewport.height) / 2.0;
+//    double diffw = (targetFbSize.width - srcViewport.width) / 2.0;
+//    double diffh = (targetFbSize.height - srcViewport.height) / 2.0;
 
-    double marginw = (targetFbSize.width - framebufferSize_.width) / 2.0;
-    double marginh = (targetFbSize.height - framebufferSize_.height) / 2.0;
+//    double marginw = (targetFbSize.width - framebufferSize_.width) / 2.0;
+//    double marginh = (targetFbSize.height - framebufferSize_.height) / 2.0;
     double marginws = (targetFbSize.width - fbws) / 2.0;
     double marginhs = (targetFbSize.height - fbhs) / 2.0;
 

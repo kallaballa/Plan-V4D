@@ -14,7 +14,6 @@ class ManyCubesDemoPlan : public Plan {
 
 	CubeScene scene_;
 	size_t currentGlCtx_ = 0;
-	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
 	void setup() override {
 		set(_(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(202, 61, 51, 255.0))));

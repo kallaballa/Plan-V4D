@@ -98,7 +98,7 @@ public:
 //				_sub<OptflowDemoPlan>(this)
 			};
 
-		CV_Assert(tiling_.width * tiling_.height == plans_.size());
+		CV_Assert(size_t(tiling_.width * tiling_.height) == plans_.size());
 		frames_.results_.resize(plans_.size());
 		targetViewports_.resize(plans_.size());
 
@@ -148,7 +148,7 @@ public:
 		{
 			for(size_t i = 0; i < plans_.size(); ++i) {
 				auto plan = plans_[i];
-				branch(CS(state_.zoomed_) == V(i))
+				branch(CS(state_.zoomed_) == V(int32_t(i)))
 					->fb<1>(copyToMemFn, R(frames_.captured))
 					->subInfer(plan)
 					->fb(copyToMemFn, RW(frames_.results_)[V(i)])

@@ -76,20 +76,20 @@ class MandelbrotScene {
         /* Object handles */
         GLuint vao_;
         GLuint vbo_, ebo_;
-    } handles;
+    } glHandles;
 
     //Load objects and buffers
     void loadBuffers() {
-        glGenVertexArrays(1, &handles.vao_);
-        glBindVertexArray(handles.vao_);
+        glGenVertexArrays(1, &glHandles.vao_);
+        glBindVertexArray(glHandles.vao_);
 
-        glGenBuffers(1, &handles.vbo_);
-        glGenBuffers(1, &handles.ebo_);
+        glGenBuffers(1, &glHandles.vbo_);
+        glGenBuffers(1, &glHandles.ebo_);
 
-        glBindBuffer(GL_ARRAY_BUFFER, handles.vbo_);
+        glBindBuffer(GL_ARRAY_BUFFER, glHandles.vbo_);
         glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_), vertices_, GL_STATIC_DRAW);
 
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, handles.ebo_);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, glHandles.ebo_);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices_), indices_, GL_STATIC_DRAW);
 
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*) 0);
@@ -199,39 +199,39 @@ public:
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         loadBuffers();
-        handles.shaderHdl_ = loadShaders();
-        handles.baseColorHdl_ = glGetUniformLocation(handles.shaderHdl_, "base_color");
-        handles.contrastBoostHdl_ = glGetUniformLocation(handles.shaderHdl_, "contrast_boost");
-        handles.maxIterationsHdl_ = glGetUniformLocation(handles.shaderHdl_, "max_iterations");
-        handles.currentZoomHdl_ = glGetUniformLocation(handles.shaderHdl_, "current_zoom");
-        handles.centerXHdl_ = glGetUniformLocation(handles.shaderHdl_, "center_x");
-        handles.centerYHdl_ = glGetUniformLocation(handles.shaderHdl_, "center_y");
-        handles.viewportHdl_ = glGetUniformLocation(handles.shaderHdl_, "viewport");
+        glHandles.shaderHdl_ = loadShaders();
+        glHandles.baseColorHdl_ = glGetUniformLocation(glHandles.shaderHdl_, "base_color");
+        glHandles.contrastBoostHdl_ = glGetUniformLocation(glHandles.shaderHdl_, "contrast_boost");
+        glHandles.maxIterationsHdl_ = glGetUniformLocation(glHandles.shaderHdl_, "max_iterations");
+        glHandles.currentZoomHdl_ = glGetUniformLocation(glHandles.shaderHdl_, "current_zoom");
+        glHandles.centerXHdl_ = glGetUniformLocation(glHandles.shaderHdl_, "center_x");
+        glHandles.centerYHdl_ = glGetUniformLocation(glHandles.shaderHdl_, "center_y");
+        glHandles.viewportHdl_ = glGetUniformLocation(glHandles.shaderHdl_, "viewport");
     }
 
     //Free OpenGL resources
     void destroy() const {
-        glDeleteShader(handles.shaderHdl_);
-        glDeleteBuffers(1, &handles.vbo_);
-        glDeleteBuffers(1, &handles.ebo_);
-        glDeleteVertexArrays(1, &handles.vao_);
+        glDeleteShader(glHandles.shaderHdl_);
+        glDeleteBuffers(1, &glHandles.vbo_);
+        glDeleteBuffers(1, &glHandles.ebo_);
+        glDeleteVertexArrays(1, &glHandles.vao_);
     }
 
     //Render the mandelbrot fractal on top of a video
     void render(const cv::Rect& vp, const Settings& settings, const Camera2D& camera) const {
     	glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-		glUseProgram(handles.shaderHdl_);
-		glUniform4f(handles.baseColorHdl_, settings.baseColor_.val[0], settings.baseColor_.val[1], settings.baseColor_.val[2], settings.baseColor_.val[3]);
-		glUniform1i(handles.contrastBoostHdl_, settings.contrastBoost_);
-		glUniform1i(handles.maxIterationsHdl_, settings.maxIterations_);
-		glUniform1f(handles.centerXHdl_, (camera.centerX_));
-		glUniform1f(handles.centerYHdl_, (camera.centerY_));
-		glUniform1f(handles.currentZoomHdl_, 1.0f / camera.currentZoom_);
+		glUseProgram(glHandles.shaderHdl_);
+		glUniform4f(glHandles.baseColorHdl_, settings.baseColor_.val[0], settings.baseColor_.val[1], settings.baseColor_.val[2], settings.baseColor_.val[3]);
+		glUniform1i(glHandles.contrastBoostHdl_, settings.contrastBoost_);
+		glUniform1i(glHandles.maxIterationsHdl_, settings.maxIterations_);
+		glUniform1f(glHandles.centerXHdl_, (camera.centerX_));
+		glUniform1f(glHandles.centerYHdl_, (camera.centerY_));
+		glUniform1f(glHandles.currentZoomHdl_, 1.0f / camera.currentZoom_);
 
-		float vpArr[4] = {vp.x, vp.y, vp.width, vp.height};
-		glUniform4fv(handles.viewportHdl_, 1, vpArr);
-        glBindVertexArray(handles.vao_);
+		float vpArr[4] = {float(vp.x), float(vp.y), float(vp.width), float(vp.height)};
+		glUniform4fv(glHandles.viewportHdl_, 1, vpArr);
+        glBindVertexArray(glHandles.vao_);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     }
 };
@@ -327,7 +327,7 @@ public:
 		->endBranch();
 
         gl(&MandelbrotScene::render, R(scene_), vp_, CS(params_.settings_), CS(params_.camera_));
-        write();
+//        write();
     }
 
     void teardown() override {
@@ -343,15 +343,15 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    cv::Rect viewport(0, 0, 1280, 720);
+    cv::Rect viewport(0, 0, 1920, 1080);
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Mandelbrot Shader Demo", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);//, DebugFlags::PRINT_CONTROL_FLOW);
 	auto src = Source::make(runtime, argv[1]);
-	auto sink = Sink::make(runtime, "shader-demo.mkv", 60, viewport.size());
+//	auto sink = Sink::make(runtime, "shader-demo.mkv", 60, viewport.size());
 	runtime->setSource(src);
-	runtime->setSink(sink);
+//	runtime->setSink(sink);
 
-	//2 extra workers, 30 seconds auto zoom
-	Plan::run<ShaderDemoPlan>(4, 15);
+	//15 seconds auto zoom
+	Plan::run<ShaderDemoPlan>(1, 15);
 
 	return 0;
 }

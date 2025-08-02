@@ -296,7 +296,7 @@ private:
 		frames.orig_.copyTo(frames.stitched_);
 	}
 
-	static void compose_result(const cv::Rect& vp, Frames& frames, const Params& params) {
+	static void compose_result(Frames& frames, const Params& params) {
 		if (params.sideBySide_) {
 			//create side-by-side view with a result
 			cv::UMat lhalf;
@@ -366,7 +366,7 @@ public:
 			}
 
 			Begin("Status");
-			TextColored(color, text.c_str());
+			TextColored(color, text.c_str(), "");
 			End();
 		}, params_);
 	}
@@ -400,7 +400,7 @@ public:
 											!CS(params_.enabled_)
 										))
 			//every 4 frames redect the face features.
-			->branch((++RWS(params_.frame_cnt_) % V(8)) == V(0))
+			->branch((++RWS(params_.frame_cnt_) % V(size_t(8))) == V(size_t(0)))
 				->branch(!(F(&FaceFeatureExtractor::extract, RWS(extractor_), R(frames_.down_), RW(features_))));
 					//Set a shared state that will be displayed on-screen.
 					assign(RWS(params_.state_), V(Params::NOT_DETECTED))
@@ -416,7 +416,7 @@ public:
 			->assign(RWS(params_.state_), V(Params::OFF))
 		->endBranch();
 
-		plain(compose_result, vp_, RW(frames_), CS(params_))
+		plain(compose_result, RW(frames_), CS(params_))
 		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
 
 		write();

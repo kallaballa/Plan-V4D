@@ -448,7 +448,6 @@ typedef void (*GLADpostcallback)(void *ret, const char *name, GLADapiproc apipro
 #define GL_INT_VEC4 0x8B55
 #define GL_INVALID_ENUM 0x0500
 #define GL_INVALID_FRAMEBUFFER_OPERATION 0x0506
-#define GL_INVALID_INDEX 0xFFFFFFFF
 #define GL_INVALID_OPERATION 0x0502
 #define GL_INVALID_VALUE 0x0501
 #define GL_INVERT 0x150A
@@ -883,7 +882,6 @@ typedef void (*GLADpostcallback)(void *ret, const char *name, GLADapiproc apipro
 #define GL_TEXTURE_WRAP_S 0x2802
 #define GL_TEXTURE_WRAP_T 0x2803
 #define GL_TIMEOUT_EXPIRED 0x911B
-#define GL_TIMEOUT_IGNORED 0xFFFFFFFFFFFFFFFF
 #define GL_TRANSFORM_FEEDBACK_BUFFER 0x8C8E
 #define GL_TRANSFORM_FEEDBACK_BUFFER_BINDING 0x8C8F
 #define GL_TRANSFORM_FEEDBACK_BUFFER_MODE 0x8C7F
