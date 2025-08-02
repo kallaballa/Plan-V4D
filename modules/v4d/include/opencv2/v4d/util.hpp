@@ -368,7 +368,6 @@ public:
 		off_t actualTypeSize = plan.getActualTypeSize();
 		off_t varOffset = off_t (varPtr);
 		off_t planOffset = off_t (planPtr);
-		off_t planSize = sizeof(Tplan);
 
 		CV_Assert((parentOffset == 0  && parentActualSize == 0) || (parentOffset > 0 && parentActualSize > 0));
 
@@ -788,9 +787,6 @@ Tdst convert_pix(const Tsrc &src, double alpha = 1.0, double beta = 0.0) {
 	using intermediate_t = Vec<srcv_t, dstCn>;
 	using dst_internal_t = Vec<dstv_t, dstCn>;
 	static_assert((srcCn == 3 || srcCn == 4) && (dstCn == 3 || dstCn == 4), "Only 3 or 4 (src/dst) channels supported");
-	constexpr int srcType = CV_MAKETYPE(
-			matrix_depth<typename src_internal_t::value_type>(),
-			src_internal_t::channels);
 	constexpr int intermediateType = CV_MAKETYPE(
 			matrix_depth<typename src_internal_t::value_type>(), dstCn);
 	constexpr int dstType = CV_MAKETYPE(

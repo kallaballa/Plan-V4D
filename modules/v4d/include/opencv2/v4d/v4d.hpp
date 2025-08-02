@@ -1590,8 +1590,6 @@ public:
 //		static_assert(hasReturn || !TmakeEdge, "Operators may not have a return type of void.");
 		using ret_no_ref_t = typename std::remove_reference<ret_t>::type;
 		static_assert(!std::is_same<ret_no_ref_t, std::false_type>::value, "Invalid callable passed to Plan::op");
-		constexpr bool returnsRef = std::is_lvalue_reference<ret_t>::value;
-		constexpr bool returnsPtr = std::is_pointer<ret_no_ref_t>::value;
 
 		using val_t = typename std::disjunction<
 						values_equal<hasReturn, true, typename std::remove_pointer<ret_no_ref_t>::type>,
@@ -1602,9 +1600,9 @@ public:
 		if constexpr(hasReturn && TmakeEdge) {
 			cv::Ptr<cv::Ptr<val_t>> retPtr = new cv::Ptr<val_t>(cv::Ptr<val_t>(), nullptr);
 			std::function wrap = [op](cv::Ptr<val_t>& v, typename Args::ref_t ... values) mutable {
-				if constexpr(returnsPtr) {
+				if constexpr(std::is_pointer<ret_no_ref_t>::value) {
 					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),op(values...));
-				} else if constexpr(returnsRef) {
+				} else if constexpr(std::is_lvalue_reference<ret_t>::value) {
 					auto& ref = op(values...);
 					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),std::addressof(ref));
 				} else {

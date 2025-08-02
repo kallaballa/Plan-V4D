@@ -11,8 +11,6 @@ OCV_OPTION(OPENCV_V4D_ENABLE_MALI "Enable mali gpu support for V4D" OFF
 
 set(V4D_MODULES_DIR ${opencv_v4d_SOURCE_DIR}/../)
 
-add_definitions(-Werror)
-
 if(OPENCV_V4D_ENABLE_BGFX)
     add_definitions(-DOPENCV_V4D_ENABLE_BGFX=1)
 endif()
@@ -87,7 +85,6 @@ macro(add_binary_sample sample source)
       ocv_target_link_libraries(${sample} mali)
     endif()
     target_compile_features(${sample} PRIVATE cxx_std_20)
-    target_compile_options(${sample} PRIVATE -Werror -Wno-sign-promo)
     # set_property(TARGET ${sample} PROPERTY POSITION_INDEPENDENT_CODE ON)
     target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
     if(OPENCV_V4D_ENABLE_BGFX)
@@ -152,6 +149,7 @@ if (NOT (TARGET nanovg))
     install(TARGETS bimg EXPORT OpenCVModules)
     install(TARGETS bx EXPORT OpenCVModules)
   endif()
+
 # Add the opencv module
 if(NOT (TARGET ${the_module}))
   if(BUILD_EXAMPLES)
@@ -159,6 +157,7 @@ if(NOT (TARGET ${the_module}))
   else()
      ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video)
   endif()
+
   file(GLOB imgui_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/imguicontext.cpp")
   file(GLOB imgui_backend_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp")
   file(GLOB imgui_glfw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
@@ -168,9 +167,8 @@ if(NOT (TARGET ${the_module}))
       ocv_module_include_directories(${sample} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
   endif()
   ocv_create_module()
-  target_compile_options(${the_module} PRIVATE -Werror -Wno-sign-promo)
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
-
+  target_compile_options(${the_module} PUBLIC -Wfatal-errors)
   #  ocv_add_samples(opencv_v4d)
   # Populate assets
   fetch_file("LBFMODEL" "https://github.com/kurnianggoro/GSOC2017/raw/master/data/lbfmodel.yaml" "70dd8b1657c42d1595d6bd13d97d932877b3bed54a95d3c4733a0f740d1fd66b")
@@ -264,7 +262,8 @@ if(NOT (TARGET ${the_module}))
 
 
   target_compile_features(${the_module} PRIVATE cxx_std_20)
-  ocv_warnings_disable(CMAKE_CXX_FLAGS -Wdeprecated-enum-enum-conversion)
+
+  #  ocv_warnings_disable(CMAKE_CXX_FLAGS -Wdeprecated-enum-enum-conversion)
   target_link_directories(${the_module} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
   ocv_target_link_libraries(${the_module} glfw nanovg)
   if(OPENCV_V4D_ENABLE_ES3)

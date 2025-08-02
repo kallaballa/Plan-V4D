@@ -110,7 +110,6 @@ int main() {
 		//we could do all kinds of operations and decisions herem that are based
 		//on the frame, the sequence nummber and any  hidden state the sink holds
 		//(e.g. the video sink)
-		Scalar pix = cv::sum(frame(cv::Rect(0, 0, 1, 1)));
 
 		//pass the frame on to the video sink
 		videoSink->operator()(seq, frame);

@@ -93,10 +93,10 @@ public:
 		}, vp_);
 
 		//Provides the framebuffer as left-off by the nvg context.
-		fb([](UMat& framebuffer, const cv::Rect& vp) {
+		fb([](UMat& framebuffer) {
 			//Heavily blurs the eyes using a cheap boxFilter
 			boxFilter(framebuffer, framebuffer, -1, Size(15, 15), Point(-1,-1), true, BORDER_REPLICATE);
-		}, vp_);
+		});
 	}
 };
 

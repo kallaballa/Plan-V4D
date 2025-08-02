@@ -144,7 +144,7 @@ private:
 
 	class HOG {
 	public:
-		void detect(const cv::UMat& videoFrameDownGrey, Detection& detection, NonMaxSupression& nms, Params& params, const cv::Rect& tracked) const {
+		void detect(const cv::UMat& videoFrameDownGrey, Detection& detection, NonMaxSupression& nms, Params& params) const {
 			detection.redetect_ = true;
 			//Detect pedestrians
 			detection.hog_.detectMultiScale(videoFrameDownGrey, detection.locations_, 0, cv::Size(), cv::Size(), 1.15, 2.0, true);
@@ -262,7 +262,7 @@ public:
 
 		//Try to track the pedestrian (if we currently are tracking one), else re-detect using HOG descriptor
 		branch(doRedect_, R(detection_))
-			->plain(&HOG::detect, R(hog), R(frames_.videoFrameDownGrey_), RW(detection_), RW(nms), RW(params_), CS(tracked_))
+			->plain(&HOG::detect, R(hog), R(frames_.videoFrameDownGrey_), RW(detection_), RW(nms), RW(params_))
 		->elseBranch()
 			->plain(&Tracking::perform, R(tracking), R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
 		->endBranch();
