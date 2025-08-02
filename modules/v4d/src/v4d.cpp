@@ -335,6 +335,8 @@ void V4D::swapContextBuffers() {
 }
 
 bool V4D::display() {
+    auto startDisplayFuncNanos = get_epoch_nanos();
+
 	Global& global = Global::instance();
     if(!global.isMain()) {
     	global.apply<size_t>(Global::Keys::FRAME_COUNT, [](size_t& v){ return v++; });
@@ -427,6 +429,16 @@ bool V4D::display() {
 		TimeTracker::getInstance()->newCount();
 		GL_CHECK(glFinish());
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
+
+
+		if(!(configFlags() &  ConfigFlags::DISPLAY_MODE)) {
+	        auto endDisplayFuncNanos = get_epoch_nanos();
+	        auto displayDuration = endDisplayFuncNanos - startDisplayFuncNanos;
+	        int64_t sleepNanos = std::round((1000000000.0/60.0) - displayDuration);
+	        if(sleepNanos > 0) {
+	            std::this_thread::sleep_for(std::chrono::nanoseconds(sleepNanos));
+		    }
+		}
 		global.set(Global::Keys::DISPLAY_READY, true);
 		GL_CHECK(glClearColor(0,0,0,1));
 		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));

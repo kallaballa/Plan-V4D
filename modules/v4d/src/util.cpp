@@ -222,6 +222,14 @@ void init_shaders(unsigned int handles[3], const string vShader, const string fS
         exit (EXIT_FAILURE);
     }
 
+    GL_CHECK(glValidateProgram(program));
+    GLint validateStatus;
+    GL_CHECK(glGetProgramiv(program, GL_VALIDATE_STATUS, &validateStatus));
+    if (validateStatus == GL_FALSE) {
+        char infoLog[1024];
+        GL_CHECK(glGetProgramInfoLog(program, 1024, NULL, infoLog));
+        std::cerr << "ERROR::PROGRAM::VALIDATION_FAILED\n" << infoLog << std::endl;
+    }
 }
 
 std::string get_gl_vendor()  {
