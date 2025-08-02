@@ -402,7 +402,7 @@ private:
 
 	struct Frames {
 		//BGRA
-		cv::UMat background_, oldFg_, down_;
+		cv::UMat background_, clear_, oldFg_, down_;
 
 		//BGR
 		cv::UMat result_;
@@ -549,6 +549,15 @@ public:
                     V(cv::USAGE_DEFAULT)
         );
 
+        plain(UMAT_CREATE,
+                    RW(frames_.clear_),
+                    F(&cv::Rect::size, vp_),
+                    V(CV_8UC4),
+                    V(cv::USAGE_DEFAULT)
+        );
+
+        assign(RW(frames_.clear_), V(cv::Scalar(0)));
+
     	subSetup(prepareMasks_);
 	}
 
@@ -558,11 +567,11 @@ public:
 	    capture()
 		->fb(UMAT_COPY_TO_, RW(frames_.background_));
 
-		subInfer(prepareMasks_);
+	    subInfer(prepareMasks_);
 
-		fb<1>(UMAT_COPY_TO_, R(foreground_));
+	    clear();
 
-		plain(&FeaturePoints::detect, RW(featurePoints_),
+        plain(&FeaturePoints::detect, RW(featurePoints_),
                 R(frames_.downMotionMaskGrey_),
                 RWS(detectedPoints_)
         );
@@ -590,18 +599,17 @@ public:
         ->endBranch();
 
 		fb<3>(&Compositor::perform, RW(compositor_),
-							R(frames_.background_),
-							RW(foreground_),
-							CS(params_.backgroundMode_),
-							CS(params_.postProcMode_),
-							CS(params_.kernelSize_),
-							CS(params_.gain_),
-							CS(params_.fgLoss_),
-							numWorkers_
+		                                R(frames_.background_),
+		                                RW(foreground_),
+		                                CS(params_.backgroundMode_),
+		                                CS(params_.postProcMode_),
+		                                CS(params_.kernelSize_),
+		                                CS(params_.gain_),
+		                                CS(params_.fgLoss_),
+		                                numWorkers_
 		);
-
 		plain(UMAT_COPY_TO_, R(frames_.downNextGrey_), RW(frames_.downPrevGrey_));
-//        write();
+        write();
 	}
 };
 
@@ -616,10 +624,10 @@ int main(int argc, char **argv) {
     cv::Rect viewport(0, 0, 1920, 1080);
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	auto src = Source::make(runtime, argv[1]);
-//	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
+	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
 	runtime->setSource(src);
-//	runtime->setSink(sink);
-	Plan::run<OptflowDemoPlan>(3);
+	runtime->setSink(sink);
+	Plan::run<OptflowDemoPlan>(6);
 
     return 0;
 }

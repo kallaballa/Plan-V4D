@@ -178,6 +178,23 @@ private:
 	} hog;
 
 	class Tracking {
+	private:
+	    void limitFunc(const double& in, const double& max, const int& val, int& limited) const {
+            if(fabs(in) > max) {
+                if(in < 0.0) {
+                    limited = std::round(val + (max / 2.0));
+                } else {
+                    limited = std::round(val - (max / 2.0));
+                }
+            } else {
+                if(in < 0.0) {
+                    limited = std::round(val + (in / 2.0));
+                } else {
+                    limited = std::round(val - (in / 2.0));
+                }
+            }
+	    }
+
 	public:
 		void perform(const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params, const cv::Rect& tracked) const {
 			params.newTracked_ = tracked;
@@ -189,19 +206,19 @@ private:
 		}
 
 		void save(const Params& params, cv::Rect& tracked) const {
-			cv::Rect oldTracked = tracked;
-			size_t diffX = std::abs(oldTracked.x - params.newTracked_.x);
-			size_t diffY = std::abs(oldTracked.y - params.newTracked_.y);
-			size_t diffW = std::abs(oldTracked.width - params.newTracked_.width);
-			size_t diffH = std::abs(oldTracked.height - params.newTracked_.height);
-			double threshW = params.size_.width / 650.0;
-			double threshH = params.size_.height / 650.0;
+		    const cv::Rect oldTracked = tracked;
 
-			if(diffW > threshW && diffH > threshH && diffX > threshW && diffY > threshH) {
-				tracked.x = (params.newTracked_.x + tracked.x * 4) / 5.0;
-				tracked.y = (params.newTracked_.y + tracked.y * 4) / 5.0;
-				tracked.width = (params.newTracked_.width + tracked.width * 4) / 5.0;
-				tracked.height = (params.newTracked_.height + tracked.height * 4) / 5.0;
+		    const double diffX = oldTracked.x - params.newTracked_.x;
+			const double diffY = oldTracked.y - params.newTracked_.y;
+			const double diffW = oldTracked.width - params.newTracked_.width;
+			const double diffH = oldTracked.height - params.newTracked_.height;
+			const double excenter = std::hypotf(diffX, diffY);
+			
+			if(excenter > std::hypot(params.size_.width, params.size_.height) / 72.0) {
+                limitFunc(diffX, excenter / 3.0, oldTracked.x, tracked.x);
+                limitFunc(diffY, excenter / 3.0, oldTracked.y, tracked.y);
+                limitFunc(diffW, excenter / 3.0, oldTracked.width, tracked.width);
+                limitFunc(diffH, excenter / 3.0, oldTracked.height, tracked.height);
 			}
 		}
 	} tracking;
@@ -250,10 +267,9 @@ public:
 			->plain(&Tracking::perform, R(tracking), R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
 		->endBranch();
 
-		plain(&Tracking::save, R(tracking), R(params_), RWS(tracked_));
-
-		nvg(&ObjectMarker::draw, R(marker_), vp_, R(params_), CS(tracked_))
-		->fb(present, R(frames_.background_));
+		plain(&Tracking::save, R(tracking), R(params_), RWS(tracked_))
+        ->nvg(&ObjectMarker::draw, R(marker_), vp_, R(params_), CS(tracked_))
+        ->fb(present, R(frames_.background_));
 
 		write();
 	}
@@ -266,12 +282,12 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    cv::Rect viewport(0, 0, 2560, 1600);
+    cv::Rect viewport(0, 0, 1920, 1080);
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
     auto src = Source::make(runtime, argv[1]);
-    auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 200, viewport.size());
+    auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 60, viewport.size());
     runtime->setSource(src);
     runtime->setSink(sink);
-    Plan::run<PedestrianDemoPlan>(2);
+    Plan::run<PedestrianDemoPlan>(0);
     return 0;
 }

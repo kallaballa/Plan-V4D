@@ -278,7 +278,7 @@ void FrameBufferContext::init() {
     }
 #endif
     try {
-        if (isRoot() && is_clgl_sharing_supported())
+        if (is_clgl_sharing_supported())
             cv::ogl::ocl::initializeContextFromGL();
         else
             clglSharing_ = false;
