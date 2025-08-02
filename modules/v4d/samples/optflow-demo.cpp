@@ -243,7 +243,6 @@ public:
 		    temp_.bgFloat_.copyTo(temp_.fgFloat_);
 		}
 
-//	    cv::multiply(temp_.fgFloat_, cv::Scalar::all(3), temp_.fgFloat_);
 	    cv::add(temp_.bgFloat_, temp_.fgFloat_, temp_.fbFloat_);
 	    temp_.fbFloat_.convertTo(framebuffer, CV_8U, 255.0);
 	    temp_.fgFloat_.convertTo(foreground, CV_8U, 255.0);
@@ -403,7 +402,7 @@ private:
 
 	struct Frames {
 		//BGRA
-		cv::UMat background_, down_;
+		cv::UMat background_, oldFg_, down_;
 
 		//BGR
 		cv::UMat result_;
@@ -415,8 +414,9 @@ private:
 	SceneChange sceneChange_;
 	SparseOpticalFlow sparseOptflow_;
 	Compositor compositor_;
+	cv::UMat foreground_;
 	inline static vector<cv::Point2f> detectedPoints_;
-	inline static cv::UMat foreground_;
+
 
 	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 	Property<size_t> numWorkers_ = P<size_t>(Global::Keys::WORKERS_STARTED);
@@ -543,7 +543,7 @@ public:
 //		->endBranch();
 
     	plain(UMAT_CREATE,
-                    RWS(foreground_),
+                    RW(foreground_),
                     F(&cv::Rect::size, vp_),
                     V(CV_8UC4),
                     V(cv::USAGE_DEFAULT)
@@ -560,9 +560,9 @@ public:
 
 		subInfer(prepareMasks_);
 
-		fb<1>(UMAT_COPY_TO_, RWS(foreground_));
+		fb<1>(UMAT_COPY_TO_, R(foreground_));
 
-        plain(&FeaturePoints::detect, RW(featurePoints_),
+		plain(&FeaturePoints::detect, RW(featurePoints_),
                 R(frames_.downMotionMaskGrey_),
                 RWS(detectedPoints_)
         );
@@ -572,26 +572,26 @@ public:
 				     CS(params_.sceneChangeThresh_),
 				     CS(params_.sceneChangeThreshDiff_)
 			   )
+		       && !F(&std::vector<cv::Point2f>::empty, RS(detectedPoints_))
+               && !F(&cv::UMat::empty, R(frames_.downPrevGrey_))
 		)
-            ->branch(!F(&std::vector<cv::Point2f>::empty, RS(detectedPoints_))
-                       && !F(&cv::UMat::empty, R(frames_.downPrevGrey_)))
-                ->nvg(&SparseOpticalFlow::visualize, RW(sparseOptflow_),
-                        R(frames_.downPrevGrey_),
-                        R(frames_.downNextGrey_),
-                        RS(detectedPoints_),
-                        CS(params_.maxStroke_),
-                        CS(params_.maxPoints_),
-                        CS(params_.pointLoss_),
-                        CS(params_.fgScale_),
-                        CS(params_.effectColor_)
-                )
-                ->fb(UMAT_COPY_TO_, RS(foreground_))
-            ->endBranch()
+		    ->nvg(&SparseOpticalFlow::visualize, RW(sparseOptflow_),
+                    R(frames_.downPrevGrey_),
+                    R(frames_.downNextGrey_),
+                    RS(detectedPoints_),
+                    CS(params_.maxStroke_),
+                    CS(params_.maxPoints_),
+                    CS(params_.pointLoss_),
+                    CS(params_.fgScale_),
+                    CS(params_.effectColor_)
+            )
+            ->fb(UMAT_COPY_TO_, RW(frames_.oldFg_))
+            ->plain(cv::addWeighted, R(frames_.oldFg_), V(params_.fgLoss_ / 10.0), R(foreground_), V(1.0 - params_.fgLoss_ / 10.0), V(0.0), RW(foreground_), V(-1))
         ->endBranch();
 
 		fb<3>(&Compositor::perform, RW(compositor_),
 							R(frames_.background_),
-							RWS(foreground_),
+							RW(foreground_),
 							CS(params_.backgroundMode_),
 							CS(params_.postProcMode_),
 							CS(params_.kernelSize_),
@@ -601,7 +601,7 @@ public:
 		);
 
 		plain(UMAT_COPY_TO_, R(frames_.downNextGrey_), RW(frames_.downPrevGrey_));
-        write();
+//        write();
 	}
 };
 
@@ -613,13 +613,13 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    cv::Rect viewport(0, 0, 1280, 720);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+    cv::Rect viewport(0, 0, 1920, 1080);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	auto src = Source::make(runtime, argv[1]);
-	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
+//	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
 	runtime->setSource(src);
-	runtime->setSink(sink);
-	Plan::run<OptflowDemoPlan>(2);
+//	runtime->setSink(sink);
+	Plan::run<OptflowDemoPlan>(3);
 
     return 0;
 }
