@@ -134,7 +134,7 @@ class BgfxDemoPlan : public Plan {
 
 	inline static int64_t time_offset_;
 
-	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
 	BgfxDemoPlan(){
 
@@ -146,9 +146,9 @@ public:
 			}, RWS(time_offset_))
 		->endBranch();
 
-		bgfx([](const cv::Rect& vp, Params& params){
-			params.width_ = vp.width;
-			params.height_ = vp.height;
+		bgfx([](const cv::Size& sz, Params& params){
+			params.width_ = sz.width;
+			params.height_ = sz.height;
 			// Set view 0 clear state.
 			bgfx::setViewClear(0
 				, BGFX_CLEAR_COLOR|BGFX_CLEAR_DEPTH
@@ -159,7 +159,7 @@ public:
 			PosColorVertex::init();
 
 			// Set view 0 default viewport.
-			bgfx::setViewRect(0, vp.x, vp.y, uint16_t(vp.width), uint16_t(vp.height));
+			bgfx::setViewRect(0, sz.x, sz.y, uint16_t(sz.width), uint16_t(sz.height));
 
 			// Create static vertex buffer.
 			params.vbh_ = bgfx::createVertexBuffer(
@@ -201,7 +201,7 @@ public:
 			// Create program from shaders.
 			params.program_ = util::load_program("vs_cubes", "fs_cubes");
 
-		}, vp_, RW(params_));
+		}, size_, RW(params_));
 	}
 
 	void infer() override {

@@ -15,13 +15,21 @@ SourceContext::SourceContext(cv::Ptr<FrameBufferContext> mainFbContext) : mainFb
 }
 
 int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
-	if(V4D::instance()->get<bool>(V4D::Keys::DISABLE_VIDEO_IO))
+    CV_UNUSED(vp);
+    if(V4D::get<bool>(V4D::Keys::DISABLE_VIDEO_IO))
 		return 1;
 
-	CV_UNUSED(vp);
+    const cv::Size sz = V4D::get<cv::Size>(V4D::Keys::SIZE);
+    const signed long long fcnt = Global::get<size_t>(Global::Keys::FRAME_CNT);
+
+//    std::cerr << "fcnt / lastFCount: " << fcnt << " / " << lastFCount_ << std::endl;
+
     if (hasContext()) {
         CLExecScope_t scope(getCLExecContext());
-        if (V4D::instance()->hasSource()) {
+        if(fcnt == lastFCount_) {
+            fn();
+            return lastIdx_;
+        } else if (V4D::instance()->hasSource()) {
         	auto src = V4D::instance()->getSource();
 
         	if(src->isOpen()) {
@@ -34,17 +42,24 @@ int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 
 		        CV_Assert(p.second.type() == CV_8UC3 || p.second.type() == CV_8UC4);
 
+		        cv::resize(p.second, p.second, sz, 0.0, 0.0, cv::INTER_LINEAR);
+
 		        if(p.second.channels() == 3)
 		        	cv::cvtColor(p.second, sourceBuffer(), cv::COLOR_RGB2BGRA);
 		        else
 		        	cv::cvtColor(p.second, sourceBuffer(), cv::COLOR_RGBA2BGRA);
 		        fn();
+		        lastFCount_ = fcnt;
+		        lastIdx_ = p.first;
 		        return p.first;
         	}
         }
         return 0;
     } else {
-        if (V4D::instance()->hasSource()) {
+        if(fcnt == lastFCount_) {
+            fn();
+            return lastIdx_;
+        } else if (V4D::instance()->hasSource()) {
         	auto src = V4D::instance()->getSource();
 
         	if(src->isOpen()) {
@@ -57,13 +72,16 @@ int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 
 		        CV_Assert(p.second.type() == CV_8UC3 || p.second.type() == CV_8UC4);
 
+		        cv::resize(p.second, p.second, sz, 0.0, 0.0, cv::INTER_LINEAR);
+
 		        if(p.second.channels() == 3)
 		        	cv::cvtColor(p.second, sourceBuffer(), cv::COLOR_RGB2BGRA);
 		        else
 		        	cv::cvtColor(p.second, sourceBuffer(), cv::COLOR_RGBA2BGRA);
 		        fn();
-
-		        return p.first;
+                lastIdx_ = p.first;
+                lastFCount_ = fcnt;
+                return p.first;
         	}
         }
         return 0;

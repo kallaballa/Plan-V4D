@@ -230,11 +230,11 @@ public:
         }
     };
 
-private:
-    FrameBufferContext(const cv::Size& frameBufferSize, const string& title, int major, int minor, int samples, GLFWwindow* rootWindow, cv::Ptr<FrameBufferContext> parent, bool root, int configFlags = -1);
-    FrameBufferContext(const string& title, cv::Ptr<FrameBufferContext> other);
 public:
     virtual ~FrameBufferContext();
+
+    FrameBufferContext(const cv::Size& frameBufferSize, const string& title, int major, int minor, int samples, GLFWwindow* rootWindow, cv::Ptr<FrameBufferContext> parent, bool root, int configFlags = -1);
+    FrameBufferContext(const string& title, cv::Ptr<FrameBufferContext> other);
 
     static cv::Ptr<FrameBufferContext> make(const string& title, cv::Ptr<FrameBufferContext> other);
     static cv::Ptr<FrameBufferContext> make(const cv::Size& sz, const string& title, const int& major, const int& minor, const int& samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, const bool& root, const int& confFlags = -1);
@@ -266,7 +266,9 @@ public:
       * @param fn A function object that is passed the framebuffer to be read/manipulated.
       */
     virtual int execute(const cv::Rect& vp, std::function<void()> fn) override {
-		cv::Rect glAdjustedVp(vp.x, (size().height - (vp.y + vp.height)), vp.width, vp.height);
+//		cv::Rect glAdjustedVp(vp.x, (size().height - (vp.y + vp.height)), vp.width, vp.height);
+        CV_UNUSED(vp);
+        cv::Rect glAdjustedVp(0, 0, size().width, size().height);
     	FrameBufferContext::WindowScope winScope(self());
     	if(cv::ocl::useOpenCL() && !getCLExecContext().empty()) {
 			CLExecScope_t clExecScope(getCLExecContext());

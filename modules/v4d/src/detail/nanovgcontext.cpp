@@ -49,11 +49,12 @@ int NanoVGContext::render(const cv::Rect& vp, std::function<void()> fn) {
 	{
 //		glEnable(GL_SCISSOR_TEST);
 //		glScissor(0, 0, vp.size().width, vp.size().height);
-//		glViewport(vp.x, vp.y, vp.width, vp.height);
+//		glViewport(0, 0, vp.width, vp.height);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		NanoVGContext::Scope nvgScope(*this, vp);
 		cv::v4d::nvg::detail::NVG::initializeContext(context_);
+//		cv::v4d::nvg::scale(0.5, 0.5);
 		fn();
 //		glDisable(GL_SCISSOR_TEST);
 

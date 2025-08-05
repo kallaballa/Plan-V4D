@@ -49,10 +49,10 @@ public:
 		height_ = (lines_.size() * fontSize);
 	}
 
-    void draw(const cv::Rect& vp, const double& timeOffset) {
+    void draw(const cv::Size& sz, const double& timeOffset) {
 		double time = seconds() - timeOffset;
 		//How many pixels to translate the text up.
-		textOffsetY_ = (double(vp.height) - round(time * 30.0));
+		textOffsetY_ = (double(sz.height) - round(time * 30.0));
 		using namespace cv::v4d::nvg;
 		clearScreen();
 		fontSize(fontSize_);
@@ -65,8 +65,8 @@ public:
 
 		for (size_t i = 0; i < lines_.size(); ++i) {
 			lineOffsetY_ = (i * fontSize_);
-			if (lineOffsetY_ + textOffsetY_ < vp.height && lineOffsetY_ + textOffsetY_ + fontSize_ > 0) {
-				text(vp.width / 2.0, lineOffsetY_, lines_[i].c_str(), lines_[i].c_str() + lines_[i].size());
+			if (lineOffsetY_ + textOffsetY_ < sz.height && lineOffsetY_ + textOffsetY_ + fontSize_ > 0) {
+				text(sz.width / 2.0, lineOffsetY_, lines_[i].c_str(), lines_[i].c_str() + lines_[i].size());
 			}
 		}
     }
@@ -83,18 +83,18 @@ public:
 	float maxStarAlpha_ = 0.25f;
 	bool update_ = true;
 
-	void draw(const cv::Rect& vp) {
+	void draw(const cv::Size& sz) {
 		using namespace cv::v4d::nvg;
 		clearScreen();
 		//draw stars
 		int numStars = rng_.uniform(minStarCount_, maxStarCount_);
 		for(int i = 0; i < numStars; ++i) {
 			beginPath();
-			const auto size = rng_.uniform(minStarSize_, maxStarSize_);
-			const auto alpha = rng_.uniform(0.05f, maxStarAlpha_);
-			strokeWidth(size);
-			strokeColor(cv::Scalar(255, 255, 255, alpha * 255.0f));
-			circle(rng_.uniform(0, vp.width) , rng_.uniform(0, vp.height), size / 2.0);
+			const auto starSize = rng_.uniform(minStarSize_, maxStarSize_);
+			const auto starAlpha = rng_.uniform(0.05f, maxStarAlpha_);
+			strokeWidth(starSize);
+			strokeColor(cv::Scalar(255, 255, 255, starAlpha * 255.0f));
+			circle(rng_.uniform(0, sz.width) , rng_.uniform(0, sz.height), starSize / 2.0);
 			stroke();
 		}
 		update_ = false;
@@ -103,37 +103,38 @@ public:
 
 struct Warp {
 	cv::Mat transMatrix_;
+	struct Temp {
+	    cv::UMat tmp_;
+	    cv::UMat blur_;
+	    cv::UMat mask_;
+	} temp_;
 public:
 	cv::UMat rendering_;
 	float warpRatio_ = 0.33f;
 	bool update_ = true;
 
-	void calculate(const cv::Rect& vp) {
+	void calculate(const cv::Size& sz) {
 		//Derive the transformation matrix tm for the pseudo 3D effect from quad1 and quad2.
 		vector<cv::Point2f> quad1 = { cv::Point2f(0, 0),
-				cv::Point2f(vp.width, 0), cv::Point2f(vp.width,
-						vp.height), cv::Point2f(0, vp.height) };
-		float l = (vp.width - (vp.width * warpRatio_)) / 2.0;
-		float r = vp.width - l;
+				cv::Point2f(sz.width, 0), cv::Point2f(sz.width,
+						sz.height), cv::Point2f(0, sz.height) };
+		float l = (sz.width - (sz.width * warpRatio_)) / 2.0;
+		float r = sz.width - l;
 
 		vector<cv::Point2f> quad2 = { cv::Point2f(l, 0.0f),
-				cv::Point2f(r, 0.0f), cv::Point2f(vp.width,
-						vp.height), cv::Point2f(0, vp.height) };
+				cv::Point2f(r, 0.0f), cv::Point2f(sz.width,
+						sz.height), cv::Point2f(0, sz.height) };
 		transMatrix_ = cv::getPerspectiveTransform(quad1, quad2);
 	}
 
 	void perform(const cv::UMat& textRendering, const cv::UMat& starsRendering, cv::UMat& result) {
-		cv::UMat tmp;
-		cv::UMat blur_;
-		cv::UMat mask_;
-		cv::warpPerspective(textRendering.clone(), tmp, transMatrix_.clone(), textRendering.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar());
-		rendering_ = tmp.clone();
-		cv::boxFilter(tmp, blur_, -1, cv::Size(5, 5), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
-		cv::threshold(blur_, mask_, 1, 255, cv::THRESH_BINARY);
-		cvtColor(mask_, mask_, cv::COLOR_BGRA2GRAY);
+		cv::warpPerspective(textRendering, temp_.tmp_, transMatrix_, textRendering.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar());
+		cv::boxFilter(temp_.tmp_, temp_.blur_, -1, cv::Size(5, 5), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
+		cv::threshold(temp_.blur_, temp_.mask_, 1, 255, cv::THRESH_BINARY);
+		cvtColor(temp_.mask_, temp_.mask_, cv::COLOR_BGRA2GRAY);
 		cv::UMat s = starsRendering.clone();
-		s.setTo(cv::Scalar::all(0), mask_);
-		cv::add(s, tmp, result);
+		s.setTo(cv::Scalar::all(0), temp_.mask_);
+		cv::add(s, temp_.tmp_, result);
 	}
 };
 
@@ -143,7 +144,9 @@ class FontDemoPlan : public Plan {
 	static Warp warp_;
 	static double timeOffset_;
 
-    Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+	static constexpr auto UMAT_COPY_ = static_cast<void(*)(const cv::UMat&, cv::UMat&)>(&SharedVariables::copy);
+
+	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
 	void gui() override {
         imgui([](TextRenderer& text, StarsRenderer& stars, Warp& warp) {
@@ -175,26 +178,24 @@ public:
 		branch(BranchType::ONCE, always_)
 				->assign(RW(timeOffset_), F(seconds))
 				->construct(RW(text_), F(hypot,
-											F(&cv::Size::width, F(&cv::Rect::size, vp_)),
-											F(&cv::Size::height, F(&cv::Rect::size, vp_))
+											F(&cv::Size::width, size_),
+											F(&cv::Size::height, size_)
 										) / V(60.0))
 		->endBranch();
     }
 
     void infer() override {
-    	constexpr auto copyToMemFn = static_cast<void(*)(const cv::UMat&, cv::UMat&)>(&SharedVariables::copy);
-
 		branch(CS(warp_.update_))
-			->plain(&Warp::calculate, RWS(warp_), vp_)
+			->plain(&Warp::calculate, RWS(warp_), size_)
 		->endBranch();
 
     	branch(CS(stars_.update_))
-			->nvg(&StarsRenderer::draw, RWS(stars_), vp_)
-			->fb(copyToMemFn, RWS(stars_.rendering_))
+			->nvg(&StarsRenderer::draw, RWS(stars_), size_)
+			->fb(UMAT_COPY_, RWS(stars_.rendering_))
 		->endBranch();
 
-		nvg(&TextRenderer::draw, RWS(text_), vp_, CS(timeOffset_));
-		fb(copyToMemFn, RWS(text_.rendering_));
+		nvg(&TextRenderer::draw, RWS(text_), size_, CS(timeOffset_));
+		fb(UMAT_COPY_, RWS(text_.rendering_));
 
 		clear();
 

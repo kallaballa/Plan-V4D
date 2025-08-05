@@ -10,16 +10,19 @@
 using namespace cv::v4d;
 
 class CubeDemoPlan : public Plan {
-	constexpr static size_t WIDTH_ = 1920;
-	constexpr static size_t HEIGHT_ = 1080;
 	CubeScene scene_;
 public:
 	void setup() override {
-		set(_(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255))));
+
+		set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255)));
 		gl(&CubeScene::init, RW(scene_));
 		clear();
-		gl(glEnable, V(GL_SCISSOR_TEST));
-		gl(glScissor, V(760), V(400), V(400), V(280));
+
+//        cv::Rect vp = V4D::get<cv::Rect>(V4D::Keys::VIEWPORT);
+//        size_t w = vp.width / 4.5;
+//        size_t h = vp.height / 4.5;
+//		gl(glEnable, V(GL_SCISSOR_TEST));
+//		gl(glScissor, V((vp.width - w) / 2.0), V((vp.height - h) / 2.0), V(w), V(h));
 	}
 
 	void infer() override {

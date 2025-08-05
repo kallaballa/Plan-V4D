@@ -5,18 +5,18 @@ using namespace cv::v4d;
 
 class FontWithGuiPlan: public Plan {
 	static struct Params {
-		float size_ = 40.0f;
+		float frontSize_ = 40.0f;
 		cv::Scalar_<float> color_ = {1.0f, 0.0f, 0.0f, 1.0f};
 	} params_;
 	//The text
 	string hw_ = "hello world";
-	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
 	void gui() override {
 		imgui([](Params& params) {
 			using namespace ImGui;
 			Begin("Settings");
-			SliderFloat("Font Size", &params.size_, 1.0f, 100.0f);
+			SliderFloat("Font Size", &params.frontSize_, 1.0f, 100.0f);
 			ColorPicker4("Text Color", params.color_.val);
 			End();
 		}, params_);
@@ -24,15 +24,15 @@ public:
 
 	void infer() override {
 		//Render the text at the center of the screen using parameters from the GUI.
-		nvg([](const Rect& vp, const string& str, const Params& params) {
+		nvg([](const cv::Size& sz, const string& str, const Params& params) {
 			using namespace cv::v4d::nvg;
 			clearScreen();
-			fontSize(params.size_);
+			fontSize(params.frontSize_);
 			fontFace("sans-bold");
 			fillColor(params.color_ * 255.0);
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-			text(vp.width / 2.0, vp.height / 2.0, str.c_str(), str.c_str() + str.size());
-		}, vp_, R(hw_), CS(params_));
+			text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
+		}, size_, R(hw_), CS(params_));
 	}
 };
 

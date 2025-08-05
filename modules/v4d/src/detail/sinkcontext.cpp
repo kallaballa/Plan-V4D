@@ -16,7 +16,8 @@ SinkContext::SinkContext(cv::Ptr<FrameBufferContext> mainFbContext) : mainFbCont
 }
 
 int SinkContext::execute(const cv::Rect& vp, std::function<void()> fn) {
-	if(V4D::instance()->get<bool>(V4D::Keys::DISABLE_VIDEO_IO))
+    auto v4d = V4D::instance();
+    if(V4D::get<bool>(V4D::Keys::DISABLE_VIDEO_IO) || !v4d->hasSink())
 		return 1;
 
 	CV_UNUSED(vp);
@@ -26,11 +27,11 @@ int SinkContext::execute(const cv::Rect& vp, std::function<void()> fn) {
     } else {
     	fn();
     }
-	auto v4d = V4D::instance();
+
 	if(v4d->hasSink() && v4d->getSink()->isOpen()) {
-			cvtColor(sinkBuffer(), rgba_, cv::COLOR_BGRA2RGBA);
-			v4d->getSink()->operator ()(v4d->getSequenceNumber(), rgba_);
-			return 1;
+        cvtColor(sinkBuffer(), rgba_, cv::COLOR_BGRA2RGBA);
+        v4d->getSink()->operator ()(v4d->getSequenceNumber(), rgba_);
+        return 1;
 	}
 	return 0;
 }

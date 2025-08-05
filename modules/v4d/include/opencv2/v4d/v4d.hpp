@@ -161,7 +161,7 @@ class CV_EXPORTS V4D {
 public:
     struct Keys {
     	enum Enum {
-    		INIT_VIEWPORT,
+    		SIZE,
     		VIEWPORT,
 			WINDOW_SIZE,
 			FRAMEBUFFER_SIZE,
@@ -171,11 +171,12 @@ public:
 			DISABLE_VIDEO_IO,
 			DISABLE_INPUT_EVENTS,
 			SHOW_GUI,
-	        TIME_TRACKER
+	        TIME_TRACKER,
+	        VISIBLE
     	};
     };
 private:
-    CV_EXPORTS static thread_local std::mutex instance_mtx_;
+    CV_EXPORTS static std::mutex instance_mtx_;
     CV_EXPORTS static thread_local cv::Ptr<V4D> instance_;
     CV_EXPORTS static ThreadSafeAnyMap<Keys::Enum> properties_;
 
@@ -355,10 +356,10 @@ public:
 			} else {
 				while(keep_running()) {
 					bool result = true;
-					TimeTracker::getInstance()->execute("worker", [&result, &global, runtime, runGraph](){
+					TimeTracker::getInstance()->execute("worker", [&result, runtime, runGraph](){
 						event::poll();
 //						if(!runtime->hasSource() || (runtime->hasSource() && !runtime->getSource()->isOpen())) {
-						global.apply<size_t>(Global::Keys::RUN_COUNT, [runtime](size_t& s) {
+						Global::apply<size_t>(Global::Keys::RUN_CNT, [runtime](size_t& s) {
 							runtime->setSequenceNumber(++s);
 							return s;
 						});
@@ -400,7 +401,7 @@ public:
 		reseq.finish();
 		if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
 			if(global.isMain()) {
-				for(size_t i = 0; i < global.get<size_t>(Global::Keys::WORKERS_STARTED); ++i)
+				for(size_t i = 0; i < Global::get<size_t>(Global::Keys::WORKERS_STARTED); ++i)
 					frame_sync_render.release();
 			} else {
 				frame_sync_sema_swap.release();
@@ -836,7 +837,7 @@ class CV_EXPORTS Plan {
 		currentNodes_.clear();
 	}
 
-	size_t id_ = Global::instance().apply<size_t>(Global::Keys::PLAN_CNT, [](size_t& v){
+	size_t id_ = Global::apply<size_t>(Global::Keys::PLAN_CNT, [](size_t& v){
 		++v;
 		return v;
 	});
@@ -878,31 +879,7 @@ class CV_EXPORTS Plan {
     	}
     	return ss.str();
     }
-
-//	template<typename ... Args, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
-//	cv::Ptr<Plan> set(std::tuple<Tkey, Args...> t) {
-////		auto wrapInner = wrap_callable<typename Args::ref_t ...>(fn);
-////
-////		const string id = make_id(this->space(), "set-fn", fn, args...);
-////        emit_access(id, R(*this));
-////        (emit_access(id, args ),...);
-////        auto plan = self<Plan>();
-////		std::function wrap = [plan, key, wrapInner](typename Args::ref_t ... values) {
-////			plan->runtime_->set(key, wrapInner(values...));
-////		};
-////
-////        add_transaction(runtime_->plainCtx(), id, wrap, args...);
-//		return self<Plan>();
-//	}
 public:
-//    template<bool read, typename Tfn, typename ... Args>
-//    struct edgefun_t<read, std::false_type, Tfn, Args...> {
-//    	edgefun_t(Tfn fn, Args ... args) {}
-//    	using return_type_t = typename CallableTraits<Tfn>::return_type_t;
-//    	static_assert(!std::is_same<return_type_t, std::false_type>::value, "Invalid callable passed");
-//    	using type = std::function<return_type_t(typename Args::ref_t ...)>;
-//    };
-
 
     template<typename T>
 	struct Property : detail::Edge<const T, false, true, true> {
@@ -979,11 +956,6 @@ public:
     template <typename Tfn, typename ... Args>
     typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
     gl(Tfn fn, Args ... args) {
-//    	auto wrap = wrap_callable<typename Args::ref_t...>(fn);
-//        const string id = make_id(this->space(), "gl", fn, args...);
-//        emit_access(id, R(*this));
-//        (emit_access(id, args ),...);
-//		add_transaction(runtime_->glCtx(-1), id, wrap, args...);
     	auto argsTuple = std::make_tuple(args...);
     	call(runtime_->glCtx(-1), "gl", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
     	return self<Plan>();
@@ -1091,7 +1063,8 @@ public:
     }
 
     template <typename Tfn, typename ... Args>
-    cv::Ptr<Plan> branch(int workerIdx, Tfn fn, Args ... args) {
+    typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
+    branch(int workerIdx, Tfn fn, Args ... args) {
         auto wrapInner = wrap_callable<typename Args::ref_t ...>(fn);
         const string id = make_id(this->space(), "branch-pin" + std::to_string(workerIdx), fn, args...);
         branchStack_.push_front({id, BranchType::PARALLEL});
@@ -1103,6 +1076,21 @@ public:
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
     }
+
+//    template <typename Tedge>
+//    typename std::enable_if<std::is_base_of<EdgeBase, Tedge>::value, cv::Ptr<Plan>>::type
+//    branch(int workerIdx, Tedge edge) {
+//        auto wrapInner = wrap_callable<typename Tedge::ref_t>([](const bool& b){ return b; });
+//        const string id = make_id(this->space(), "branch-pin-edge" + std::to_string(workerIdx), wrapInner);
+//        branchStack_.push_front({id, BranchType::SINGLE});
+//        emit_access(id, R(*this));
+//        std::function<bool()> wrap = [this, workerIdx, edge](){
+//            auto copy = edge;
+//            return runtime_->workerIndex() == workerIdx && copy.ref();
+//        };
+//        add_transaction(BranchType::SINGLE, runtime_->plainCtx(), id, wrap);
+//        return self<Plan>();
+//    }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(int workerIdx, BranchType::Enum type, Tfn fn, Args ... args) {
@@ -1280,44 +1268,58 @@ public:
     }
 
     cv::Ptr<Plan> clear(const int32_t& glIndex = -1) {
-    	gl<-1>(V(glIndex), [](const cv::Scalar& bgra){
+        gl<-1>(V(glIndex), [](const cv::Rect& vp, const cv::Scalar& bgra){
     		const float& b = bgra[0] / 255.0f;
 		    const float& g = bgra[1] / 255.0f;
 		    const float& r = bgra[2] / 255.0f;
 		    const float& a = bgra[3] / 255.0f;
+		    GL_CHECK(glEnable(GL_SCISSOR_TEST));
+		    GL_CHECK(glScissor(vp.x, vp.y, vp.width, vp.height));
 		    GL_CHECK(glClearColor(r, g, b, a));
 		    GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
-    	}, P<cv::Scalar>(V4D::Keys::CLEAR_COLOR));
+		    GL_CHECK(glDisable(GL_SCISSOR_TEST));
+    	}, P<cv::Rect>(V4D::Keys::VIEWPORT), P<cv::Scalar>(V4D::Keys::CLEAR_COLOR));
     	return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
-    cv::Ptr<Plan> capture(Tfn fn, Args ... args) {
+    typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
+    capture(Tfn fn, Args ... args) {
     	auto srcEdge = makeInternalEdge<false>(runtime_->sourceCtx()->sourceBuffer());
     	auto argsTuple = std::make_tuple(srcEdge, args...);
     	return call(runtime_->sourceCtx(), "src", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
     }
 
-    cv::Ptr<Plan> capture() {
+    template <typename Tedge>
+    cv::Ptr<Plan> capture(Tedge&& edge) {
     	capture([](const cv::UMat& inputFrame, cv::UMat& f){
-    		if(!inputFrame.empty())
+    	    if(!inputFrame.empty())
     			inputFrame.copyTo(f);
-    	}, Edge<cv::UMat, false, false>::make(self<Plan>(), captureFrame_));
+    	}, edge);
 
-        fb([](cv::UMat& framebuffer, const cv::UMat& f) {
-        	if(!f.empty()) {
-        		if(f.size() != framebuffer.size())
-        			resize_preserving_aspect_ratio(f, framebuffer, framebuffer.size());
-        		else
-        			f.copyTo(framebuffer);
-        	}
-        }, Edge<cv::UMat, false, true>::make(self<Plan>(), captureFrame_));
 		return self<Plan>();
     }
 
+    cv::Ptr<Plan> capture() {
+        capture([](const cv::UMat& inputFrame, cv::UMat& f){
+            if(!inputFrame.empty())
+                inputFrame.copyTo(f);
+        }, Edge<cv::UMat, false, false>::make(self<Plan>(), captureFrame_));
+
+        fb([](cv::UMat& framebuffer, const cv::UMat& f) {
+            if(!f.empty()) {
+                if(f.size() != framebuffer.size())
+                    resize_preserving_aspect_ratio(f, framebuffer, framebuffer.size());
+                else
+                    f.copyTo(framebuffer);
+            }
+        }, Edge<cv::UMat, false, true>::make(self<Plan>(), captureFrame_));
+        return self<Plan>();
+    }
 
     template <typename Tfn, typename ... Args>
-    cv::Ptr<Plan> write(Tfn fn, Args ... args) {
+    typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
+    write(Tfn fn, Args ... args) {
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
 		static_assert((std::is_same<Tfb,cv::UMat>::value) || !"The first argument must be of type 'cv::UMat&'");
 		auto sinkEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->sinkCtx()->sinkBuffer());
@@ -1325,6 +1327,14 @@ public:
 		auto argsTuple = std::make_tuple(sinkEdge, args...);
 		return call(runtime_->sinkCtx(), "sink", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
 		return self<Plan>();
+    }
+
+    template<typename Tedge>
+    cv::Ptr<Plan> write(Tedge&& edge) {
+        write([](cv::UMat& outputFrame, const cv::UMat& f){
+            f.copyTo(outputFrame);
+        }, edge);
+        return self<Plan>();
     }
 
     cv::Ptr<Plan> write() {
@@ -1845,6 +1855,11 @@ public:
 		return Plan::makeSubPlan<TsubPlan>(parent.get(), std::forward<Args>(args)...);
 	}
 
+    template<typename Tvar>
+    void _shared(Tvar& val) {
+        Global::instance().makeSharedVar(val);
+    }
+
 	template<typename Tvar>
 	void _safe(Tvar& val) {
 		Global::instance().registerSafe(val);
@@ -1915,7 +1930,7 @@ public:
 
 	template<typename Tval>
 	Property<Tval> P(Global::Keys::Enum key) {
-		const auto& ref = Global::instance().get<Tval>(key);
+		const auto& ref = Global::get<Tval>(key);
 		return Property<Tval>(self<Plan>(), ref);
 	}
 
@@ -2067,7 +2082,7 @@ public:
 			});
 			CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
 			cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
-			CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << global.get<size_t>(Global::Keys::WORKERS_STARTED) << " workers.");
+			CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << Global::get<size_t>(Global::Keys::WORKERS_STARTED) << " workers.");
 		} catch(std::exception& ex) {
 			CV_Error_(cv::Error::StsError, ("Main plan->runtime_: %s", ex.what()));
 		}
