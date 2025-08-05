@@ -520,8 +520,9 @@ class CV_EXPORTS Global : public SharedVariables {
 public:
 	struct Keys {
 		enum Enum {
-			FRAME_COUNT,
-			RUN_COUNT,
+			FRAME_CNT,
+            FPS_CNT,
+			RUN_CNT,
 			START_TIME,
 			FPS,
 			WORKERS_READY,
@@ -531,12 +532,13 @@ public:
 			DISPLAY_READY,
 			LOCK_CONTENTION_CNT,
 			LOCK_CONTENTION_RATE,
+			LCR_CNT,
 			PLAN_CNT,
 			WORKER_CNT
 		};
 	};
 private:
-	ThreadSafeAnyMap<Keys::Enum> map_;
+	CV_EXPORTS static ThreadSafeAnyMap<Keys::Enum> map_;
 	CV_EXPORTS static Global* instance_;
 	std::mutex threadIDMtx_;
 	const std::thread::id defaultThreadID_;
@@ -581,8 +583,9 @@ private:
 	}
 
 	Global() {
-		create<false, size_t>(Keys::FRAME_COUNT, 0);
-		create<false, size_t>(Keys::RUN_COUNT, 0);
+		create<false, uint64_t>(Keys::FRAME_CNT, 0);
+		create<false, uint64_t>(Keys::FPS_CNT, 0);
+		create<false, size_t>(Keys::RUN_CNT, 0);
 		create<false, uint64_t>(Keys::START_TIME, get_epoch_nanos());
 		create<false, double>(Keys::FPS, 0);
 		create<false, size_t>(Keys::WORKERS_READY, 0);
@@ -590,25 +593,30 @@ private:
 		create<false, size_t>(Keys::FRAMEBUFFER_INDEX, 0);
 		create<false, bool>(Keys::LOCKING, false);
 		create<false, bool>(Keys::DISPLAY_READY, false);
-		create<false, size_t>(Keys::LOCK_CONTENTION_CNT, 0);
+		create<false, uint64_t>(Keys::LOCK_CONTENTION_CNT, 0);
 		create<false, double>(Keys::LOCK_CONTENTION_RATE, 0.0);
+		create<false, uint64_t>(Keys::LCR_CNT, 0);
 		create<false, size_t>(Keys::PLAN_CNT, 0);
 		create<false, size_t>(Keys::WORKER_CNT, 0);
 	}
 public:
-	template <typename V> const V& get(Keys::Enum k) {
+	template <typename V>
+	static const auto& get(Keys::Enum k) {
 		return map_.get<V>(k);
 	}
 
-	template <typename V> void set(Keys::Enum k, V v) {
-		map_.set(k, v);
+	template <typename V>
+	static void set(Keys::Enum k, V v) {
+	    map_.set(k, v);
 	}
 
-	template <bool Tread, typename V> void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
-		map_.create<Tread>(k, v, cb);
+	template <bool Tread, typename V>
+	static void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
+	    map_.create<Tread>(k, v, cb);
 	}
 
-	template <typename V> V apply(Keys::Enum k, std::function<V(V&)> f) {
+	template <typename V>
+	static V apply(Keys::Enum k, std::function<V(V&)> f) {
 		return map_.apply(k, f);
 	}
 

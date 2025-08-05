@@ -93,6 +93,7 @@ macro(add_binary_sample sample source)
     ocv_target_include_directories(${sample} PRIVATE "${CMAKE_HOME_DIRECTORY}/modules/core/include" "${CMAKE_HOME_DIRECTORY}/modules/imgproc/include" "${CMAKE_HOME_DIRECTORY}/modules/video/include" "${CMAKE_HOME_DIRECTORY}/modules/videoio/include" "${CMAKE_HOME_DIRECTORY}/modules/dnn/include" "${V4D_MODULES_DIR}/plot/include"  "${V4D_MODULES_DIR}/tracking/include"  "${CMAKE_HOME_DIRECTORY}/modules/objdetect/include" "${CMAKE_HOME_DIRECTORY}/modules/stitching/include" "${CMAKE_HOME_DIRECTORY}/modules/imgcodecs/include" "${CMAKE_HOME_DIRECTORY}/modules/highgui/include" "${CMAKE_CURRENT_SOURCE_DIR}/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/" "${V4D_MODULES_DIR}/face/include" "${CMAKE_HOME_DIRECTORY}/modules/features2d/include" "${CMAKE_HOME_DIRECTORY}/modules/flann/include" "${V4D_MODULES_DIR}/optflow/include" ${BGFX_INC_DIRS})
     #  endif()
 endmacro()
+  
   #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
   #set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -fsanitize=address -static-libasan")
 
@@ -168,7 +169,6 @@ if(NOT (TARGET ${the_module}))
   endif()
   ocv_create_module()
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
-  target_compile_options(${the_module} PUBLIC -Wfatal-errors)
   #  ocv_add_samples(opencv_v4d)
   # Populate assets
   fetch_file("LBFMODEL" "https://github.com/kurnianggoro/GSOC2017/raw/master/data/lbfmodel.yaml" "70dd8b1657c42d1595d6bd13d97d932877b3bed54a95d3c4733a0f740d1fd66b")

@@ -218,7 +218,7 @@ public:
     }
 
     //Render the mandelbrot fractal on top of a video
-    void render(const cv::Rect& vp, const Settings& settings, const Camera2D& camera) const {
+    void render(const cv::Size& sz, const Settings& settings, const Camera2D& camera) const {
     	glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		glUseProgram(glHandles.shaderHdl_);
@@ -229,7 +229,7 @@ public:
 		glUniform1f(glHandles.centerYHdl_, (camera.centerY_));
 		glUniform1f(glHandles.currentZoomHdl_, 1.0f / camera.currentZoom_);
 
-		float vpArr[4] = {float(vp.x), float(vp.y), float(vp.width), float(vp.height)};
+		float vpArr[4] = {0.0f, 0.0f, float(sz.width), float(sz.height)};
 		glUniform4fv(glHandles.viewportHdl_, 1, vpArr);
         glBindVertexArray(glHandles.vao_);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -251,31 +251,30 @@ class ShaderDemoPlan : public Plan {
     double scale_ = 1.0;
     MandelbrotScene scene_;
 
-    Property<cv::Rect> vp_ = P<cv::Rect>(K::VIEWPORT);
-    Property<cv::Size> fbSz_ = P<cv::Size>(K::FRAMEBUFFER_SIZE);
+    Property<cv::Size> size_ = P<cv::Size>(K::SIZE);
     Property<cv::Size> winSz_ = P<cv::Size>(K::WINDOW_SIZE);
 
     Event<Mouse> release_ = E<Mouse>(M::RELEASE);
     Event<Mouse> scroll_ = E<Mouse>(M::SCROLL);
 
-    static bool process_events(const cv::Rect& vp, const cv::Size& fbSize, const cv::Size& winSz, const Mouse::List& scrollEvents, const Mouse::List& releaseEvents, const double& scale, Params& params) {
+    static bool process_events(const cv::Size& sz, const cv::Size& winSz, const Mouse::List& scrollEvents, const Mouse::List& releaseEvents, const double& scale, Params& params) {
     	if(!scrollEvents.empty() || !releaseEvents.empty()) {
-			double borderX = ((fabs((winSz.width / scale) - fbSize.width) / 2.0));
-			double borderY = ((fabs((winSz.height / scale) - fbSize.height) / 2.0));
-
+			double borderX = ((fabs((winSz.width / scale) - sz.width) / 2.0));
+			double borderY = ((fabs((winSz.height / scale) - sz.height) / 2.0));
+			const cv::Rect roi = cv::Rect(0,0,sz.width, sz.height);
 			for(auto re : releaseEvents) {
 				cv::Point2d pos = re->position() / scale;
 				pos.x -= borderX;
 				pos.y -= borderY;
-				if(vp.contains(pos)) {
-					params.camera_.centerX_ += ((pos.x / fbSize.width) - 0.5) / (params.camera_.currentZoom_ / 2.0);
-					params.camera_.centerY_ += ((pos.y / fbSize.height) - 0.5) / (params.camera_.currentZoom_ / 2.0);
+				if(roi.contains(pos)) {
+					params.camera_.centerX_ += ((pos.x / sz.width) - 0.5) / (params.camera_.currentZoom_ / 2.0);
+					params.camera_.centerY_ += ((pos.y / sz.height) - 0.5) / (params.camera_.currentZoom_ / 2.0);
 					params.settings_.autoZoom_ = false;
 				}
 			}
 
 			for(auto se : scrollEvents) {
-				if(vp.contains(se->position() / scale)) {
+				if(roi.contains(se->position() / scale)) {
 					params.camera_.currentZoom_ += (params.camera_.currentZoom_ / params.settings_.maxIterations_) * (params.settings_.maxIterations_ / 3.0) * se->data().y;
 					params.camera_.currentZoom_ = std::min(params.camera_.currentZoom_, float(params.settings_.maxIterations_));
 					params.settings_.autoZoom_ = false;
@@ -318,16 +317,17 @@ public:
     }
 
     void infer() override {
-    	assign(RW(scale_), F(aspect_preserving_scale, winSz_, fbSz_));
+    	assign(RW(scale_), F(aspect_preserving_scale, winSz_, size_));
 
     	capture();
 
-    	branch(process_events, vp_, fbSz_, winSz_, scroll_, release_, R(scale_), RWS(params_))
+    	branch(process_events, size_, winSz_, scroll_, release_, R(scale_), RWS(params_))
         	->plain(&Camera2D::updateAutoZoom, RWS(params_.camera_), R(params_.settings_.maxIterations_))
 		->endBranch();
 
-        gl(&MandelbrotScene::render, R(scene_), vp_, CS(params_.settings_), CS(params_.camera_));
-//        write();
+        gl(&MandelbrotScene::render, R(scene_), size_, CS(params_.settings_), CS(params_.camera_));
+
+        write();
     }
 
     void teardown() override {
@@ -344,14 +344,14 @@ int main(int argc, char** argv) {
     }
 
     cv::Rect viewport(0, 0, 1920, 1080);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Mandelbrot Shader Demo", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);//, DebugFlags::PRINT_CONTROL_FLOW);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Mandelbrot Shader Demo", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 	auto src = Source::make(runtime, argv[1]);
 //	auto sink = Sink::make(runtime, "shader-demo.mkv", 60, viewport.size());
 	runtime->setSource(src);
 //	runtime->setSink(sink);
 
 	//15 seconds auto zoom
-	Plan::run<ShaderDemoPlan>(1, 15);
+	Plan::run<ShaderDemoPlan>(16, 15);
 
 	return 0;
 }

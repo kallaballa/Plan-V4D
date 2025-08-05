@@ -6,13 +6,13 @@
 #include <opencv2/v4d/v4d.hpp>
 
 
-static void draw_color_wheel(float w, float h, float hue) {
+static void draw_color_wheel(cv::Size sz, float hue) {
     //color wheel drawing code taken from https://github.com/memononen/nanovg/blob/master/example/demo.c
     using namespace cv::v4d::nvg;
-    float x = (w - (w / 5));;
-    float y = (h - (w / 5));
-    w = (w / 6);
-    h = w;
+    float x = (sz.width - (sz.width / 5));;
+    float y = (sz.height - (sz.width / 5));
+    sz.width = (sz.width / 6);
+    sz.height = sz.width;
 
     int i;
     float r0, r1, ax, ay, bx, by, cx, cy, aeps, r;
@@ -20,9 +20,9 @@ static void draw_color_wheel(float w, float h, float hue) {
 
     save();
 
-    cx = x + w * 0.5f;
-    cy = y + h * 0.5f;
-    r1 = (w < h ? w : h) * 0.5f - 5.0f;
+    cx = x + sz.width * 0.5f;
+    cy = y + sz.height * 0.5f;
+    r1 = (sz.width < sz.height ? sz.width : sz.height) * 0.5f - 5.0f;
     r0 = r1 - 20.0f;
     aeps = 0.5f / r1;   // half a pixel arc length in radians (2pi cancels out).
 
@@ -117,14 +117,12 @@ using namespace cv::v4d;
 
 class NanoVGDemoPlan : public Plan {
 	std::vector<cv::UMat> hsvChannels_;
-	cv::UMat rgb_;
+	cv::UMat frame_;
 	cv::UMat bgra_;
 	cv::UMat hsv_;
 	cv::UMat hueChannel_;
 	float hue_ = 0;
-	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
-	float width_ = 0;
-	float height_ = 0;
+	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 	constexpr static auto RESIZE_VEC_ = _OLM_(void, std::vector<cv::UMat>, &std::vector<cv::UMat>::resize, size_t);
 	constexpr static auto SPLIT_ = _OL_(void, cv::split, cv::InputArray, cv::OutputArrayOfArrays);
 	constexpr static auto MERGE_ = _OL_(void, cv::merge, cv::InputArrayOfArrays, cv::OutputArray);
@@ -137,30 +135,25 @@ public:
 		plain(RESIZE_VEC_, RW(hsvChannels_), V(size_t(3)));
 	}
 	void infer() override {
-		capture();
+		capture(RW(bgra_));
 
 		assign(RW(hue_), (F(&sinf,(F(&cv::getTickCount) / F(&cv::getTickFrequency)) * V(0.12) + V(1))) * V(255.0));
-
 		//Acquire the framebuffer and convert it to RGB
-		fb(cv::cvtColor, RW(rgb_), V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT));
+		plain(cv::cvtColor, R(bgra_), RW(frame_), V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT));
 
 		//Transform HSV space
-		plain(cv::cvtColor, R(rgb_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
+		plain(cv::cvtColor, R(frame_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->plain(SPLIT_, R(hsv_), RW(hsvChannels_))
 		->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), F(&fmod, F(&fabs,R(hue_) - V(255)) - V(81), V(255)), V(cv::noArray()))
 		->plain(MERGE_, R(hsvChannels_), RW(hsv_))
-		->plain(cv::cvtColor, R(hsv_), RW(rgb_), V(cv::COLOR_HSV2RGB_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
+		->plain(cv::cvtColor, R(hsv_), RW(frame_), V(cv::COLOR_HSV2RGB_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->plain(&std::vector<cv::UMat>::clear, RW(hsvChannels_));
 
 		//Acquire the framebuffer and convert rgb_ into it
-		fb<1>(cv::cvtColor, RW(rgb_), V(cv::COLOR_RGB2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT));
-
-
-        assign(RW(width_), F(&cv::Rect::width, vp_))
-        ->assign(RW(height_), F(&cv::Rect::height, vp_));
+		fb<1>(cv::cvtColor, R(frame_), V(cv::COLOR_RGB2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT));
 
 		//Render using nanovg
-		nvg(draw_color_wheel, R(width_), R(height_), R(hue_));
+		nvg(draw_color_wheel, size_, R(hue_));
 	}
 };
 

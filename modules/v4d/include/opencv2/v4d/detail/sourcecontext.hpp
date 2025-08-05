@@ -22,6 +22,8 @@ class CV_EXPORTS SourceContext : public V4DContext {
     cv::UMat sourceBuffer_;
     bool hasContext_ = false;
     cv::Ptr<FrameBufferContext> mainFbContext_;
+    signed long long lastFCount_ = -1;
+    signed long long lastIdx_ = -1;
 public:
     /*!
      * Create the CLVAContext

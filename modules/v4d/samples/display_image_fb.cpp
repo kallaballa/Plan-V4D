@@ -7,7 +7,7 @@ using namespace cv::v4d;
 class DisplayImageFB : public Plan {
 	UMat image_;
 	UMat converted_;
-	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
 	DisplayImageFB(const string& filename) {
 		//Loads an image as a UMat (just in case we have hardware acceleration available)
@@ -15,11 +15,11 @@ public:
 	}
 
 	void setup() override {
-		plain([](const cv::Rect& vp, cv::UMat& image, cv::UMat& converted) {
+		plain([](const cv::Size& sz, cv::UMat& image, cv::UMat& converted) {
 			//We have to manually resize and color convert the image when using direct frambuffer access.
-			resize(image, converted, vp.size());
+			resize(image, converted, sz);
 			cvtColor(converted, converted, COLOR_RGB2BGRA);
-		}, vp_, RW(image_), RW(converted_));
+		}, size_, RW(image_), RW(converted_));
 	}
 
 	void infer() override {

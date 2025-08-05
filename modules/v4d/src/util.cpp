@@ -71,6 +71,7 @@ size_t cnz(const cv::Mat& m) {
     }
     return cv::countNonZero(grey);
 }
+CV_EXPORTS ThreadSafeAnyMap<Global::Keys::Enum> Global::map_;
 CV_EXPORTS Global* Global::instance_ = nullptr;
 CV_EXPORTS thread_local RunState* RunState::instance_ = nullptr;
 

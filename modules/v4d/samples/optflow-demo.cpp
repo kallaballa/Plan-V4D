@@ -151,21 +151,21 @@ public:
 	    for (const auto &kp : tmpKeyPoints_) {
 	        output.push_back(kp.pt);
 	    }
-//	    std::cerr << "detected: " << output.size() << std::endl;
 	}
 };
 
 class SceneChange {
 	float lastMovement_ = 0;
 public:
-	bool detect(const cv::UMat& motionMask, const float& sceneChangeThresh, const float& sceneChangeThreshDiff) {
-	    float movement = cv::countNonZero(motionMask) / float(motionMask.cols * motionMask.rows);
+	bool detect(const std::vector<cv::Point2f>& detectedPoints, const float& sceneChangeThresh, const float& sceneChangeThreshDiff, const cv::Size& sz) {
+	    float movement = detectedPoints.size() / float(sz.width * sz.height);
 	    float relation = movement > 0 && lastMovement_ > 0 ? std::max(movement, lastMovement_) / std::min(movement, lastMovement_) : 0;
 	    float relM = relation * log10(1.0f + (movement * 9.0));
 	    float relLM = relation * log10(1.0f + (lastMovement_ * 9.0));
 
 	    bool result = ((movement > 0 && lastMovement_ > 0 && relation > 0)
 	            && (relM < sceneChangeThresh && relLM < sceneChangeThresh && fabs(relM - relLM) < sceneChangeThreshDiff));
+
 	    lastMovement_ = (lastMovement_ + movement) / 2.0f;
 	    return !result;
 	}
@@ -218,40 +218,39 @@ class Compositor {
 	PostProcessor postProcessor_;
 
 	struct Temp {
-		cv::UMat onesFloat_;
 		cv::UMat bgFloat_;
 		cv::UMat fgFloat_;
-		cv::UMat fgInvertedFloat_;
 		cv::UMat fbFloat_;
+		cv::UMat oldFgFloat_;
 	} temp_;
 public:
 	//Compose the different layers into the final image
-	void perform(const cv::UMat& background, cv::UMat& foreground, cv::UMat& framebuffer, const BackgroundStyle::Modes& bgMode, const PostProcessor::Modes& ppMode, const int& ksize, const int& gain, const float& fgLoss) {
-		if(temp_.onesFloat_.empty()) {
-			temp_.onesFloat_ = cv::UMat(framebuffer.size(), CV_32FC4, cv::Scalar(1));
-		}
-
+	void perform(const cv::UMat& background, const cv::UMat& oldForeground, cv::UMat& foreground, cv::UMat& composed, cv::UMat& framebuffer, const BackgroundStyle::Modes& bgMode, const PostProcessor::Modes& ppMode, const int& ksize, const int& gain) {
 		background.convertTo(temp_.bgFloat_, CV_32F, 1.0/255.0);
 		backgroundStyle_.apply(temp_.bgFloat_, temp_.bgFloat_, bgMode);
 
 		if(!foreground.empty()) {
 		    foreground.convertTo(temp_.fgFloat_, CV_32F, 1.0/255.0);
-		    double loss = 1.0 - (fgLoss / 100.0);
-	        cv::multiply(temp_.fgFloat_, cv::Scalar::all(loss), temp_.fgFloat_);
-	        postProcessor_.perform(temp_.fgFloat_, temp_.fgFloat_, ppMode, ksize, gain);
+
+		    postProcessor_.perform(temp_.fgFloat_, temp_.fgFloat_, ppMode, ksize, gain);
 		} else {
 		    temp_.bgFloat_.copyTo(temp_.fgFloat_);
 		}
 
-	    cv::add(temp_.bgFloat_, temp_.fgFloat_, temp_.fbFloat_);
-	    temp_.fbFloat_.convertTo(framebuffer, CV_8U, 255.0);
+		oldForeground.convertTo(temp_.oldFgFloat_, CV_32F, 1.0/255.0);
+	    cv::addWeighted(temp_.fgFloat_, 0.3333, temp_.oldFgFloat_, 0.6667, 0.0, temp_.fgFloat_, -1);
+        cv::multiply(temp_.fgFloat_, 1.3333, temp_.fgFloat_);
 	    temp_.fgFloat_.convertTo(foreground, CV_8U, 255.0);
+
+        cv::add(temp_.bgFloat_, temp_.fgFloat_, temp_.fbFloat_);
+        temp_.fbFloat_.convertTo(composed, CV_8U, 255.0);
+	    composed.copyTo(framebuffer);
 	}
 };
 
 class SparseOpticalFlow {
 	struct Temp {
-	    vector<cv::Point2i> hull_;
+	    vector<cv::Point2f> hull_;
 	    vector<cv::Point2f> nextPoints_, trimmedPoints_;;
 		vector<std::tuple<float, int, cv::Point2f>> prevPoints_;
 		vector<std::tuple<float, int, cv::Point2f>> newPoints_;
@@ -268,7 +267,7 @@ public:
 	}
 
 	//Visualize the sparse optical flow
-	void visualize(const cv::UMat &prevGrey, const cv::UMat &nextGrey, const vector<cv::Point2f> &detectedPoints, const float& maxStroke, const size_t& maxPoints, const float& pointLoss, const float& fgScale, cv::Scalar_<float> effectColor) {
+	void visualize(const cv::UMat &prevGrey, const cv::UMat &nextGrey, const vector<cv::Point2f> &detectedPoints, const float& maxStroke, const size_t& maxPoints, const float& pointLoss, cv::Scalar_<float> effectColor) {
 		//less then 5 points is a degenerate case (e.g. the corners of a video frame)
 	    if (detectedPoints.size() > 4) {
 	        cv::convexHull(detectedPoints, temp_.hull_, false, true);
@@ -303,18 +302,18 @@ public:
 	            	temp_.upNextPoints_.clear();
 	            	temp_.upTrimmedPoints_.clear();
 	                for (cv::Point2f pt : temp_.trimmedPoints_) {
-	                	temp_.upTrimmedPoints_.push_back(pt /= fgScale);
+	                	temp_.upTrimmedPoints_.push_back(pt);
 	                }
 
 	                for (cv::Point2f pt : temp_.nextPoints_) {
-	                	temp_.upNextPoints_.push_back(pt /= fgScale);
+	                	temp_.upNextPoints_.push_back(pt);
 	                }
 
 	                for (size_t i = 0; i < temp_.trimmedPoints_.size(); i++) {
 	                    if (temp_.status_[i] == 1 //point was found in prev and new set
 	                            && temp_.err_[i] < (1.0 / density) //with a higher density be more sensitive to the feature error
 	                            && temp_.upNextPoints_[i].y >= 0 && temp_.upNextPoints_[i].x >= 0 //check bounds
-	                            && temp_.upNextPoints_[i].y < nextGrey.rows / fgScale && temp_.upNextPoints_[i].x < nextGrey.cols / fgScale //check bounds
+	                            && temp_.upNextPoints_[i].y < nextGrey.rows && temp_.upNextPoints_[i].x < nextGrey.cols //check bounds
 	                            ) {
 	                        float len = hypot(fabs(temp_.upTrimmedPoints_[i].x - temp_.upNextPoints_[i].x), fabs(temp_.upTrimmedPoints_[i].y - temp_.upNextPoints_[i].y));
 	                        if(len > strokeSize) {
@@ -365,120 +364,51 @@ private:
 	constexpr static auto UMAT_RESHAPE_ = _OLMC_(cv::UMat, cv::UMat, &cv::UMat::reshape, int, int);
 
 	static struct Params {
-		// Generate the foreground at this scale.
-		float fgScale_ = 0.5f;
-		// On every frame the foreground loses on brightness. Specifies the loss in percent.
-		float fgLoss_ = 25.0f;
 
 		PostProcessor::Modes postProcMode_ = PostProcessor::GLOW;
 		// Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
-		int kernelSize_ = 15;
+		int kernelSize_ = 9;
 		//The intensity of the glow or bloom filter
-		int gain_ = 50;
-
+		int gain_ = 70;
 		//Convert the background to greyscale
 		BackgroundStyle::Modes backgroundMode_ = BackgroundStyle::GREY;
 		// Peak thresholds for the scene change detection. Lowering them makes the detection more sensitive but
 		// the default should be fine.
-		float sceneChangeThresh_ = 0.29f;
-		float sceneChangeThreshDiff_ = 0.1f;
+		float sceneChangeThresh_ = 0.04f;
+		float sceneChangeThreshDiff_ = 0.01f;
 		// The theoretical maximum number of points to track which is scaled by the density of detected points
 		// and therefor is usually much smaller.
 		int maxPoints_ = 300000;
 		// How many of the tracked points to lose intentionally, in percent.
-		float pointLoss_ = 1;
+		float pointLoss_ = 5;
 		// The theoretical maximum size of the drawing stroke which is scaled by the area of the convex hull
 		// of tracked points and therefor is usually much smaller.
-		int maxStroke_ = 6;
+		int maxStroke_ = 2;
 		// Red, green, blue and alpha. All from 0.0f to 1.0f
-		cv::Scalar_<float> effectColor_ = {1.0f, 0.5f, 0.0f, 1.0f};
+		cv::Scalar_<float> effectColor_ = {1.0f, 0.5f, 0.0f, 0.8f};
 		//display on-screen FPS
 		bool showFps_ = true;
-
-		long frame_cnt_ = 0;
 
 		bool fullscreen_ = false;
 	} params_;
 
 	struct Frames {
 		//BGRA
-		cv::UMat background_, clear_, oldFg_, down_;
+		cv::UMat background_, foreground_, composed_, oldForeground_;
 
-		//BGR
-		cv::UMat result_;
 		//GREY
-		cv::UMat downPrevGrey_, downNextGrey_, downMotionMaskGrey_;
+		cv::UMat foregroundGrey_, prevGrey_, nextGrey_;
 	} frames_;
 
 	FeaturePoints featurePoints_;
 	SceneChange sceneChange_;
 	SparseOpticalFlow sparseOptflow_;
 	Compositor compositor_;
-	cv::UMat foreground_;
 	inline static vector<cv::Point2f> detectedPoints_;
 
-
-	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
-
-    class PrepareMasksPlan : public Plan {
-    	struct Temp {
-    		cv::UMat srcGray_;
-    		cv::UMat srcGrayFloat_;
-    		cv::UMat lastMmGray_;
-    		cv::UMat mmGray_;
-    		cv::UMat mmEqGray_;
-    		cv::UMat mmGrayFloat_;
-    		cv::UMat mmBlurGray_;
-    		cv::UMat mmBlurGrayFloat_;
-    	} temp_;
-
-		OptflowDemoPlan::Frames& frames_;
-    	cv::Ptr<cv::BackgroundSubtractor> bgSubtractor_;
-    	cv::Mat bigElement_;
-    	cv::Mat smallElement_;
-    	cv::Size sz_;
-
-    	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
-
-    	void prepareMotionMask(const cv::UMat& srcGray, cv::UMat& motionMaskGrey) {
-    		bgSubtractor_->apply(srcGray, temp_.mmGray_);
-    		temp_.mmGray_.convertTo(temp_.mmGrayFloat_, CV_64F, 1.0/255.1);
-    		cv::pow(temp_.mmGrayFloat_, 8, temp_.mmGrayFloat_);
-    		cv::boxFilter(temp_.mmGrayFloat_, temp_.mmBlurGrayFloat_, -1, cv::Size(31, 31), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
-    		temp_.mmBlurGrayFloat_.convertTo(temp_.mmGray_, CV_8U, 255.0);
-    		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_,cv::MORPH_OPEN, bigElement_, cv::Point(bigElement_.cols >> 1, bigElement_.rows >> 1),2, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
-    		cv::normalize(temp_.mmGray_, temp_.mmGray_,120, 234, cv::NORM_MINMAX);
-    		cv::threshold(temp_.mmGray_, temp_.mmGray_,128, 255, cv::THRESH_TOZERO);
-    		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_, cv::MORPH_OPEN, smallElement_, cv::Point(smallElement_.cols >> 1, smallElement_.rows >> 1), 7, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
-    		if(motionMaskGrey.empty())
-    			motionMaskGrey.create(srcGray.size(), srcGray.type());
-    		else
-    			motionMaskGrey.setTo(cv::Scalar::all(0));
-    		cv::equalizeHist(srcGray, temp_.mmEqGray_);
-    		temp_.mmEqGray_.copyTo(motionMaskGrey,temp_.mmGray_);
-    		cv::threshold(motionMaskGrey, motionMaskGrey, 127, 255, cv::THRESH_BINARY);
-    	}
-    public:
-    	PrepareMasksPlan(OptflowDemoPlan::Frames& frames) : frames_(frames) {
-    	}
-
-    	void setup() override {
-    		assign(RW(bgSubtractor_), F(cv::createBackgroundSubtractorMOG2, V(100), V(16), V(true)));
-    		assign(RW(bigElement_), F(cv::getStructuringElement, V(cv::MORPH_ELLIPSE), V(cv::Size(7, 7)), V(cv::Point(4, 4))));
-    		assign(RW(smallElement_), F(cv::getStructuringElement, V(cv::MORPH_ELLIPSE), V(cv::Size(7, 7)), V(cv::Point(4, 4))));
-    	}
-    	void infer() override {
-    		construct(RW(sz_), F(&cv::Rect::width, vp_) * CS(params_.fgScale_), F(&cv::Rect::height, vp_) * CS(params_.fgScale_));
-    		plain(cv::resize, R(frames_.background_), RW(frames_.down_), R(sz_), V(0.0), V(0.0), V(cv::INTER_LINEAR));
-    		plain(cv::cvtColor, R(frames_.down_), RW(frames_.downNextGrey_), V(cv::COLOR_RGBA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT));
-    		plain(&PrepareMasksPlan::prepareMotionMask, RW(*this), R(frames_.downNextGrey_), RW(frames_.downMotionMaskGrey_));
-    	}
-    };
-
-    cv::Ptr<PrepareMasksPlan> prepareMasks_;
+	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
     OptflowDemoPlan() {
-		prepareMasks_ = _sub<PrepareMasksPlan>(this, frames_);
     }
 
     void gui() override {
@@ -486,9 +416,6 @@ public:
 	        using namespace ImGui;
 
 	        Begin("Effects");
-	        Text("Foreground");
-	        SliderFloat("Scale", &params.fgScale_, 0.1f, 4.0f);
-	        SliderFloat("Loss", &params.fgLoss_, 0.1f, 99.9f);
 	        Text("Background");
 	        thread_local const char* bgm_items[4] = {"Grey", "Color", "Value", "Black"};
 	        thread_local int* bgm = (int*)&params.backgroundMode_;
@@ -511,21 +438,21 @@ public:
 
 	        Begin("Settings");
 	        Text("Scene Change Detection");
-	        SliderFloat("Threshold", &params.sceneChangeThresh_, 0.1f, 1.0f);
-	        SliderFloat("Threshold Diff", &params.sceneChangeThreshDiff_, 0.1f, 1.0f);
+	        SliderFloat("Threshold", &params.sceneChangeThresh_, 0.01f, 1.0f);
+	        SliderFloat("Threshold Diff", &params.sceneChangeThreshDiff_, 0.001f, 1.0f);
 	        End();
 
 			Begin("Window");
-			if(Checkbox("Show FPS", &params.showFps_)) {
-//				win->setShowFPS(params.showFps_);
-			}
+//			if(Checkbox("Show FPS", &params.showFps_)) {
+//
+//			}
 
 			if(Button("Fullscreen")) {
 			    params.fullscreen_ = !params.fullscreen_;
 			};
 
 			if(Button("Offscreen")) {
-//				win->setVisible(!win->isVisible());
+			    V4D::set(V4D::Keys::VISIBLE, !V4D::get<bool>(V4D::Keys::VISIBLE));
 			};
 
 			End();
@@ -534,80 +461,71 @@ public:
 
     void setup() override {
     	construct(RW(featurePoints_), F(cv::FastFeatureDetector::create, V(10), V(false), V(cv::FastFeatureDetector::TYPE_9_16)));
-//    	branch(BranchType::ONCE, always_)
-//			->assign(RWS(params_.kernelSize_),
-//					F(sqrt, F(&cv::Rect::width, vp_) * F(&cv::Rect::height, vp_))
-//					/ V(400.0)
-//			)
-//		->endBranch();
 
     	plain(UMAT_CREATE,
-                    RW(foreground_),
-                    F(&cv::Rect::size, vp_),
+                    RW(frames_.foreground_),
+                    size_,
                     V(CV_8UC4),
                     V(cv::USAGE_DEFAULT)
         );
 
         plain(UMAT_CREATE,
-                    RW(frames_.clear_),
-                    F(&cv::Rect::size, vp_),
-                    V(CV_8UC4),
+                    RW(frames_.prevGrey_),
+                    size_,
+                    V(CV_8UC1),
                     V(cv::USAGE_DEFAULT)
         );
-
-        assign(RW(frames_.clear_), V(cv::Scalar(0)));
-
-    	subSetup(prepareMasks_);
-	}
+    }
 
 	void infer() override {
 	    set(V4D::Keys::FULLSCREEN, CS(params_.fullscreen_));
 
-	    capture()
-		->fb(UMAT_COPY_TO_, RW(frames_.background_));
+	    capture(RW(frames_.background_));
 
-	    subInfer(prepareMasks_);
-
-	    clear();
+        plain(cv::cvtColor, R(frames_.background_), RW(frames_.nextGrey_), V(cv::COLOR_RGBA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT));
+        plain(cv::cvtColor, R(frames_.foreground_), RW(frames_.foregroundGrey_), V(cv::COLOR_RGBA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT));
+        plain(UMAT_COPY_TO_, R(frames_.foreground_), RW(frames_.oldForeground_));
 
         plain(&FeaturePoints::detect, RW(featurePoints_),
-                R(frames_.downMotionMaskGrey_),
+                R(frames_.nextGrey_),
                 RWS(detectedPoints_)
         );
 
-		branch(!F(&SceneChange::detect, RW(sceneChange_),
-		             R(frames_.downMotionMaskGrey_),
+        branch(
+                !F(&SceneChange::detect, RW(sceneChange_),
+		             RS(detectedPoints_),
 				     CS(params_.sceneChangeThresh_),
-				     CS(params_.sceneChangeThreshDiff_)
-			   )
-		       && !F(&std::vector<cv::Point2f>::empty, RS(detectedPoints_))
-               && !F(&cv::UMat::empty, R(frames_.downPrevGrey_))
+				     CS(params_.sceneChangeThreshDiff_),
+				     size_
+                )
 		)
+            ->clear()
 		    ->nvg(&SparseOpticalFlow::visualize, RW(sparseOptflow_),
-                    R(frames_.downPrevGrey_),
-                    R(frames_.downNextGrey_),
+                    R(frames_.prevGrey_),
+                    R(frames_.nextGrey_),
                     RS(detectedPoints_),
                     CS(params_.maxStroke_),
                     CS(params_.maxPoints_),
                     CS(params_.pointLoss_),
-                    CS(params_.fgScale_),
                     CS(params_.effectColor_)
             )
-            ->fb(UMAT_COPY_TO_, RW(frames_.oldFg_))
-            ->plain(cv::addWeighted, R(frames_.oldFg_), V(params_.fgLoss_ / 10.0), R(foreground_), V(1.0 - params_.fgLoss_ / 10.0), V(0.0), RW(foreground_), V(-1))
+            ->fb(UMAT_COPY_TO_, RW(frames_.foreground_))
         ->endBranch();
 
-		fb<3>(&Compositor::perform, RW(compositor_),
+		fb<4>(&Compositor::perform, RW(compositor_),
 		                                R(frames_.background_),
-		                                RW(foreground_),
+                                        RW(frames_.oldForeground_),
+		                                RW(frames_.foreground_),
+		                                RW(frames_.composed_),
 		                                CS(params_.backgroundMode_),
 		                                CS(params_.postProcMode_),
 		                                CS(params_.kernelSize_),
-		                                CS(params_.gain_),
-		                                CS(params_.fgLoss_)
+		                                CS(params_.gain_)
 		);
-		plain(UMAT_COPY_TO_, R(frames_.downNextGrey_), RW(frames_.downPrevGrey_));
-        write();
+
+		plain(UMAT_COPY_TO_, R(frames_.nextGrey_), RW(frames_.prevGrey_));
+
+        write(R(frames_.composed_));
 	}
 };
 
@@ -622,10 +540,10 @@ int main(int argc, char **argv) {
     cv::Rect viewport(0, 0, 1920, 1080);
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	auto src = Source::make(runtime, argv[1]);
-	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
+//	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
 	runtime->setSource(src);
-	runtime->setSink(sink);
-	Plan::run<OptflowDemoPlan>(6);
+//	runtime->setSink(sink);
+	Plan::run<OptflowDemoPlan>(0);
 
     return 0;
 }

@@ -540,7 +540,7 @@ auto filter_lockies(Tuple t, std::index_sequence<_Idx...>) {
 
 template<typename Ttuple, size_t ... Tidx>
 auto make_lock_guard_ptr_tuple(Ttuple& t,  std::index_sequence<Tidx...>) {
-	return std::make_tuple<cv::Ptr<std::lock_guard<decltype(std::get<Tidx>(t).getMutex())>>...>(new std::lock_guard<decltype(std::get<Tidx>(t).getMutex())>(std::get<Tidx>(t).getMutex(), std::adopt_lock)...);
+     return std::make_tuple(cv::Ptr<std::lock_guard<std::mutex>>(new std::lock_guard<std::mutex>(std::get<Tidx>(t).getMutex(), std::adopt_lock))...);
 }
 
 template<bool TcountContention = false, typename Ttuple, size_t ... Tidx>
@@ -549,13 +549,15 @@ auto perform_lock_from_tuple(Ttuple& t,  std::index_sequence<Tidx...>) {
 		size_t cnt = 0;
 		(((std::get<Tidx>(t).tryLock() && std::get<Tidx>(t).unlock()) || ++cnt), ...);
 
-		Global::instance().apply<size_t>(Global::Keys::LOCK_CONTENTION_CNT, [cnt](size_t& v){
+		Global::apply<size_t>(Global::Keys::LOCK_CONTENTION_CNT, [cnt](size_t& v){
 			v += cnt;
 			return v;
 		});
 	}
-	std::lock(std::get<Tidx>(t).getMutex()...);
+
+    std::lock(std::get<Tidx>(t).getMutex()...);
 }
+
 template <bool TcountContention, typename F, typename... Ts>
 class TransactionImpl : public Transaction
 {
@@ -598,7 +600,8 @@ public:
     		if constexpr(lksz > 1) {
        		  perform_lock_from_tuple<TcountContention>(lockies, std::make_index_sequence<lksz>());
     		}
-    		make_lock_guard_ptr_tuple(lockies, std::make_index_sequence<lksz>());
+
+    		auto lockHolders = make_lock_guard_ptr_tuple(lockies, std::make_index_sequence<lksz>());
 
     		std::invoke(std::forward<_Fn>(__f),
         			std::get<_Idx>(std::forward<_Tuple>(__t)).ref()...);
@@ -626,10 +629,10 @@ public:
     		if constexpr(lksz > 1) {
        		  perform_lock_from_tuple<TcountContention>(lockies, std::make_index_sequence<lksz>());
     		}
-    		make_lock_guard_ptr_tuple(lockies, std::make_index_sequence<lksz>());
 
+    		auto lockHolders = make_lock_guard_ptr_tuple(lockies, std::make_index_sequence<lksz>());
 
-    		res = std::invoke(std::forward<_Fn>(__f),
+            res = std::invoke(std::forward<_Fn>(__f),
         			std::get<_Idx>(std::forward<_Tuple>(__t)).ref()...);
 
         	if constexpr(hasCopyBacks_) {

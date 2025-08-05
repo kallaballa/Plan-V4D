@@ -5,7 +5,7 @@ using namespace cv;
 using namespace cv::v4d;
 
 class DisplayImageNVG : public Plan {
-    using K = V4D::Keys; // Key constants for V4D properties
+    Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 
     // Struct to hold image metadata and NanoVG paint object
     struct Image_t {
@@ -40,13 +40,13 @@ public:
 
     // Inference phase: Render the loaded image to the screen
     void infer() override {
-        nvg([](const cv::Rect& vp, const Image_t& img) {
+        nvg([](const cv::Size& sz, const Image_t& img) {
             using namespace cv::v4d::nvg;
 
             beginPath();
 
             // Scale further rendering calls to match the viewport size
-            scale(double(vp.width) / img.w_, double(vp.height) / img.h_);
+            scale(double(sz.width) / img.w_, double(sz.height) / img.h_);
 
             // Create a rounded rectangle matching the scaled image dimensions
             roundedRect(0, 0, img.w_, img.h_, 50);
@@ -54,7 +54,7 @@ public:
             // Fill the rectangle with the loaded image pattern
             fillPaint(img.paint_);
             fill();
-        }, P<cv::Rect>(K::VIEWPORT), RW(image_)); // Pass viewport and image data to the graph node
+        }, size_, RW(image_)); // Pass viewport and image data to the graph node
     }
 };
 

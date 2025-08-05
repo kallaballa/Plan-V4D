@@ -7,22 +7,22 @@ class VideoEditingPlan : public Plan {
 	cv::UMat frame_;
 	const string hv_ = "Hello Video!";
 	//Property extends Edge which means it can be directly passed without Edge-directive
-	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
 	void infer() override {
 		//Capture video from the source
 		capture();
 
 		//Render on top of the video
-		nvg([](const Rect& vp, const string& str) {
+		nvg([](const Size& sz, const string& str) {
 			using namespace cv::v4d::nvg;
 
 			fontSize(40.0f);
 			fontFace("sans-bold");
 			fillColor(Scalar(255, 0, 0, 255));
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-			text(vp.width / 2.0, vp.height / 2.0, str.c_str(), str.c_str() + str.size());
-		}, vp_, R(hv_));
+			text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
+		}, sz_, R(hv_));
 
 		//Write video to the sink
 		write();

@@ -243,8 +243,6 @@ public:
 		//Enable or disable the effect
 		bool enabled_ = true;
 
-		size_t frame_cnt_ = 0;
-
 		enum State {
 			ON,
 			OFF,
@@ -254,7 +252,7 @@ public:
 
 	struct Frames {
 		//BGR
-		cv::UMat orig_, stitched_, down_, faceOval_, eyesAndLips_, skin_;
+		cv::UMat orig_, stitched_, down_, bgr_, faceOval_, eyesAndLips_, skin_;
 		//GREY
 		cv::UMat faceSkinMaskGrey_, eyesAndLipsMaskGrey_, backgroundMaskGrey_;
 
@@ -262,36 +260,35 @@ public:
 		cv::UMat result_;
 	};
 
-	FaceFeatures features_;
+
 
 private:
 	//Key spaces of different state machines of V4D
 	using G_ = Global::Keys;
-	using S_ = RunState::Keys;
-	using K_ = V4D::Keys;
+	using R_ = RunState::Keys;
+	using V_ = V4D::Keys;
 	using M_ = Mouse::Type;
 
 	//shared
 	static Params params_;
-	static cv::Ptr<FaceFeatureExtractor> extractor_;
+	static FaceFeatures features_;
+	cv::Ptr<FaceFeatureExtractor> extractor_;
 
 	float scale_ = 1;
-	cv::Size size_;
 	const cv::Size downSize_ = { 640, 360 };
 
 	Frames frames_;
 
-
 	//think of properties as data-pinholes into one of the v4d runtime's state-machines. Properties are in fact a special kind of edge.
-	Property<cv::Rect> vp_ = P<cv::Rect>(K_::VIEWPORT);
-	Property<size_t> numWorkers_ = P<size_t>(G_::WORKERS_STARTED);
-	Property<size_t> workerIndex_ = P<size_t>(S_::WORKER_INDEX);
+	Property<cv::Size> size_ = P<cv::Size>(V_::SIZE);
+	Property<uint64_t> frameCnt_ = P<uint64_t>(G_::FRAME_CNT);
 
 	//A special kind of edge used to signal user input events
 	Event<Mouse> pressEvents_ = E<Mouse>(M_::PRESS);
 
-	static void prepare_frames(const cv::UMat& framebuffer, const cv::Size& downSize, Frames& frames) {
-		cvtColor(framebuffer, frames.orig_, cv::COLOR_RGBA2BGR);
+	static void prepare_frames(const cv::Size& downSize, Frames& frames) {
+		cvtColor(frames.orig_, frames.bgr_, cv::COLOR_RGBA2BGR);
+		frames.bgr_.copyTo(frames.orig_);
 		cv::resize(frames.orig_, frames.down_, downSize);
 		frames.orig_.copyTo(frames.stitched_);
 	}
@@ -319,6 +316,8 @@ private:
 	//sub-plans
 	cv::Ptr<FaceFeatureMasksPlan> prepareFeatureMasksPlan_;
 	cv::Ptr<BeautyFilterPlan> beautyFilterPlan_;
+
+    constexpr static auto UMAT_COPY_TO_= _OLMC_(void, cv::UMat, &cv::UMat::copyTo, cv::OutputArray);
 public:
 	BeautyDemoPlan() {
 		//construct sub-plans only in the constructor
@@ -372,23 +371,18 @@ public:
 	}
 
 	void setup() override {
-		branch(BranchType::ONCE, always_)
-				//emits a node the performs an assignment. F creates an edge that reads the result of a function call
-			->assign(RW(size_), F(&cv::Rect::size, vp_))
-			->assign(RW(scale_), F(aspect_preserving_scale, R(size_), R(downSize_)))
-			//emits a node that calls a contructor
-			->construct(RWS(extractor_), R(downSize_), R(scale_))
-			->plain(RWS(std::cerr) << V("ONCE: ") << V(scale_) << V('\n'))
-		->endBranch();
+        //emits a node the performs an assignment. F creates an edge that reads the result of a function call
+        assign(RW(scale_), F(aspect_preserving_scale, size_, R(downSize_)));
+        construct(RW(extractor_), R(downSize_), R(scale_));
 	}
 
 	void infer() override {
 		//emits a node setting the states for "fullscreen" during execution of the graph reading values from the shared data by copying it.
-		set(K_::FULLSCREEN, CS(params_.fullscreen_));
+		set(V_::FULLSCREEN, CS(params_.fullscreen_));
 
 		//create a node the will capture video
-		capture();
-		fb(prepare_frames, R(downSize_), RW(frames_));
+		capture(RW(frames_.orig_));
+		plain(prepare_frames, R(downSize_), RW(frames_));
 
 		// a branch is basically a graph node that decides what graph node to run next.
 		branch(
@@ -398,28 +392,31 @@ public:
 											F(&Mouse::List::empty, pressEvents_),
 											CS(params_.enabled_),
 											!CS(params_.enabled_)
-										))
-			//every 4 frames redect the face features.
-			->branch((++RWS(params_.frame_cnt_) % V(size_t(8))) == V(size_t(0)))
-				->branch(!(F(&FaceFeatureExtractor::extract, RWS(extractor_), R(frames_.down_), RW(features_))));
-					//Set a shared state that will be displayed on-screen.
-					assign(RWS(params_.state_), V(Params::NOT_DETECTED))
-				->endBranch()
+										)
+				)
+			//every N frames redect the face features.
+			->branch(frameCnt_ % V(uint64_t(8)) == V(uint64_t(0)))
+                ->branch(!F(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RWS(features_)))
+                    //Set a shared state that will be displayed on-screen.
+                    ->assign(RWS(params_.state_), V(Params::NOT_DETECTED))
+                ->endBranch()
+                ->plain(cv::cvtColor, R(frames_.orig_), RW(frames_.result_), V(cv::COLOR_BGR2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT))
 			->endBranch()
-			->branch(!(F(&FaceFeatures::empty, R(features_))));
+			->branch(!(F(&FaceFeatures::empty, RS(features_))));
 				assign(RWS(params_.state_), V(Params::ON))
 				//run inference on the sub-plans which will emit their own nodes
 				->subInfer(prepareFeatureMasksPlan_)
 				->subInfer(beautyFilterPlan_)
-			->endBranch()
+				->plain(compose_result, RW(frames_), CS(params_))
+		    ->endBranch()
 		->elseBranch()
 			->assign(RWS(params_.state_), V(Params::OFF))
+            ->plain(cv::cvtColor, R(frames_.orig_), RW(frames_.result_), V(cv::COLOR_BGR2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->endBranch();
 
-		plain(compose_result, RW(frames_), CS(params_))
-		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
+        fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
 
-		write();
+        write(R(frames_.result_));
 	}
 };
 
@@ -441,10 +438,10 @@ public:
 
 	void infer() override {
 		//context-call provides a nanovg context to the node emitteed
-		nvg(&FaceFeatures::drawFaceOvalMask, R(inputFeatures_))
+		nvg(&FaceFeatures::drawFaceOvalMask, RS(inputFeatures_))
 		//context-call provides a cv::UMat representation of the framebuffer to the node emitteed
 		->fb(cv::cvtColor, RW(inputOutputFrames_.faceOval_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
-		->nvg(&FaceFeatures::drawEyesAndLipsMask, R(inputFeatures_))
+		->nvg(&FaceFeatures::drawEyesAndLipsMask, RS(inputFeatures_))
 		->fb(cv::cvtColor, RW(inputOutputFrames_.eyesAndLipsMaskGrey_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
 		//
 		->plain(prepare_masks, RW(inputOutputFrames_));
@@ -498,7 +495,7 @@ public:
 
 //Shared data
 BeautyDemoPlan::Params BeautyDemoPlan::params_;
-cv::Ptr<FaceFeatureExtractor> BeautyDemoPlan::extractor_;
+FaceFeatures BeautyDemoPlan::features_;
 
 int main(int argc, char **argv) {
 	if (argc != 2) {
@@ -506,14 +503,14 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-	cv::Rect viewport(0, 0, 1280, 720);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+	cv::Rect viewport(0, 0, 1920, 1080);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	//V4D provides a source, sink system which is used mostly but not exclusively with video data.
 	auto src = Source::make(runtime, argv[1]);
-	auto sink = Sink::make(runtime, "beauty-demo.mkv", 60, cv::Size(1280, 720));
+//	auto sink = Sink::make(runtime, "beauty-demo.mkv", 60, cv::Size(1920, 1080));
     runtime->setSource(src);
-    runtime->setSink(sink);
-    Plan::run<BeautyDemoPlan>(2);
+//    runtime->setSink(sink);
+    Plan::run<BeautyDemoPlan>(6);
 
     return 0;
 }

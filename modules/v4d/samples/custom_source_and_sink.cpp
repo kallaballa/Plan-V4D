@@ -41,7 +41,7 @@ public:
 		}
 	}
 
-	void draw(const Rect& vp) const {
+	void draw(const cv::Size& sz) const {
 		using namespace cv::v4d::nvg;
 		string str = "Last detected color: " + foundName_;
 
@@ -49,7 +49,7 @@ public:
 		fontFace("sans-bold");
 		fillColor(Scalar(127, 127, 127, 255));
 		textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-		text(vp.width / 2.0, vp.height / 2.0, str.c_str(), str.c_str() + str.size());
+		text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
 	}
 
 	bool found() const {
@@ -65,13 +65,13 @@ class CustomSourceAndSinkPlan : public Plan {
 	} params_;
 
 	PureColor finder_;
-	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
 	void infer() override {
 		capture();
 
 		fb<1>(&PureColor::find, RW(finder_));
-		nvg(&PureColor::draw, R(finder_), vp_);
+		nvg(&PureColor::draw, R(finder_), size_);
 
 		branch(&PureColor::found, R(finder_))
 			->write()

@@ -78,17 +78,17 @@ FrameBufferContext::FrameBufferContext(const cv::Size& framebufferSize,
 }
 
 
-cv::Ptr<FrameBufferContext> FrameBufferContext::make(const string& title, cv::Ptr<FrameBufferContext> other){
-	std::lock_guard guard(makeMtx_);
-	cv::Ptr<FrameBufferContext> ptr = new FrameBufferContext(title, other);
+cv::Ptr<FrameBufferContext> FrameBufferContext::make(const string& title, cv::Ptr<FrameBufferContext> other) {
+    std::lock_guard lock(makeMtx_);
+    cv::Ptr<FrameBufferContext> ptr = cv::makePtr<FrameBufferContext>(title, other);
 	ptr->self_ = ptr;
 	ptr->init();
 	return ptr;
 }
 
 cv::Ptr<FrameBufferContext> FrameBufferContext::make(const cv::Size& sz, const string& title, const int& major, const int& minor, const int& samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, const bool& root, const int& confFlags){
-	std::lock_guard guard(makeMtx_);
-	cv::Ptr<FrameBufferContext> ptr = new FrameBufferContext(sz, title, major, minor, samples, parentWindow, parent, root, confFlags);
+    std::lock_guard lock(makeMtx_);
+    cv::Ptr<FrameBufferContext> ptr = cv::makePtr<FrameBufferContext>(sz, title, major, minor, samples, parentWindow, parent, root, confFlags);
 	ptr->self_ = ptr;
 	ptr->init();
 	return ptr;
@@ -188,9 +188,6 @@ GLuint FrameBufferContext::getTextureID() {
 }
 
 void FrameBufferContext::init() {
-	static std::mutex initMtx;
-	std::lock_guard lock(initMtx);
-
     if(parent_) {
         if(isRoot()) {
             textureID_ = 0;
@@ -278,7 +275,7 @@ void FrameBufferContext::init() {
     }
 #endif
     try {
-        if (is_clgl_sharing_supported())
+        if (isRoot() && is_clgl_sharing_supported())
             cv::ogl::ocl::initializeContextFromGL();
         else
             clglSharing_ = false;
@@ -783,10 +780,8 @@ bool FrameBufferContext::isFullscreen() {
 void FrameBufferContext::setFullscreen(bool f) {
     auto monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-    std::cerr << mode->refreshRate << std::endl;
     if (f) {
     	glfwSetWindowMonitor(getGLFWWindow(), monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-        std::cerr << mode->refreshRate << std::endl;
     	setWindowSize(cv::Size(mode->width, mode->height));
     } else {
         glfwSetWindowMonitor(getGLFWWindow(), nullptr, 0, 0, size().width,

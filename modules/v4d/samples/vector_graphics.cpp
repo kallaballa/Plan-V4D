@@ -4,11 +4,11 @@ using namespace cv;
 using namespace cv::v4d;
 
 class VectorGraphicsPlan: public Plan {
-Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
 	void infer() override {
 		//Creates a NanoVG context and draws googly eyes that occasionally blink.
-		nvg([](const Rect &vp) {
+		nvg([](const Size &sz) {
 			//Calls from this namespace may only be used inside a nvg context.
 			//Nvg calls work exactly like their c-funtion counterparts.
 			//Please refer to the NanoVG documentation for details.
@@ -19,9 +19,9 @@ public:
 			float t = cv::getTickCount() / cv::getTickFrequency() - start;
 			float x = 0;
 			float y = 0;
-			float w = vp.width / 4;
-			float h = vp.height / 4;
-			translate((vp.width / 2.0f) - (w / 2.0f), (vp.height / 2.0f) - (h / 2.0f));
+			float w = sz.width / 4;
+			float h = sz.height / 4;
+			translate((sz.width / 2.0f) - (w / 2.0f), (sz.height / 2.0f) - (h / 2.0f));
 			float mx = w / 2.0;
 			float my = h / 2.0;
 			Paint gloss, bg;
@@ -97,7 +97,7 @@ public:
 			ellipse(rx, ry, ex, ey);
 			fillPaint(gloss);
 			fill();
-		}, vp_);
+		}, sz_);
 	}
 };
 
