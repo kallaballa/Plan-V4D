@@ -1992,22 +1992,26 @@ public:
 				auto src = plan->runtime_->getSource();
 				auto sink = plan->runtime_->getSink();
 				global.set<size_t>(Global::Keys::WORKERS_STARTED, workers);
-//				std::cerr << "workers: " << global.get<size_t>(Global::Keys::WORKERS_STARTED) << std::endl;
 
 				if(!(plan->runtime_->debugFlags() & DebugFlags::DONT_PAUSE_LOG)) {
 					CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
 					cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
 				}
 
+				auto completion = []() noexcept {};
+				cv::Ptr syncPoint = cv::makePtr<std::barrier<decltype(completion)>>(std::ptrdiff_t(workers), completion);
+
 				for (int32_t i = 0; i < workers; ++i) {
 					threads.push_back(
 						new std::thread(
-							[plan, i, workers, src, sink, &args...] {
-								CV_LOG_DEBUG(&v4d_tag, "Creating worker: " << i);
+							[plan, syncPoint, i, src, sink, &args...] {
+					            string name = "plan-" + std::to_string(i);
+					            setThreadName(name.c_str());
+					            CV_LOG_DEBUG(&v4d_tag, "Creating worker: " << name);
 								cv::Ptr<V4D> worker;
 								{
 									std::lock_guard guard(worker_init_mtx_);
-									worker = V4D::init(*plan->runtime_.get(), plan->runtime_->title() + "-worker-" + std::to_string(i));
+									worker = V4D::init(*plan->runtime_.get(), name);
 
 									if (src) {
 										worker->setSource(src);
@@ -2016,6 +2020,7 @@ public:
 										worker->setSink(sink);
 									}
 								}
+								syncPoint->arrive_and_wait();
 								Plan::run<Tplan>(0, std::forward<Args>(args)...);
 							}
 						)
@@ -2072,6 +2077,9 @@ public:
 			}
 			CV_LOG_DEBUG(&v4d_tag, "Main inference finished: " << plan->runtime_->workerIndex());
 		}
+
+		if(!global.isMain())
+		    Global::apply<size_t>(Global::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
 
 		try {
 			V4D::run(plan->runtime_, [plan](){

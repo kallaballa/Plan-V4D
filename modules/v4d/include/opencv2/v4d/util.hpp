@@ -330,6 +330,8 @@ class Plan;
 CV_EXPORTS size_t cnz(const cv::UMat& m);
 CV_EXPORTS size_t cnz(const cv::Mat& m);
 
+void setThreadName( const char* threadName);
+
 inline uint64_t get_epoch_nanos() {
 	return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }

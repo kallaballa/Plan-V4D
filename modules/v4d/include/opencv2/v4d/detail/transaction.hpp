@@ -538,24 +538,29 @@ auto filter_lockies(Tuple t, std::index_sequence<_Idx...>) {
 	return std::tuple_cat(filter_lockie(std::get<_Idx>(t))...);
 }
 
-template<typename Ttuple, size_t ... Tidx>
-auto make_lock_guard_ptr_tuple(Ttuple& t,  std::index_sequence<Tidx...>) {
-     return std::make_tuple(cv::Ptr<std::lock_guard<std::mutex>>(new std::lock_guard<std::mutex>(std::get<Tidx>(t).getMutex(), std::adopt_lock))...);
+template<bool TcountContention = false, typename Ttuple, size_t ... Tidx>
+auto make_unique_lock_ptr_tuple(Ttuple& t,  std::index_sequence<Tidx...>) {
+//    if constexpr(TcountContention) {
+//        size_t cnt = 0;
+//        (((std::get<Tidx>(t).tryLock() && std::get<Tidx>(t).unlock()) || ++cnt), ...);
+//
+//        Global::apply<size_t>(Global::Keys::LOCK_CONTENTION_CNT, [cnt](size_t& v){
+//            v += cnt;
+//            return v;
+//        });
+//    }
+
+    return std::make_tuple(std::unique_lock<std::mutex>(std::get<Tidx>(t).getMutex(), std::defer_lock)...);
 }
 
-template<bool TcountContention = false, typename Ttuple, size_t ... Tidx>
+template<typename Ttuple, size_t ... Tidx>
 auto perform_lock_from_tuple(Ttuple& t,  std::index_sequence<Tidx...>) {
-	if constexpr(TcountContention) {
-		size_t cnt = 0;
-		(((std::get<Tidx>(t).tryLock() && std::get<Tidx>(t).unlock()) || ++cnt), ...);
-
-		Global::apply<size_t>(Global::Keys::LOCK_CONTENTION_CNT, [cnt](size_t& v){
-			v += cnt;
-			return v;
-		});
-	}
-
-    std::lock(std::get<Tidx>(t).getMutex()...);
+    constexpr size_t lksz = std::tuple_size<Ttuple>::value;
+    if constexpr(lksz == 1) {
+        std::get<0>(t).lock();
+    } else if constexpr(lksz > 1) {
+        std::lock(std::get<Tidx>(t)...);
+    }
 }
 
 template <bool TcountContention, typename F, typename... Ts>
@@ -592,16 +597,13 @@ public:
     }
 
     template <typename _Fn, typename _Tuple, size_t... _Idx>
-    void
-    performImpl(_Fn&& __f, _Tuple&& __t, std::index_sequence<_Idx...> seq) {
+    void performImpl(_Fn&& __f, _Tuple&& __t, std::index_sequence<_Idx...> seq) {
     	if constexpr(hasLockies_) {
     		auto lockies = filter_lockies(__t, seq);
     		constexpr size_t lksz = std::tuple_size<decltype(lockies)>::value;
-    		if constexpr(lksz > 1) {
-       		  perform_lock_from_tuple<TcountContention>(lockies, std::make_index_sequence<lksz>());
-    		}
 
-    		auto lockHolders = make_lock_guard_ptr_tuple(lockies, std::make_index_sequence<lksz>());
+    		auto lockHolders = make_unique_lock_ptr_tuple<false>(lockies, std::make_index_sequence<lksz>());
+            perform_lock_from_tuple(lockHolders, std::make_index_sequence<lksz>());
 
     		std::invoke(std::forward<_Fn>(__f),
         			std::get<_Idx>(std::forward<_Tuple>(__t)).ref()...);
@@ -620,17 +622,14 @@ public:
     }
 
     template <typename _Fn, typename _Tuple, size_t... _Idx>
-    constexpr decltype(auto)
-    performImplRet(_Fn&& __f, _Tuple&& __t, std::index_sequence<_Idx...> seq) {
+    constexpr decltype(auto) performImplRet(_Fn&& __f, _Tuple&& __t, std::index_sequence<_Idx...> seq) {
     	bool res = false;
     	if constexpr(hasLockies_) {
     		auto lockies = filter_lockies(__t, seq);
-    		constexpr size_t lksz = std::tuple_size<decltype(lockies)>::value;
-    		if constexpr(lksz > 1) {
-       		  perform_lock_from_tuple<TcountContention>(lockies, std::make_index_sequence<lksz>());
-    		}
+            constexpr size_t lksz = std::tuple_size<decltype(lockies)>::value;
 
-    		auto lockHolders = make_lock_guard_ptr_tuple(lockies, std::make_index_sequence<lksz>());
+            auto lockHolders = make_unique_lock_ptr_tuple<false>(lockies, std::make_index_sequence<lksz>());
+            perform_lock_from_tuple(lockHolders, std::make_index_sequence<lksz>());
 
             res = std::invoke(std::forward<_Fn>(__f),
         			std::get<_Idx>(std::forward<_Tuple>(__t)).ref()...);

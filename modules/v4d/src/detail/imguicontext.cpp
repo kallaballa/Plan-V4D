@@ -74,8 +74,8 @@ void ImGuiContextImpl::render(bool showFPS) {
 		ImGui::SetNextWindowPos(pos, ImGuiCond_Once);
 		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
 		ImGui::Begin("Display", open_ptr, window_flags);
-		double fps = Global::instance().get<double>(Global::Keys::FPS);
-		size_t workers = Global::instance().get<size_t>(Global::Keys::WORKER_CNT);
+		double fps = Global::get<double>(Global::Keys::FPS);
+		size_t workers = Global::instance().get<size_t>(Global::Keys::WORKERS_READY);
 		ImGui::Text("%.4f ms/frame (%.1f FPS), workers: %ld", (1000.0f / fps), fps, workers);
 		ImGui::End();
         ImGui::PopStyleColor(1);
