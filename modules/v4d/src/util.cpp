@@ -44,6 +44,45 @@ void print_nth_line(const std::string& str, int n) {
 }
 }
 
+#ifdef _WIN32
+#include <windows.h>
+const DWORD MS_VC_EXCEPTION=0x406D1388;
+
+#pragma pack(push,8)
+typedef struct tagTHREADNAME_INFO
+{
+   DWORD dwType; // Must be 0x1000.
+   LPCSTR szName; // Pointer to name (in user addr space).
+   DWORD dwThreadID; // Thread ID (-1=caller thread).
+   DWORD dwFlags; // Reserved for future use, must be zero.
+} THREADNAME_INFO;
+#pragma pack(pop)
+
+
+void setThreadName( const char* threadName)
+{
+    setThreadName(GetCurrentThreadId(),threadName);
+}
+
+void setThreadName( const char* threadName)
+{
+    DWORD threadId = ::GetThreadId( static_cast<HANDLE>( std::this_thread::.native_handle() ) );
+    setThreadName(threadId,threadName);
+}
+
+//#elif defined(__linux__)
+//#include <sys/prctl.h>
+//void setThreadName( const char* threadName)
+//{
+//  prctl(PR_SET_NAME,threadName,0,0,0);
+//}
+#else
+void setThreadName(const char* threadName)
+{
+   pthread_setname_np(pthread_self(),threadName);
+}
+#endif
+
 size_t cnz(const cv::UMat& m) {
     cv::UMat grey;
     if(m.channels() == 1) {

@@ -9,7 +9,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/optflow.hpp>
-
+#include <opencv2/core/utils/logger.hpp>
 #include <cmath>
 #include <vector>
 #include <set>
@@ -250,7 +250,7 @@ public:
 
 class SparseOpticalFlow {
 	struct Temp {
-	    vector<cv::Point2f> hull_;
+	    vector<cv::Point2i> hull_;
 	    vector<cv::Point2f> nextPoints_, trimmedPoints_;;
 		vector<std::tuple<float, int, cv::Point2f>> prevPoints_;
 		vector<std::tuple<float, int, cv::Point2f>> newPoints_;
@@ -407,6 +407,7 @@ private:
 	inline static vector<cv::Point2f> detectedPoints_;
 
 	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+    Property<size_t> workerIndex_ = P<size_t>(RunState::Keys::WORKER_INDEX);
 public:
     OptflowDemoPlan() {
     }
@@ -460,7 +461,7 @@ public:
 	}
 
     void setup() override {
-    	construct(RW(featurePoints_), F(cv::FastFeatureDetector::create, V(10), V(false), V(cv::FastFeatureDetector::TYPE_9_16)));
+        construct(RW(featurePoints_), F(cv::FastFeatureDetector::create, V(10), V(false), V(cv::FastFeatureDetector::TYPE_9_16)));
 
     	plain(UMAT_CREATE,
                     RW(frames_.foreground_),
@@ -491,16 +492,16 @@ public:
                 RWS(detectedPoints_)
         );
 
-        branch(
+        branch(BranchType::SINGLE,
                 !F(&SceneChange::detect, RW(sceneChange_),
-		             RS(detectedPoints_),
-				     CS(params_.sceneChangeThresh_),
-				     CS(params_.sceneChangeThreshDiff_),
-				     size_
+                     RS(detectedPoints_),
+                     CS(params_.sceneChangeThresh_),
+                     CS(params_.sceneChangeThreshDiff_),
+                     size_
                 )
-		)
+        )
             ->clear()
-		    ->nvg(&SparseOpticalFlow::visualize, RW(sparseOptflow_),
+            ->nvg(&SparseOpticalFlow::visualize, RW(sparseOptflow_),
                     R(frames_.prevGrey_),
                     R(frames_.nextGrey_),
                     RS(detectedPoints_),
@@ -543,7 +544,7 @@ int main(int argc, char **argv) {
 //	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
 	runtime->setSource(src);
 //	runtime->setSink(sink);
-	Plan::run<OptflowDemoPlan>(0);
+	Plan::run<OptflowDemoPlan>(2);
 
     return 0;
 }
