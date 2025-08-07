@@ -28,7 +28,6 @@ struct GlowEffect {
 	struct Temp {
 		cv::UMat src_;
 		cv::UMat dst_;
-		cv::UMat dst16_;
 		cv::UMat high_;
 		cv::UMat blur_;
 		cv::UMat low_;
@@ -66,10 +65,7 @@ struct BloomEffect {
 		cv::UMat bgrFloat_;
 		cv::UMat hlsFloat_;
 		cv::UMat lsFoat_;
-		cv::UMat ls16_;
 		cv::UMat blur_;
-		cv::UMat logFloat_;
-		cv::UMat baseFloat_;
 		cv::UMat blurFloat_;
 		std::vector<cv::UMat> hlsChannels_;
 	} temp_;
@@ -101,12 +97,6 @@ public:
 };
 
 struct PostProcessor {
-    struct Temp {
-        cv::UMat bgrFloat_;
-        cv::UMat hlsFloat_;
-        std::vector<cv::UMat> hlsChannels_;
-    } temp_;
-
 	GlowEffect glow_;
 	BloomEffect bloom_;
 public:
@@ -493,12 +483,12 @@ public:
         );
 
         branch(BranchType::SINGLE,
-                !F(&SceneChange::detect, RW(sceneChange_),
-                     RS(detectedPoints_),
-                     CS(params_.sceneChangeThresh_),
-                     CS(params_.sceneChangeThreshDiff_),
-                     size_
-                )
+            !F(&SceneChange::detect, RW(sceneChange_),
+                 RS(detectedPoints_),
+                 CS(params_.sceneChangeThresh_),
+                 CS(params_.sceneChangeThreshDiff_),
+                 size_
+            )
         )
             ->clear()
             ->nvg(&SparseOpticalFlow::visualize, RW(sparseOptflow_),
