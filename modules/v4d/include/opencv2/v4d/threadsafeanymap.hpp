@@ -146,21 +146,18 @@ public:
 template<typename K>
 class CV_EXPORTS ThreadSafeAnyMap : public AnyPropertyMap<K> {
 private:
-	AnyPropertyMap<K> mutexes_;
-	cv::Ptr<std::shared_mutex> mapMutexPtr_ = cv::makePtr<std::shared_mutex>();
-    using parent_t = AnyPropertyMap<K>;
+	std::mutex mtx_;
+	using parent_t = AnyPropertyMap<K>;
 public:
    template<bool Tread, typename V>
    void create(K key, const V& value, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
-    	std::function<void(const cv::Ptr<std::shared_mutex>&)> emptyFn;
-    	mutexes_.template create<Tread>(key, cv::makePtr<std::shared_mutex>(), emptyFn);
-    	parent_t::template create<Tread>(key, value, cb);
+       std::unique_lock lock(mtx_);
+       parent_t::template create<Tread>(key, value, cb);
     }
 
     template<typename V>
     void set(K key, const V& value, bool fire = true) {
-        std::unique_lock<std::shared_mutex> map_lock(*mapMutexPtr_);
-        std::unique_lock<std::shared_mutex> key_lock(*mutexes_.template get<cv::Ptr<std::shared_mutex>>(key));
+        std::unique_lock lock(mtx_);
         parent_t::set(key, value, fire);
     }
 //
@@ -172,15 +169,13 @@ public:
 //    }
 
     template<typename V>
-    const V& get(K key) const {
-        std::shared_lock<std::shared_mutex> map_lock(*mapMutexPtr_);
-        std::shared_lock<std::shared_mutex> key_lock(*mutexes_.template get<cv::Ptr<std::shared_mutex>>(key));
+    const V& get(K key) {
+        std::unique_lock lock(mtx_);
         return parent_t::template get<V>(key);
     }
 
     template<typename V> V apply(K key, std::function<V(V&)> func) {
-        std::unique_lock<std::shared_mutex> map_lock(*mapMutexPtr_);
-        std::unique_lock<std::shared_mutex> key_lock(*mutexes_.template get<cv::Ptr<std::shared_mutex>>(key));
+        std::unique_lock lock(mtx_);
         return parent_t::template apply<V>(key, func);
     }
 
