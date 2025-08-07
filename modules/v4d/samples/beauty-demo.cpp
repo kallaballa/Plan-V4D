@@ -404,19 +404,19 @@ public:
                 ->branch(!F(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RWS(features_)))
                     //Set a shared state that will be displayed on-screen.
                     ->assign(RWS(params_.state_), V(Params::NOT_DETECTED))
+                    ->plain(compose_result, RW(frames_), CS(params_))
                 ->endBranch()
-                ->plain(cv::cvtColor, R(frames_.orig_), RW(frames_.result_), V(cv::COLOR_BGR2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT))
 			->endBranch()
 			->branch(!(F(&FaceFeatures::empty, RS(features_))));
-				assign(RWS(params_.state_), V(Params::ON))
+		        assign(RWS(params_.state_), V(Params::ON))
 				//run inference on the sub-plans which will emit their own nodes
 				->subInfer(prepareFeatureMasksPlan_)
 				->subInfer(beautyFilterPlan_)
 				->plain(compose_result, RW(frames_), CS(params_))
 		    ->endBranch()
 		->elseBranch()
+        ->plain(compose_result, RW(frames_), CS(params_))
 			->assign(RWS(params_.state_), V(Params::OFF))
-            ->plain(cv::cvtColor, R(frames_.orig_), RW(frames_.result_), V(cv::COLOR_BGR2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->endBranch();
 
         fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
