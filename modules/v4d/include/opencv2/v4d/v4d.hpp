@@ -43,6 +43,9 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/core/utils/logger.hpp>
 #include <opencv2/core/utility.hpp>
+
+using namespace std::chrono_literals;
+using namespace cv::utils::logging;
 /*!
  * OpenCV namespace
  */
@@ -51,9 +54,6 @@ namespace cv {
  * V4D namespace
  */
 namespace v4d {
-
-using namespace std::chrono_literals;
-using namespace cv::utils::logging;
 
 const LogTag cf_tag("Flow", LogLevel::LOG_LEVEL_INFO);
 const LogTag v4d_tag("V4D", LogLevel::LOG_LEVEL_INFO);
@@ -708,9 +708,8 @@ class CV_EXPORTS Plan {
 							if(currentState.isEnabled_ && currentState.isSingle_) {
 								CV_Assert(btype != BranchType::PARALLEL);
 
-								if(global.lockNode(currentState.branchID_)) {
-	//								cerr << "lock branch" << endl;
-								}
+								global.lockNode(currentState.branchID_);
+
 								currentState.isLocked_ = true;
 							}
 						}
@@ -726,9 +725,7 @@ class CV_EXPORTS Plan {
 						currentState.isSingle_ = false;
 
 						if(currentState.isLocked_) {
-							if(global.tryUnlockNode(currentState.branchID_)) {
-//								cerr << "unlock else" << endl;
-							}
+						    CV_Assert(global.tryUnlockNode(currentState.branchID_));
 						}
 
 						currentState.isLocked_ = false;
@@ -740,9 +737,7 @@ class CV_EXPORTS Plan {
 							continue;
 
 						currentState = branchStateStack_.front();
-						if(global.tryUnlockNode(currentState.branchID_)) {
-//							cerr << "unlock end" << endl;
-						}
+						global.tryUnlockNode(currentState.branchID_);
 						pf(branchStateStack_.size(), currentState, n);
 						branchStateStack_.pop_front();
 					} else {
@@ -1991,21 +1986,19 @@ public:
 				const string title = plan->runtime_->title();
 				auto src = plan->runtime_->getSource();
 				auto sink = plan->runtime_->getSink();
-				global.set<size_t>(Global::Keys::WORKERS_STARTED, workers);
+	            setThreadName((title + "-display").c_str());
 
 				if(!(plan->runtime_->debugFlags() & DebugFlags::DONT_PAUSE_LOG)) {
 					CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
 					cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
 				}
 
-				auto completion = []() noexcept {};
-				cv::Ptr syncPoint = cv::makePtr<std::barrier<decltype(completion)>>(std::ptrdiff_t(workers), completion);
-
+                global.set<size_t>(Global::Keys::WORKERS_STARTED, workers);
 				for (int32_t i = 0; i < workers; ++i) {
 					threads.push_back(
 						new std::thread(
-							[plan, syncPoint, i, src, sink, &args...] {
-					            string name = "plan-" + std::to_string(i);
+							[plan, i, src, sink, &args...] {
+					            string name = plan->runtime_->title() + "-" + std::to_string(i);
 					            setThreadName(name.c_str());
 					            CV_LOG_DEBUG(&v4d_tag, "Creating worker: " << name);
 								cv::Ptr<V4D> worker;
@@ -2020,7 +2013,7 @@ public:
 										worker->setSink(sink);
 									}
 								}
-								syncPoint->arrive_and_wait();
+
 								Plan::run<Tplan>(0, std::forward<Args>(args)...);
 							}
 						)
@@ -2043,6 +2036,9 @@ public:
 
 		if(global.isMain()) {
 			plan->runtime_->printSystemInfo();
+            CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
+            cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
+            CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << Global::get<size_t>(Global::Keys::WORKERS_STARTED) << " workers.");
 		} else {
 			static std::binary_semaphore setup_sema(1);
 			try {
@@ -2076,21 +2072,22 @@ public:
 				CV_Error_(cv::Error::StsError, ("Main inference failed: %s", ex.what()));
 			}
 			CV_LOG_DEBUG(&v4d_tag, "Main inference finished: " << plan->runtime_->workerIndex());
+            Global::apply<size_t>(Global::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
 		}
+        static std::barrier syncPoint(std::ptrdiff_t(workers + 1));
+        syncPoint.arrive_and_wait();
 
-		if(!global.isMain())
-		    Global::apply<size_t>(Global::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
+        if(global.isMain()) {
+                    CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << Global::get<size_t>(Global::Keys::WORKERS_STARTED) << " workers.");
+        }
 
-		try {
+        try {
 			V4D::run(plan->runtime_, [plan](){
 				TimeTracker::getInstance()->execute("iteration", [plan](){
 					plan->runGraph();
 					GL_CHECK(glFlush());
 				});
 			});
-			CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
-			cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
-			CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << Global::get<size_t>(Global::Keys::WORKERS_STARTED) << " workers.");
 		} catch(std::exception& ex) {
 			CV_Error_(cv::Error::StsError, ("Main plan->runtime_: %s", ex.what()));
 		}
