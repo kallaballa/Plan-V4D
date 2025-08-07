@@ -553,15 +553,15 @@ private:
 	CV_EXPORTS cv::Ptr<std::mutex> getNodeLockInternal(const string& name, const bool owned = true) {
 		auto it = nodeLockMap_.find(name);
 		if(owned) {
-			if(it == nodeLockMap_.end()) {
+			if(it != nodeLockMap_.end()) {
+                auto entry = *it;
+                if(entry.second.first == std::this_thread::get_id()) {
+                    return entry.second.second;
+                }
+            } else {
 				auto mtxPtr = cv::makePtr<std::mutex>();
 				nodeLockMap_[name] = {std::this_thread::get_id(), mtxPtr};
 				return mtxPtr;
-			} else {
-				auto entry = *it;
-				if(entry.second.first == std::this_thread::get_id()) {
-					return entry.second.second;
-				}
 			}
 		} else {
 			if(it != nodeLockMap_.end()) {
@@ -669,8 +669,10 @@ public:
 		std::lock_guard guard(nodeLockMtx_);
 		auto lock = getNodeLockInternal(name);
 		if(lock) {
-			lock->unlock();
-			invalidateNodeLockInternal(name);
+		    auto r = lock->try_lock();
+		    CV_UNUSED(r);
+		    lock->unlock();
+			CV_Assert(invalidateNodeLockInternal(name));
 			return true;
 		} else {
 			return false;
