@@ -9,6 +9,7 @@
 #include <opencv2/face/facemark.hpp>
 #include <opencv2/stitching/detail/blenders.hpp>
 #include <opencv2/video/tracking.hpp>
+#include <opencv2/core/utils/logger.hpp>
 
 #include <vector>
 #include <string>
@@ -373,7 +374,11 @@ public:
 	void setup() override {
         //emits a node the performs an assignment. F creates an edge that reads the result of a function call
         assign(RW(scale_), F(aspect_preserving_scale, size_, R(downSize_)));
-        construct(RW(extractor_), R(downSize_), R(scale_));
+
+        //model loading spams the log
+        plain(setLogLevel, V(LOG_LEVEL_WARNING))
+        ->construct(RW(extractor_), R(downSize_), R(scale_))
+        ->plain(setLogLevel, V(LOG_LEVEL_INFO));
 	}
 
 	void infer() override {
