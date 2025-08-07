@@ -78,16 +78,18 @@ FrameBufferContext::FrameBufferContext(const cv::Size& framebufferSize,
 }
 
 
+static std::mutex make_mtx_;
+
 cv::Ptr<FrameBufferContext> FrameBufferContext::make(const string& title, cv::Ptr<FrameBufferContext> other) {
-    std::lock_guard lock(makeMtx_);
+    std::lock_guard lock(make_mtx_);
     cv::Ptr<FrameBufferContext> ptr = cv::makePtr<FrameBufferContext>(title, other);
 	ptr->self_ = ptr;
 	ptr->init();
 	return ptr;
 }
 
-cv::Ptr<FrameBufferContext> FrameBufferContext::make(const cv::Size& sz, const string& title, const int& major, const int& minor, const int& samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, const bool& root, const int& confFlags){
-    std::lock_guard lock(makeMtx_);
+cv::Ptr<FrameBufferContext> FrameBufferContext::make(const cv::Size& sz, const string& title, const int& major, const int& minor, const int& samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, const bool& root, const int& confFlags) {
+    std::lock_guard lock(make_mtx_);
     cv::Ptr<FrameBufferContext> ptr = cv::makePtr<FrameBufferContext>(sz, title, major, minor, samples, parentWindow, parent, root, confFlags);
 	ptr->self_ = ptr;
 	ptr->init();
