@@ -13,10 +13,7 @@ class CubeDemoPlan : public Plan {
 	CubeScene scene_;
 public:
 	void setup() override {
-
-		set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255)));
 		gl(&CubeScene::init, RW(scene_));
-		clear();
 
 //        cv::Rect vp = V4D::get<cv::Rect>(V4D::Keys::VIEWPORT);
 //        size_t w = vp.width / 4.5;
@@ -26,6 +23,7 @@ public:
 	}
 
 	void infer() override {
+        set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255)));
 		clear();
 		gl(&CubeScene::render, R(scene_), V(0.0), V(0.0));
 	}

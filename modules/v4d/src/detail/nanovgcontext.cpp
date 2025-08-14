@@ -47,16 +47,16 @@ int NanoVGContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 
 int NanoVGContext::render(const cv::Rect& vp, std::function<void()> fn) {
 	{
-//		glEnable(GL_SCISSOR_TEST);
-//		glScissor(0, 0, vp.size().width, vp.size().height);
-//		glViewport(0, 0, vp.width, vp.height);
-		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+	    glEnable(GL_SCISSOR_TEST);
+	    glScissor(vp.x, vp.y, vp.width, vp.height);
+	    glViewport(vp.x, vp.y, vp.width, vp.height);
+	    glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		NanoVGContext::Scope nvgScope(*this, vp);
 		cv::v4d::nvg::detail::NVG::initializeContext(context_);
 //		cv::v4d::nvg::scale(0.5, 0.5);
 		fn();
-//		glDisable(GL_SCISSOR_TEST);
+        glDisable(GL_SCISSOR_TEST);
 
 		return 1;
 	}
@@ -67,16 +67,13 @@ int NanoVGContext::render(const cv::Rect& vp, std::function<void()> fn) {
 void NanoVGContext::begin(const cv::Rect& viewport) {
     float w = fbCtx()->size().width;
     float h = fbCtx()->size().height;
-    float x = viewport.x;
-    float y = viewport.y;
-    float ws = viewport.width;
-    float hs = viewport.height;
+//    float x = viewport.x;
+//    float y = viewport.y;
+//    float ws = viewport.width;
+//    float hs = viewport.height;
     float r = fbCtx()->pixelRatioX();
-    CV_UNUSED(ws);
     nvgSave(context_);
-    nvgBeginFrame(context_, ws, hs, r);
-    nvgScale(context_, ws/w, hs/h);
-    nvgTranslate(context_, x, y);
+    nvgBeginFrame(context_, w, h, r);
 }
 
 void NanoVGContext::end() {

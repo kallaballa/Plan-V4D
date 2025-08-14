@@ -74,7 +74,7 @@ FrameBufferContext::FrameBufferContext(const cv::Size& framebufferSize,
         const string& title, int major, int minor, int samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, bool root, int confFlags) :
         title_(title), major_(major), minor_(minor), samples_(samples), configFlags_(confFlags), isVisible_(!(confFlags & FBConfigFlags::OFFSCREEN)), framebufferSize_(framebufferSize), parent_(parent), isRoot_(root), framebuffer_(), view_() {
     CV_UNUSED(parentWindow);
-    index_ = Global::instance().apply<size_t>(Global::Keys::FRAMEBUFFER_INDEX, [](size_t& v){ return v++; });
+    index_ = GlobalState::instance()->apply<size_t>(GlobalState::Keys::FRAMEBUFFER_INDEX, [](size_t& v){ return v++; });
 }
 
 
@@ -293,7 +293,7 @@ void FrameBufferContext::init() {
     	context_ = CLExecContext_t::getCurrent();
 
     setup();
-    if(Global::instance().isMain() && !parent_) {
+    if(GlobalState::instance()->isMain() && !parent_) {
         event::init<cv::Point>(
           [](GLFWwindow *window, int key, int scancode, int action, int mods){
               ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);

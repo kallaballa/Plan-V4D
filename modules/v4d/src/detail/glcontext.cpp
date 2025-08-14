@@ -16,12 +16,12 @@ GLContext::GLContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext) 
 int GLContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	FrameBufferContext::WindowScope winScope(fbCtx());
 	FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
-//	glEnable(GL_SCISSOR_TEST);
-//	glScissor(0, 0, vp.size().width, vp.size().height);
+	glEnable(GL_SCISSOR_TEST);
+	glScissor(vp.x, vp.y, vp.width, vp.height);
 	glViewport(vp.x, vp.y, vp.width, vp.height);
-//	glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+	glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 	fn();
-//	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_SCISSOR_TEST);
 	return 1;
 }
 

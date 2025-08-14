@@ -265,8 +265,8 @@ public:
 
 private:
 	//Key spaces of different state machines of V4D
-	using G_ = Global::Keys;
-	using R_ = RunState::Keys;
+	using G_ = GlobalState::Keys;
+	using R_ = LocalState::Keys;
 	using V_ = V4D::Keys;
 	using M_ = Mouse::Type;
 
@@ -282,7 +282,7 @@ private:
 
 	//think of properties as data-pinholes into one of the v4d runtime's state-machines. Properties are in fact a special kind of edge.
 	Property<cv::Size> size_ = P<cv::Size>(V_::SIZE);
-	Property<uint64_t> frameCnt_ = P<uint64_t>(G_::FRAME_CNT);
+	Property<uint64_t> seqCnt_ = P<uint64_t>(G_::SEQUENCE_CNT);
 
 	//A special kind of edge used to signal user input events
 	Event<Mouse> pressEvents_ = E<Mouse>(M_::PRESS);
@@ -292,6 +292,7 @@ private:
 		frames.bgr_.copyTo(frames.orig_);
 		cv::resize(frames.orig_, frames.down_, downSize);
 		frames.orig_.copyTo(frames.stitched_);
+		frames.orig_.copyTo(frames.result_);
 	}
 
 	static void compose_result(Frames& frames, const Params& params) {
@@ -400,7 +401,7 @@ public:
 										)
 				)
 			//every N frames redect the face features.
-			->branch(frameCnt_ % V(uint64_t(8)) == V(uint64_t(0)))
+			->branch(seqCnt_ % V(uint64_t(8)) == V(uint64_t(0)))
                 ->branch(!F(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RWS(features_)))
                     //Set a shared state that will be displayed on-screen.
                     ->assign(RWS(params_.state_), V(Params::NOT_DETECTED))

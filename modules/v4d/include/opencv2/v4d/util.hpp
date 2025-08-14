@@ -518,11 +518,12 @@ public:
 	}
 };
 
-class CV_EXPORTS Global : public SharedVariables {
+class CV_EXPORTS GlobalState : public SharedVariables {
 public:
 	struct Keys {
 		enum Enum {
-			FRAME_CNT,
+			SEQUENCE_CNT,
+			CAPTURE_CNT,
             FPS_CNT,
 			RUN_CNT,
 			START_TIME,
@@ -536,12 +537,14 @@ public:
 			LOCK_CONTENTION_RATE,
 			LCR_CNT,
 			PLAN_CNT,
-			WORKER_CNT
+		    SHOW_GUI,
+		    TIME_TRACKER
 		};
 	};
 private:
-	CV_EXPORTS static ThreadSafeAnyMap<Keys::Enum> map_;
-	CV_EXPORTS static Global* instance_;
+	CV_EXPORTS inline static ThreadSafeAnyMap<Keys::Enum> map_;
+    CV_EXPORTS inline static std::mutex instance_mtx_;
+	CV_EXPORTS inline static cv::Ptr<GlobalState> instance_ = nullptr;
 	std::mutex threadIDMtx_;
 	const std::thread::id defaultThreadID_;
 	std::thread::id mainThreadID_;
@@ -584,8 +587,9 @@ private:
 		return false;
 	}
 
-	Global() {
-		create<false, uint64_t>(Keys::FRAME_CNT, 0);
+	GlobalState() {
+		create<false, uint64_t>(Keys::SEQUENCE_CNT, 0);
+		create<false, uint64_t>(Keys::CAPTURE_CNT, 0);
 		create<false, uint64_t>(Keys::FPS_CNT, 0);
 		create<false, size_t>(Keys::RUN_CNT, 0);
 		create<false, uint64_t>(Keys::START_TIME, get_epoch_nanos());
@@ -599,12 +603,13 @@ private:
 		create<false, double>(Keys::LOCK_CONTENTION_RATE, 0.0);
 		create<false, uint64_t>(Keys::LCR_CNT, 0);
 		create<false, size_t>(Keys::PLAN_CNT, 0);
-		create<false, size_t>(Keys::WORKER_CNT, 0);
+	    create<false, bool>(Keys::SHOW_GUI, true);
+	    create<false, bool>(Keys::TIME_TRACKER, true);
 	}
 public:
 	template <typename V>
 	static const auto& get(Keys::Enum k) {
-		return map_.get<V>(k);
+	    return map_.get<V>(k);
 	}
 
 	template <typename V>
@@ -640,13 +645,12 @@ public:
 		return f;
     }
 
-	CV_EXPORTS static Global& instance() {
-		static std::mutex mtx;
-		std::lock_guard guard(mtx);
+	CV_EXPORTS static cv::Ptr<GlobalState> instance() {
+		std::lock_guard guard(instance_mtx_);
 		if(instance_ == nullptr) {
-			instance_ = new Global();
+			instance_ = new GlobalState();
 		}
-		return *instance_;
+		return instance_;
 	}
 
 	CV_EXPORTS cv::Ptr<std::mutex> tryGetNodeLock(const string& name) {
@@ -706,8 +710,8 @@ public:
 };
 
 
-class RunState {
-	CV_EXPORTS static thread_local RunState* instance_;
+class LocalState {
+	CV_EXPORTS inline static thread_local LocalState* instance_;
 public:
 	struct Keys {
 		enum Enum {
@@ -715,35 +719,39 @@ public:
 		};
 	};
 private:
-	ThreadSafeAnyMap<Keys::Enum> map_;
+	inline static thread_local ThreadSafeAnyMap<Keys::Enum> map_;
 public:
-	RunState() {
+	LocalState() {
 		create<false, size_t>(Keys::WORKER_INDEX, 0);
 	}
 
-	static RunState& instance() {
+	static thread_local cv::Ptr<LocalState> instance() {
 		static std::mutex mtx;
 		std::lock_guard guard(mtx);
 		if(instance_ == nullptr) {
-			instance_ = new RunState();
+			instance_ = new LocalState();
 		}
-		return *instance_;
+		return instance_;
 	}
 
-	template <typename V> const V& get(Keys::Enum k) {
+	template <typename V>
+	static thread_local const V& get(Keys::Enum k) {
 		return map_.get<V>(k);
 	}
 
-	template <typename V> void set(Keys::Enum k, V v) {
+	template <typename V>
+	static thread_local void set(Keys::Enum k, V v) {
 		map_.set(k, v);
 	}
 
-	template <bool Tread, typename V> void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
+	template <bool Tread, typename V>
+	static thread_local void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
 		map_.create<Tread>(k, v, cb);
 	}
 
-	template <typename V> V apply(Keys::Enum k, std::function<V(V&)> f) {
-		return map_.apply(k, f);
+	template <typename V>
+	static thread_local V apply(Keys::Enum k, std::function<V(V&)> f) {
+	    return map_.apply(k, f);
 	}
 };
 

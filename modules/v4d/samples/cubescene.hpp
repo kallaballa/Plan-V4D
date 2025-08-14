@@ -160,6 +160,7 @@ public:
 
 		//calculate the transform
 		cv::Matx44f transform = scaleMat * rotXMat * rotYMat * rotZMat * transMat;
+        glClear(GL_DEPTH_BUFFER_BIT);
 		//set the corresponding uniform
 		glUniformMatrix4fv(handles_.uniform_, 1, GL_FALSE, transform.val);
 		//Bind the prepared vertex array object
