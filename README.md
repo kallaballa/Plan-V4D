@@ -4,7 +4,7 @@ Plan-V4D is a C++20 framework for building high-performance, graphical applicati
 
 This combination allows developers to create complex, parallelized computer vision and visualization pipelines with a clean, declarative syntax.
 
-![Beauty Filter Demo](v4d/doc/beauty.png)
+![Beauty Filter Demo](modules/v4d/doc/beauty.png)
 *A real-time "beauty filter" demo running in Plan-V4D, showcasing DNN-based face and landmark detection, image segmentation, and multi-band blending.*
 
 ## Core Concepts
@@ -16,6 +16,10 @@ This combination allows developers to create complex, parallelized computer visi
 -   **Contexts as Workstations**: The V4D runtime provides **contexts** (`nvg`, `gl`, `fb`, `imgui`, `plain`) which are the workstations on your assembly line. Each is a specialized environment for a specific task, like 2D vector drawing, raw OpenGL rendering, or running standard OpenCV functions.
 
 -   **How it Compares**: Plan-V4D is like **GStreamer**, but with a compile-time graph that is type-safe C++. It has the pipeline-thinking of a node-based compositor like **Blender or Nuke**, but implemented in code. It delivers the performance of a low-level tasking library like **Intel TBB**, but is specialized for the computer vision and graphics domain.
+
+## Learn More
+
+The best way to learn Plan-V4D is to follow the **[Tutorials](modules/v4d/tutorials/00-intro.markdown)**. They have been written to guide you from the foundational concepts to building complex, real-world applications like the ones shown above.
 
 ## Key Features
 
@@ -29,9 +33,9 @@ This combination allows developers to create complex, parallelized computer visi
 
 ## Selected Examples
 
-| ![Optical Flow Visualization](v4d/doc/optflow.png) | ![Interactive Shader Demo](v4d/doc/shader.png) | ![Pedestrian Tracking](v4d/doc/pedestrian.png) |
+| ![Optical Flow Visualization](modules/v4d/doc/optflow.png) | ![Interactive Shader Demo](modules/v4d/doc/shader.png) | ![Pedestrian Tracking](modules/v4d/doc/pedestrian.png) |
 | :---: | :---: | :---: |
-| **Optical Flow** ([source](v4d/samples/optflow-demo.cpp)) | **Custom Shader** ([source](v4d/samples/shader-demo.cpp)) | **Detection & Tracking** ([source](v4d/samples/pedestrian-demo.cpp)) |
+| **Optical Flow** ([source](modules/v4d/samples/optflow-demo.cpp)) | **Custom Shader** ([source](modules/v4d/samples/shader-demo.cpp)) | **Detection & Tracking** ([source](modules/v4d/samples/pedestrian-demo.cpp)) |
 
 ## Instructions for Linux (Ubuntu 24.04.1 LTS - Noble Numbat)
 
@@ -156,7 +160,3 @@ cmake -DOPENCV_V4D_ENABLE_ES3=ON -DCMAKE_CXX_FLAGS="-DCL_TARGET_OPENCL_VERSION=1
 ```bash
 make -j$(sysctl -n hw.ncpu)
 ```
-
-## Learn More
-
-The best way to learn Plan-V4D is to follow the **[Tutorials](v4d/tutorials/00-intro.markdown)**. They have been written to guide you from the foundational concepts to building complex, real-world applications like the ones shown above.
