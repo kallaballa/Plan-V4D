@@ -222,14 +222,14 @@ public:
 		if(!foreground.empty()) {
 		    foreground.convertTo(temp_.fgFloat_, CV_32F, 1.0/255.0);
 
-		    postProcessor_.perform(temp_.fgFloat_, temp_.fgFloat_, ppMode, ksize, gain);
+            postProcessor_.perform(temp_.fgFloat_, temp_.fgFloat_, ppMode, ksize, gain);
 		} else {
 		    temp_.bgFloat_.copyTo(temp_.fgFloat_);
 		}
 
 		oldForeground.convertTo(temp_.oldFgFloat_, CV_32F, 1.0/255.0);
 	    cv::addWeighted(temp_.fgFloat_, 0.3333, temp_.oldFgFloat_, 0.6667, 0.0, temp_.fgFloat_, -1);
-        cv::multiply(temp_.fgFloat_, 1.3333, temp_.fgFloat_);
+//        cv::multiply(temp_.fgFloat_, 1.3333, temp_.fgFloat_);
 	    temp_.fgFloat_.convertTo(foreground, CV_8U, 255.0);
 
         cv::add(temp_.bgFloat_, temp_.fgFloat_, temp_.fbFloat_);
@@ -355,9 +355,11 @@ private:
 
 	static struct Params {
 
-		PostProcessor::Modes postProcMode_ = PostProcessor::GLOW;
+		PostProcessor::Modes postProcMode_ = PostProcessor::DISABLED;
+		//the framebuffer size
+        cv::Size size_;
 		// Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
-		int kernelSize_ = 9;
+		int kernelSize_;
 		//The intensity of the glow or bloom filter
 		int gain_ = 70;
 		//Convert the background to greyscale
@@ -397,7 +399,7 @@ private:
 	inline static vector<cv::Point2f> detectedPoints_;
 
 	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
-    Property<size_t> workerIndex_ = P<size_t>(RunState::Keys::WORKER_INDEX);
+    Property<size_t> workerIndex_ = P<size_t>(LocalState::Keys::WORKER_INDEX);
 public:
     OptflowDemoPlan() {
     }
@@ -451,6 +453,17 @@ public:
 	}
 
     void setup() override {
+        params_.size_ = V4D::get<cv::Size>(V4D::Keys::SIZE);
+        assign(RW(params_.kernelSize_), V(params_.size_.width + params_.size_.height) / V(375));
+        assign(RW(params_.kernelSize_),
+                IF(
+                    R(params_.kernelSize_) % V(2) == V(0),
+                    R(params_.kernelSize_) + V(1),
+                    R(params_.kernelSize_)
+                )
+        );
+        assign(RW(params_.maxPoints_), V(params_.size_.width + params_.size_.height) * V(100));
+        plain(RW(std::cerr) << R(params_.kernelSize_) << V('\n'));
         construct(RW(featurePoints_), F(cv::FastFeatureDetector::create, V(10), V(false), V(cv::FastFeatureDetector::TYPE_9_16)));
 
     	plain(UMAT_CREATE,
@@ -470,6 +483,7 @@ public:
 
 	void infer() override {
 	    set(V4D::Keys::FULLSCREEN, CS(params_.fullscreen_));
+        set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(0, 0, 0, 0)));
 
 	    capture(RW(frames_.background_));
 

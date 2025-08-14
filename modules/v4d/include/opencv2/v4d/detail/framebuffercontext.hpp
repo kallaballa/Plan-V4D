@@ -10,6 +10,7 @@
 #include "cl.hpp"
 #include <opencv2/core.hpp>
 #include <opencv2/core/ocl.hpp>
+#include <opencv2/imgproc.hpp>
 #include <iostream>
 #include <map>
 #include <vector>
@@ -265,22 +266,43 @@ public:
       * @param fn A function object that is passed the framebuffer to be read/manipulated.
       */
     virtual int execute(const cv::Rect& vp, std::function<void()> fn) override {
-//		cv::Rect glAdjustedVp(vp.x, (size().height - (vp.y + vp.height)), vp.width, vp.height);
-        CV_UNUSED(vp);
-        cv::Rect glAdjustedVp(0, 0, size().width, size().height);
-    	FrameBufferContext::WindowScope winScope(self());
+        cv::Rect flippedVp(vp.x, size().height - (vp.y + vp.height), vp.width, vp.height);
+        if(view_.empty()) {
+            view_.create(size(), CV_8UC4);
+        }
+
+        FrameBufferContext::WindowScope winScope(self());
     	if(cv::ocl::useOpenCL() && !getCLExecContext().empty()) {
 			CLExecScope_t clExecScope(getCLExecContext());
 			FrameBufferContext::GLScope glScope(self(), GL_FRAMEBUFFER);
 			FrameBufferContext::FrameBufferScope fbScope(self(), framebuffer_);
 
-			view_ = framebuffer_(glAdjustedVp);
+			if(size() != vp.size()) {
+			    framebuffer_(flippedVp).copyTo(view_(flippedVp));
+			} else {
+			    view_ = framebuffer_;
+			}
+
 			fn();
+
+            if(size() != vp.size()) {
+                view_(flippedVp).copyTo(framebuffer_(flippedVp));
+            }
     	} else {
 			FrameBufferContext::GLScope glScope(self(), GL_FRAMEBUFFER);
 			FrameBufferContext::FrameBufferScope fbScope(self(), framebuffer_);
-			view_ = framebuffer_(glAdjustedVp);
-			fn();
+
+            if(size() != vp.size()) {
+                framebuffer_(flippedVp).copyTo(view_(flippedVp));
+            } else {
+                view_ = framebuffer_;
+            }
+
+            fn();
+
+            if(size() != vp.size()) {
+                view_(flippedVp).copyTo(framebuffer_(flippedVp));
+            }
     	}
 
     	return 1;
@@ -337,7 +359,7 @@ public:
      * Tear-down OpenGL states.
      */
     CV_EXPORTS void end(bool copyBack);
-    /*!
+    /*
      * Download the framebuffer to UMat m.
      * @param m The target UMat.
      */

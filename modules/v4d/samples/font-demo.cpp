@@ -147,6 +147,8 @@ class FontDemoPlan : public Plan {
 	static constexpr auto UMAT_COPY_ = static_cast<void(*)(const cv::UMat&, cv::UMat&)>(&SharedVariables::copy);
 
 	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+	cv::Size lastVpSize_;
 public:
 	void gui() override {
         imgui([](TextRenderer& text, StarsRenderer& stars, Warp& warp) {
@@ -185,11 +187,11 @@ public:
     }
 
     void infer() override {
-		branch(CS(warp_.update_))
+		branch(CS(warp_.update_) || RW(lastVpSize_) != F(&cv::Rect::size, vp_))
 			->plain(&Warp::calculate, RWS(warp_), size_)
 		->endBranch();
 
-    	branch(CS(stars_.update_))
+    	branch(CS(stars_.update_) || RW(lastVpSize_) != F(&cv::Rect::size, vp_))
 			->nvg(&StarsRenderer::draw, RWS(stars_), size_)
 			->fb(UMAT_COPY_, RWS(stars_.rendering_))
 		->endBranch();
@@ -204,6 +206,8 @@ public:
 		branch(-CS(text_.textOffsetY_) > CS(text_.height_))
 			->assign(RWS(timeOffset_), F(seconds))
 		->endBranch();
+
+		assign(RW(lastVpSize_), F(&cv::Rect::size, vp_));
     }
 };
 

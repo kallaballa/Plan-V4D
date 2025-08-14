@@ -16,15 +16,14 @@ class ManyCubesDemoPlan : public Plan {
 	size_t currentGlCtx_ = 0;
 public:
 	void setup() override {
-		set(_(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(202, 61, 51, 255.0))));
-
 		for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
 			gl<-1>(V(i), &CubeScene::init, RW(scene_));
 		}
 	}
 
 	void infer() override {
-		//Render using multiple OpenGL contexts
+        set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255)));
+	    //Render using multiple OpenGL contexts
 		clear();
 		for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
 			gl<-1>(V(i),

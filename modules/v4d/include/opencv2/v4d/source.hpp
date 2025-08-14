@@ -24,9 +24,9 @@ class V4D;
 class CV_EXPORTS Source {
     bool open_ = true;
     std::function<bool(cv::UMat&)> generator_;
-    uint64_t count_ = 0;
     float fps_;
     std::mutex mtx_;
+    inline static thread_local cv::UMat frame_;
 public:
     /*!
      * Constructs the Source object from a generator functor.
@@ -64,7 +64,7 @@ public:
      * (e.g. by VideoCapture)in a pair.
      * @return A pair containing the frame count and the frame generated.
      */
-    CV_EXPORTS std::pair<uint64_t, cv::UMat> operator()();
+    CV_EXPORTS cv::UMat operator()();
 
     static cv::Ptr<Source> make(cv::Ptr<V4D> window, const string& inputFilename);
 private:

@@ -19,46 +19,37 @@ namespace v4d {
 
 CV_EXPORTS std::mutex V4D::instance_mtx_;
 CV_EXPORTS thread_local cv::Ptr<V4D> V4D::instance_;
-CV_EXPORTS ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
+CV_EXPORTS thread_local ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
 
 cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
-	std::lock_guard guard(instance_mtx_);
-	if(instance_ == nullptr)
-		instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
+    {
+        std::lock_guard guard(instance_mtx_);
+        if(instance_ == nullptr)
+            instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
+    }
+    //instances must be created here
+    auto global = GlobalState::instance();
+    auto local = LocalState::instance();
+    CV_UNUSED(local);
 
-	create<true>(Keys::SIZE, viewport.size());
-    create<false>(Keys::VIEWPORT, viewport);
-    create<false, cv::Size>(Keys::WINDOW_SIZE, viewport.size(), [instance_](const cv::Size& sz){ instance_->fbCtx()->setWindowSize(sz); });
-	create<true>(Keys::FRAMEBUFFER_SIZE, viewport.size());
-    create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
-    create<false,string>(Keys::NAMESPACE, "default");
-    create<false>(Keys::FULLSCREEN, false);
-    create<false>(Keys::DISABLE_VIDEO_IO, false);
-    create<false>(Keys::DISABLE_INPUT_EVENTS, false);
-    create<false>(Keys::SHOW_GUI, true);
-    create<false>(Keys::TIME_TRACKER, true);
-    create<false, bool>(Keys::VISIBLE, instance_->fbCtx()->isVisible(), [instance_](const bool& v){ instance_->fbCtx()->setVisible(v); });
+    V4D::init_keys();
 
 	return instance_;
 }
 
 cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbSize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
-	std::lock_guard guard(instance_mtx_);
-	if(instance_ == nullptr)
-		instance_ = new V4D(viewport, fbSize, title, allocFlags, confFlags, debFlags, samples);
+    {
+        std::lock_guard guard(instance_mtx_);
+        if(instance_ == nullptr)
+            instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
+    }
 
-	create<true>(Keys::SIZE, viewport.size());
-	create<false>(Keys::VIEWPORT, viewport);
-    create<false, cv::Size>(Keys::WINDOW_SIZE, viewport.size(), [instance_](const cv::Size& sz){ instance_->fbCtx()->setWindowSize(sz); });
-	create<true>(Keys::FRAMEBUFFER_SIZE, fbSize);
-	create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
-    create<false,string>(Keys::NAMESPACE, "default");
-    create<false>(Keys::FULLSCREEN, false);
-    create<false>(Keys::DISABLE_VIDEO_IO, false);
-    create<false>(Keys::DISABLE_INPUT_EVENTS, false);
-    create<false>(Keys::SHOW_GUI, true);
-    create<false>(Keys::TIME_TRACKER, true);
-    create<false, bool>(Keys::VISIBLE, instance_->fbCtx()->isVisible(), [instance_](const bool& v){ instance_->fbCtx()->setVisible(v); });
+    //instances must be created here
+    auto global = GlobalState::instance();
+    auto local = LocalState::instance();
+    CV_UNUSED(local);
+
+    V4D::init_keys();
 
 	return instance_;
 }
@@ -66,8 +57,14 @@ cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbSize, const s
 cv::Ptr<V4D> V4D::init(const V4D& other, const string& title) {
 	std::lock_guard guard(instance_mtx_);
 	if(instance_ == nullptr)
-		instance_ = new V4D(other, title);
+	    instance_ = new V4D(other, title);
 
+    //instances must be created here
+    auto global = GlobalState::instance();
+    auto local = LocalState::instance();
+    CV_UNUSED(local);
+
+	V4D::init_keys();
 	return instance_;
 }
 
@@ -96,14 +93,11 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, Allocat
 
 V4D::V4D(const V4D& other, const string& title) :
 		allocateFlags_(other.allocateFlags_), configFlags_(other.configFlags_), debugFlags_(other.debugFlags_), samples_(other.samples_) {
-
-	workerIdx_ = Global::instance().apply<size_t>(Global::Keys::WORKER_CNT, [](size_t& v){ return v++; });
-    RunState::instance().set<size_t>(RunState::Keys::WORKER_INDEX, workerIdx_);
 	int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::DISPLAY_MODE : 0)
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
 			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : FBConfigFlags::OFFSCREEN);
 
-    mainFbContext_ = detail::FrameBufferContext::make(other.get<cv::Size>(V4D::Keys::FRAMEBUFFER_SIZE), title, 3,
+    mainFbContext_ = detail::FrameBufferContext::make(other.fbCtx()->size(), title, 3,
                 2, other.samples_, other.fbCtx()->glfwWindow_, other.fbCtx(), true, fbFlags);
     CLExecScope_t scope(mainFbContext_->getCLExecContext());
     if(allocateFlags() & AllocateFlags::NANOVG)
@@ -117,10 +111,6 @@ V4D::V4D(const V4D& other, const string& title) :
 
 V4D::~V4D() {
 
-}
-
-const int32_t& V4D::workerIndex() const {
-	return workerIdx_;
 }
 
 std::string V4D::title() const {
@@ -340,52 +330,47 @@ void V4D::swapContextBuffers() {
 bool V4D::display() {
     auto startDisplayFuncNanos = get_epoch_nanos();
 
-	Global& global = Global::instance();
-    if(!global.isMain()) {
-    	global.apply<uint64_t>(Global::Keys::FRAME_CNT, [](uint64_t& v){ return v++; });
-        global.apply<uint64_t>(Global::Keys::FPS_CNT, [](uint64_t& v){ return v++; });
-        global.apply<uint64_t>(Global::Keys::LCR_CNT, [](uint64_t& v){ return v++; });
+	auto global = GlobalState::instance();
+    if(!global->isMain()) {
+        global->apply<uint64_t>(GlobalState::Keys::FPS_CNT, [](uint64_t& v){ return v++; });
+        global->apply<uint64_t>(GlobalState::Keys::LCR_CNT, [](uint64_t& v){ return v++; });
 
 		if(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
 			swapContextBuffers();
 		}
     }
-	if (global.isMain()) {
-		bool isFS = fbCtx()->isFullscreen();
-		if(isFS != get<bool>(Keys::FULLSCREEN))
-			fbCtx()->setFullscreen(!isFS);
-
+	if (global->isMain()) {
 		bool countLockContention = debugFlags() & DebugFlags::PRINT_LOCK_CONTENTION;
-		auto start = global.get<uint64_t>(Global::Keys::START_TIME);
+		auto start = global->get<uint64_t>(GlobalState::Keys::START_TIME);
 		auto now = get_epoch_nanos();
 		auto diff = now - start;
 		double diffSeconds = diff / 1000000000.0;
 
-		if(global.get<double>(Global::Keys::FPS) > 0 && diffSeconds > 1.0) {
-		    global.apply<uint64_t>(Global::Keys::START_TIME, [diff](uint64_t& v) { return (v += (diff / 2.0)); } );
-		    global.apply<uint64_t>(Global::Keys::FPS_CNT, [diff](uint64_t& v) { return (v *= 0.5); } );
+		if(global->get<double>(GlobalState::Keys::FPS) > 0 && diffSeconds > 1.0) {
+		    global->apply<uint64_t>(GlobalState::Keys::START_TIME, [diff](uint64_t& v) { return (v += (diff / 2.0)); } );
+		    global->apply<uint64_t>(GlobalState::Keys::FPS_CNT, [diff](uint64_t& v) { return (v *= 0.5); } );
 
             if(countLockContention) {
-	            global.apply<uint64_t>(Global::Keys::LCR_CNT, [diff](uint64_t& v) { return (v *= 0.5); } );
+	            global->apply<uint64_t>(GlobalState::Keys::LCR_CNT, [diff](uint64_t& v) { return (v *= 0.5); } );
 			}
 		} else {
-			double fps = global.get<double>(Global::Keys::FPS);
-            uint64_t fpsCnt = global.get<uint64_t>(Global::Keys::FPS_CNT);
+			double fps = global->get<double>(GlobalState::Keys::FPS);
+            uint64_t fpsCnt = global->get<uint64_t>(GlobalState::Keys::FPS_CNT);
 
-			global.set(Global::Keys::FPS, (fps * 3.0 + (fpsCnt / diffSeconds)) / 4.0);
+			global->set(GlobalState::Keys::FPS, (fps * 3.0 + (fpsCnt / diffSeconds)) / 4.0);
 			if(countLockContention) {
-				double rate = global.get<double>(Global::Keys::LOCK_CONTENTION_RATE);
-	            uint64_t lcrCnt = global.get<uint64_t>(Global::Keys::LCR_CNT);
-				global.set(Global::Keys::LOCK_CONTENTION_RATE, (rate * 3.0 + (lcrCnt / diffSeconds)) / 4.0);
+				double rate = global->get<double>(GlobalState::Keys::LOCK_CONTENTION_RATE);
+	            uint64_t lcrCnt = global->get<uint64_t>(GlobalState::Keys::LCR_CNT);
+				global->set(GlobalState::Keys::LOCK_CONTENTION_RATE, (rate * 3.0 + (lcrCnt / diffSeconds)) / 4.0);
 			}
 		}
 
 		if(countLockContention) {
-			std::cerr << "\rLPS:" << global.get<double>(Global::Keys::LOCK_CONTENTION_RATE) << std::endl;
+			std::cerr << "\rLPS:" << global->get<double>(GlobalState::Keys::LOCK_CONTENTION_RATE) << std::endl;
 		}
 
 		if(getPrintFPS()) {
-			std::cerr << "\rFPS:" << global.get<double>(Global::Keys::FPS) << std::endl;
+			std::cerr << "\rFPS:" << global->get<double>(GlobalState::Keys::FPS) << std::endl;
 		}
 
 		{
@@ -420,7 +405,7 @@ bool V4D::display() {
 //				});
 //			}
 
-			if((allocateFlags() & AllocateFlags::IMGUI) && get<bool>(Keys::SHOW_GUI)) {
+			if((allocateFlags() & AllocateFlags::IMGUI) && global->get<bool>(GlobalState::Keys::SHOW_GUI)) {
 				FrameBufferContext::WindowScope winScope(fbCtx());
 				FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0);
 
@@ -431,7 +416,7 @@ bool V4D::display() {
 			}
 		}
 
-		TimeTracker::getInstance()->setEnabled(get<bool>(Keys::TIME_TRACKER));
+		TimeTracker::getInstance()->setEnabled(global->get<bool>(GlobalState::Keys::TIME_TRACKER));
 		TimeTracker::getInstance()->newCount();
 		GL_CHECK(glFinish());
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
@@ -445,12 +430,12 @@ bool V4D::display() {
 	            std::this_thread::sleep_for(std::chrono::nanoseconds(sleepNanos));
 		    }
 		}
-		global.set(Global::Keys::DISPLAY_READY, true);
+		global->set(GlobalState::Keys::DISPLAY_READY, true);
 		GL_CHECK(glClearColor(0,0,0,1));
 		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
 		return !glfwWindowShouldClose(getGLFWWindow());
 	} else {
-		if(global.apply<bool>(Global::Keys::DISPLAY_READY, [](bool& v){
+		if(global->apply<bool>(GlobalState::Keys::DISPLAY_READY, [](bool& v){
 			if(!v)
 				return v;
 			else {
@@ -477,16 +462,6 @@ bool V4D::display() {
 	}
 
     return true;
-}
-
-void V4D::setSequenceNumber(size_t seq) {
-	seqNr_ = seq;
-}
-
-uint64_t V4D::getSequenceNumber() {
-	//0 is an illegal sequence number
-	CV_Assert(seqNr_ > 0);
-	return seqNr_;
 }
 
 GLFWwindow* V4D::getGLFWWindow() const {

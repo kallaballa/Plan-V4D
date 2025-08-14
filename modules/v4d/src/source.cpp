@@ -82,12 +82,12 @@ float Source::fps() {
     return fps_;
 }
 
-std::pair<uint64_t, cv::UMat> Source::operator()() {
+cv::UMat Source::operator()() {
 	std::lock_guard<std::mutex> guard(mtx_);
-	static thread_local cv::UMat frame;
-	open_ = generator_(frame);
+
+	open_ = generator_(frame_);
 	//first frame has the sequence number 1!
-	return {++count_, frame};
+	return frame_;
 }
 } /* namespace v4d */
 } /* namespace kb */

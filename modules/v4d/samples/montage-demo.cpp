@@ -43,7 +43,6 @@ int v4d_beauty_main(int argc, char **argv);
 class BlankPlan : public Plan {
 public:
 	void infer() override {
-		clear();
 	}
 };
 
@@ -52,57 +51,57 @@ class MontageDemoPlan : public Plan {
     using K = V4D::Keys;
     const cv::Size TILING_ = cv::Size(3, 3);
 
-	std::vector<cv::Rect> targetViewports_;
+
+
+    std::vector<cv::Rect> targetViewports_;
 	std::vector<cv::Ptr<Plan>> plans_;
 
-	Property<cv::Size> size_ = P<cv::Size>(K::SIZE);
-    Property<cv::Size> windowSize_ = P<cv::Size>(K::WINDOW_SIZE);
-
-	Event<Mouse> releaseLeft = E<Mouse>(Mouse::RELEASE, Mouse::LEFT);
-	Event<Mouse> releaseRight = E<Mouse>(Mouse::RELEASE, Mouse::RIGHT);
+	cv::Rect defaultVP_;
+    Event<Mouse> motion_ = E<Mouse>(Mouse::MOVE);
+	Event<Mouse> releaseLeft_ = E<Mouse>(Mouse::RELEASE, Mouse::LEFT);
+	Event<Mouse> releaseRight_ = E<Mouse>(Mouse::RELEASE, Mouse::RIGHT);
 
 	struct State {
-		int32_t lastZoomed_ = -1;
+	    int32_t focus_ = -1;
 		int32_t zoomed_ = -1;
 	};
 
-	static State state_;
+	static State globalState_;
+    State localState_;
+    cv::Rect localVP_;
 	string id_;
-	cv::Rect defaultVP_;
 public:
 	MontageDemoPlan() {
-//		plans_ = {
-//				_sub<CubeDemoPlan>(this),
-//				_sub<ManyCubesDemoPlan>(this),
-//				_sub<VideoDemoPlan>(this),
-//				_sub<NanoVGDemoPlan>(this),
-//				_sub<ShaderDemoPlan>(this, 15),
-//				_sub<FontDemoPlan>(this),
-//				_sub<BlankPlan>(this),
-////				_sub<PedestrianDemoPlan>(this),
-//				_sub<BeautyDemoPlan>(this),
-//				_sub<BlankPlan>(this),
-////				_sub<OptflowDemoPlan>(this)
-//			};
+		plans_ = {
+				_sub<CubeDemoPlan>(this),
+				_sub<ManyCubesDemoPlan>(this),
+				_sub<VideoDemoPlan>(this),
+				_sub<NanoVGDemoPlan>(this),
+				_sub<ShaderDemoPlan>(this, 15),
+				_sub<FontDemoPlan>(this),
+				_sub<PedestrianDemoPlan>(this),
+				_sub<BeautyDemoPlan>(this),
+				_sub<OptflowDemoPlan>(this)
+			};
 
-        plans_ = {
-                _sub<CubeDemoPlan>(this),
-                _sub<BlankPlan>(this),
-                _sub<BlankPlan>(this),
-                _sub<BlankPlan>(this),
-                _sub<BlankPlan>(this),
-                _sub<BlankPlan>(this),
-                _sub<BlankPlan>(this),
-                _sub<BlankPlan>(this),
-                _sub<BlankPlan>(this),
-            };
+//        plans_ = {
+//                _sub<CubeDemoPlan>(this),
+//                _sub<ManyCubesDemoPlan>(this),
+//                _sub<VideoDemoPlan>(this),
+//                _sub<BlankPlan>(this),
+//                _sub<BlankPlan>(this),
+//                _sub<BlankPlan>(this),
+//                _sub<BlankPlan>(this),
+//                _sub<BlankPlan>(this),
+//                _sub<BlankPlan>(this),
+//            };
 
 	    CV_Assert(size_t(TILING_.width * TILING_.height) == plans_.size());
 	}
 
 	void setup() override {
         cv::Size sz = V4D::get<cv::Size>(V4D::Keys::SIZE);
-        defaultVP_ = cv::Rect(0, 0, sz.width, sz.height);
+        defaultVP_ = V4D::get<cv::Rect>(V4D::Keys::VIEWPORT);
         int w = sz.width / TILING_.width;
         int h = sz.height / TILING_.height;
 
@@ -113,56 +112,78 @@ public:
             }
         }
 
-	    for(size_t i = 0; i < plans_.size(); ++i) {
-	        set(K::VIEWPORT, V(targetViewports_[i]));
-		    subSetup(plans_[i]);
-		}
+        for(size_t i = 0; i < plans_.size(); ++i) {
+            set(V4D::Keys::VIEWPORT, V(targetViewports_[i]));
+            subSetup(plans_[i]);
+        }
 	}
 
 	void infer() override {
-//		set(K::VIEWPORT, V(defaultVP_));
-		set(K::DISABLE_INPUT_EVENTS, V(true));
-//		clear();
+        set(V4D::Keys::VIEWPORT, R(defaultVP_));
+        set(V4D::Keys::CLEAR_COLOR, R(cv::Scalar(0,0,0,255)));
+        clear();
 
-
-		branch(CS(state_.zoomed_) == V(-1));
+        plain(RW(localState_) = RS(globalState_));
+		branch(R(localState_.zoomed_) == V(-1) && R(localState_.focus_) != V(-1));
 		{
+
 		    for(size_t i = 0; i < plans_.size(); ++i) {
-	            set(K::VIEWPORT, V(targetViewports_[i]));
-	            subInfer(plans_[i]);
-		    }
+                branch(R(localState_.focus_) == V(int32_t(i)));
+                {
+                    set(V4D::Keys::VIEWPORT, R(targetViewports_[i]));
+                    capture();
+                    subInfer(plans_[i]);
+//                    set(V4D::Keys::VIEWPORT, R(defaultVP_));
+//                    nvg([](const cv::Rect& vp){
+//                        using namespace cv::v4d::nvg;
+//                        beginPath();
+//                        strokeWidth(2);
+//                        strokeColor(cv::Scalar(255,200,200,255));
+//                        rect(vp.x, vp.y, vp.width, vp.height);
+//                        stroke();
+//                    }, R(targetViewports_[i]));
+                }
+                endBranch();
+            }
 		}
 		elseBranch();
 		{
-            set(K::VIEWPORT, V(defaultVP_));
-
+            set(V4D::Keys::VIEWPORT, V(defaultVP_));
 		    for(size_t i = 0; i < plans_.size(); ++i) {
-				branch(CS(state_.zoomed_) == V(int32_t(i)));
+				branch(CS(globalState_.zoomed_) == V(int32_t(i)));
 				{
-	                subInfer(plans_[i]);
+			        capture();
+				    subInfer(plans_[i]);
 				}
 				endBranch();
 			}
 		}
 		endBranch();
 
-		set(K::DISABLE_INPUT_EVENTS, V(false));
+        set(V4D::Keys::DISABLE_INPUT_EVENTS, V(false));
 
-		//pinned to the first worker
-		branch(0, always_)
-			->plain([](const cv::Size& sz, const cv::Size& winSz, const Mouse::List& reLeft, const Mouse::List& reRight, const std::vector<cv::Rect>& targetViewports, State& state) {
+		branch(BranchType::SINGLE, always_)
+            ->plain([](const Mouse::List& motion, const Mouse::List& reLeft, const Mouse::List& reRight, const std::vector<cv::Rect>& targetViewports, State& state) {
 				{
 					using namespace cv::v4d::event;
-					const double scaleX = double(sz.width) / winSz.width;
-					const double scaleY = double(sz.height) / winSz.height;
-					const double scale = std::min(scaleX, scaleY);
-					if(state_.zoomed_ > -1) {
+
+                    if(!motion.empty()) {
+                        cv::Point loc = motion[0]->position();
+                        for(size_t i = 0; i < targetViewports.size(); ++i) {
+                            if(targetViewports[i].contains(loc)) {
+                                state.focus_ = i;
+                                break;
+                            }
+                        }
+                    }
+
+					if(globalState_.zoomed_ > -1) {
 						if(!reRight.empty()) {
-							state_.zoomed_ = -1;
+							globalState_.zoomed_ = -1;
 						}
 					} else {
 						if(!reLeft.empty()) {
-							cv::Point loc = reLeft[0]->position() * scale;
+							cv::Point loc = reLeft[0]->position();
 							for(size_t i = 0; i < targetViewports.size(); ++i) {
 								if(targetViewports[i].contains(loc)) {
 									state.zoomed_ = i;
@@ -172,20 +193,23 @@ public:
 						}
 					}
 				}
-			}, size_, windowSize_, releaseLeft, releaseRight, R(targetViewports_), RWS(state_))
+			}, motion_, releaseLeft_, releaseRight_, R(targetViewports_), RWS(globalState_))
 		->endBranch();
-	}
 
+        set(V4D::Keys::DISABLE_INPUT_EVENTS, V(true));
+
+        write();
+	}
 
 	void teardown() override {
         for(size_t i = 0; i < plans_.size(); ++i) {
-            set(K::VIEWPORT, V(targetViewports_[i]));
+            set(V4D::Keys::VIEWPORT, V(targetViewports_[i]));
             subTeardown(plans_[i]);
         }
 	}
 };
 
-MontageDemoPlan::State MontageDemoPlan::state_;
+MontageDemoPlan::State MontageDemoPlan::globalState_;
 
 int main(int argc, char** argv) {
 	if (argc != 3) {
@@ -193,9 +217,11 @@ int main(int argc, char** argv) {
         exit(1);
     }
 	cv::Rect viewport(0, 0, 1280, 720);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Montage Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Montage Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    auto sink = Sink::make(runtime, "montage-demo.mkv", 60, viewport.size());
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
+    runtime->setSink(sink);
     Plan::run<MontageDemoPlan>(atoi(argv[2]));
 
     return 0;

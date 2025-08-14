@@ -168,19 +168,14 @@ public:
 			CLEAR_COLOR,
 			NAMESPACE,
 			FULLSCREEN,
-			DISABLE_VIDEO_IO,
 			DISABLE_INPUT_EVENTS,
-			SHOW_GUI,
-	        TIME_TRACKER,
 	        VISIBLE
     	};
     };
 private:
     CV_EXPORTS static std::mutex instance_mtx_;
     CV_EXPORTS static thread_local cv::Ptr<V4D> instance_;
-    CV_EXPORTS static ThreadSafeAnyMap<Keys::Enum> properties_;
-
-    int32_t workerIdx_ = -1;
+    CV_EXPORTS static thread_local ThreadSafeAnyMap<Keys::Enum> properties_;
 
     AllocateFlags::Enum allocateFlags_;
     ConfigFlags::Enum configFlags_;
@@ -200,7 +195,6 @@ private:
     bool closed_ = false;
     cv::Ptr<Source> source_;
     cv::Ptr<Sink> sink_;
-    uint64_t seqNr_ = 0;
     bool showFPS_ = true;
     bool printFPS_ = false;
     bool showTracking_ = true;
@@ -213,6 +207,23 @@ public:
     	return instance_;
     }
 
+    static void init_keys() {
+        create<true>(Keys::SIZE, instance_->fbCtx()->size());
+        create<false>(Keys::VIEWPORT, cv::Rect(0,0,instance_->fbCtx()->size().width, instance_->fbCtx()->size().height));
+        create<false, cv::Size>(Keys::WINDOW_SIZE, instance_->fbCtx()->size(), [instance_](const cv::Size& sz){ instance_->fbCtx()->setWindowSize(sz); });
+        create<true>(Keys::FRAMEBUFFER_SIZE, instance_->fbCtx()->size());
+        create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
+        create<false,string>(Keys::NAMESPACE, "default");
+        create<false, bool>(Keys::FULLSCREEN, false, [instance_](const bool& fs){ instance_->fbCtx()->setFullscreen(fs); });
+        create<false>(Keys::DISABLE_INPUT_EVENTS, false);
+        create<false, bool>(Keys::VISIBLE, instance_->fbCtx()->isVisible(), [instance_](const bool& v){ instance_->fbCtx()->setVisible(v); });
+    }
+
+    template<bool Tread, typename Tval>
+    static void create(Keys::Enum key, const Tval& val, const std::function<void(const Tval& val)>& cb = std::function<void(const Tval& val)>()) {
+        properties_.create<Tread>(key, val, cb);
+    }
+
     template<typename Tval>
     static void set(Keys::Enum key, const Tval& val, bool fire = true) {
     	if(instance()->debugFlags() & DebugFlags::MONITOR_RUNTIME_PROPERTIES) {
@@ -220,17 +231,17 @@ public:
     		ss << demangle(typeid(decltype(key)).name()) << " = " << size_t(&val) << " (fire: " << fire << ")";
     		CV_LOG_INFO(&mon_tag, ss.str());
     	}
-		V4D::properties_.set(key, val, fire);
+    	properties_.set(key, val, fire);
 	}
 
     template<typename Tval>
     static const auto& get(Keys::Enum key) {
-		return V4D::properties_.get<Tval>(key);
+		return properties_.get<Tval>(key);
 	}
 
 	template <typename V>
 	static V apply(Keys::Enum k, std::function<V(V&)> f) {
-		return V4D::properties_.apply(k, f);
+		return properties_.apply(k, f);
 	}
 
     /*!
@@ -252,7 +263,6 @@ public:
      * Default destructor
      */
     CV_EXPORTS virtual ~V4D();
-    CV_EXPORTS const int32_t& workerIndex() const;
     /*!
      * The internal framebuffer exposed as OpenGL Texture2D.
      * @return The texture object.
@@ -328,10 +338,10 @@ public:
 		static Resequence reseq(1);
     	static std::binary_semaphore frame_sync_render(0);
 		static std::binary_semaphore frame_sync_sema_swap(0);
-		Global& global = Global::instance();
+		auto global = GlobalState::instance();
 
 		try {
-			if(global.isMain()) {
+			if(global->isMain()) {
 				CV_LOG_INFO(&v4d_tag, "Display thread started.");
 				while(keep_running()) {
 					bool result = true;
@@ -358,17 +368,19 @@ public:
 					bool result = true;
 					TimeTracker::getInstance()->execute("worker", [&result, runtime, runGraph](){
 						event::poll();
-//						if(!runtime->hasSource() || (runtime->hasSource() && !runtime->getSource()->isOpen())) {
-						Global::apply<size_t>(Global::Keys::RUN_CNT, [runtime](size_t& s) {
-							runtime->setSequenceNumber(++s);
-							return s;
-						});
-//						}
+                        GlobalState::apply<size_t>(GlobalState::Keys::RUN_CNT, [runtime](size_t& s) {
+                            ++s;
+                            return s;
+                        });
+
+                        size_t seq = GlobalState::apply<size_t>(GlobalState::Keys::SEQUENCE_CNT, [runtime](size_t& s) {
+                            ++s;
+                            return s;
+                        });
 
 						if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
 							frame_sync_sema_swap.release();
 							runGraph();
-							size_t seq = runtime->getSequenceNumber();
 							reseq.waitFor(seq, [](uint64_t s) {
 								CV_UNUSED(s);
 								frame_sync_render.acquire();
@@ -380,7 +392,7 @@ public:
 							}
 						} else {
 							runGraph();
-							reseq.waitFor(runtime->getSequenceNumber(), [&result, runtime](uint64_t s) {
+							reseq.waitFor(seq, [&result, runtime](uint64_t s) {
 								CV_UNUSED(s);
 								result = runtime->display();
 							});
@@ -400,16 +412,14 @@ public:
 		request_finish();
 		reseq.finish();
 		if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-			if(global.isMain()) {
-				for(size_t i = 0; i < Global::get<size_t>(Global::Keys::WORKERS_STARTED); ++i)
+			if(global->isMain()) {
+				for(size_t i = 0; i < GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED); ++i)
 					frame_sync_render.release();
 			} else {
 				frame_sync_sema_swap.release();
 			}
     	}
     }
-    void setSequenceNumber(size_t seq);
-    uint64_t getSequenceNumber();
 private:
     V4D(const V4D& v4d, const string& title);
     V4D(const cv::Rect& size, cv::Size fbsize,
@@ -418,11 +428,6 @@ private:
     void swapContextBuffers();
     bool display();
 protected:
-	template<bool Tread, typename Tval>
-	static void create(Keys::Enum key, const Tval& val, const std::function<void(const Tval& val)>& cb = std::function<void(const Tval& val)>()) {
-		V4D::properties_.create<Tread>(key, val, cb);
-	}
-
     cv::Ptr<FrameBufferContext> fbCtx() const;
     cv::Ptr<SourceContext> sourceCtx();
     cv::Ptr<SinkContext> sinkCtx();
@@ -663,7 +668,7 @@ class CV_EXPORTS Plan {
     void runGraph() {
 		BranchType::Enum btype;
     	BranchState currentState;
-    	Global& global = Global::instance();
+    	auto global = GlobalState::instance();
     	bool countLockContention = DebugFlags::PRINT_LOCK_CONTENTION & runtime_->debugFlags();
     	try {
 			for (auto& n : currentNodes_) {
@@ -693,7 +698,7 @@ class CV_EXPORTS Plan {
 						if(currentState.isEnabled_) {
 							if(currentState.isOnce_) {
 								if((btype == BranchType::ONCE)) {
-									currentState.condition_ = global.once(n->name_) && n->tx_->performPredicate();
+									currentState.condition_ = global->once(n->name_) && n->tx_->performPredicate();
 								} else if((btype == BranchType::PARALLEL_ONCE)) {
 									currentState.condition_ = !n->tx_->ran() && n->tx_->performPredicate();
 								} else {
@@ -708,7 +713,7 @@ class CV_EXPORTS Plan {
 							if(currentState.isEnabled_ && currentState.isSingle_) {
 								CV_Assert(btype != BranchType::PARALLEL);
 
-								global.lockNode(currentState.branchID_);
+								global->lockNode(currentState.branchID_);
 
 								currentState.isLocked_ = true;
 							}
@@ -725,7 +730,7 @@ class CV_EXPORTS Plan {
 						currentState.isSingle_ = false;
 
 						if(currentState.isLocked_) {
-						    CV_Assert(global.tryUnlockNode(currentState.branchID_));
+						    global->tryUnlockNode(currentState.branchID_);
 						}
 
 						currentState.isLocked_ = false;
@@ -737,7 +742,7 @@ class CV_EXPORTS Plan {
 							continue;
 
 						currentState = branchStateStack_.front();
-						global.tryUnlockNode(currentState.branchID_);
+						global->tryUnlockNode(currentState.branchID_);
 						pf(branchStateStack_.size(), currentState, n);
 						branchStateStack_.pop_front();
 					} else {
@@ -746,42 +751,33 @@ class CV_EXPORTS Plan {
 				} else {
 					CV_Assert(!n->tx_->isPredicate());
 					currentState = !branchStateStack_.empty() ? branchStateStack_.front() : BranchState();
-					const bool disableIO = runtime_->get<bool>(V4D::Keys::DISABLE_VIDEO_IO);
 					if(currentState.isEnabled_) {
-						auto lock = global.tryGetNodeLock(currentState.branchID_);
+						auto lock = global->tryGetNodeLock(currentState.branchID_);
 						auto plan = self<Plan>();
 						if(lock)
 						{
 							std::lock_guard<std::mutex> guard(*lock.get());
 							auto ctx = n->tx_->getContextCallback()();
-							auto viewport = runtime_->get<cv::Rect>(V4D::Keys::VIEWPORT);
+							auto viewport = V4D::get<cv::Rect>(V4D::Keys::VIEWPORT);
 							int res = ctx->execute(viewport, [plan, countLockContention, n,currentState]() {
 								TimeTracker::getInstance()->execute(n->name_, [plan, countLockContention, n,currentState](){
 //									cerr << "locked: " << currentState.branchID_ << "->" << n->name_ << endl;
 									n->tx_->perform();
 								});
 							});
-							if(res > 0) {
-								if(!disableIO && std::dynamic_pointer_cast<SourceContext>(ctx)) {
-									runtime_->setSequenceNumber(res);
-								}
-							} else {
-								CV_LOG_WARNING(&v4d_tag, "Context failed while: " + n->name_);
+                            if(res <= 0) {
+                                CV_LOG_WARNING(&v4d_tag, "Context failed while: " + n->name_);
 							}
 						} else {
 							auto ctx = n->tx_->getContextCallback()();
-							auto viewport = runtime_->get<cv::Rect>(V4D::Keys::VIEWPORT);
+							auto viewport = V4D::get<cv::Rect>(V4D::Keys::VIEWPORT);
 							int res = ctx->execute(viewport, [plan, countLockContention, n,currentState]() {
 								TimeTracker::getInstance()->execute(n->name_, [plan, countLockContention, n,currentState](){
 //									cerr << "unlocked: " << currentState.branchID_ << "->" << n->name_ << endl;
 									n->tx_->perform();
 								});
 							});
-							if(res > 0) {
-								if(!disableIO && dynamic_pointer_cast<SourceContext>(ctx)) {
-									runtime_->setSequenceNumber(res);
-								}
-							} else {
+							if(res <= 0) {
 								CV_LOG_WARNING(&v4d_tag, "Context failed while: " + n->name_);
 							}
 						}
@@ -791,7 +787,7 @@ class CV_EXPORTS Plan {
 				}
 			}
 
-			size_t lockCnt = global.countNodeLocks();
+			size_t lockCnt = global->countNodeLocks();
 //			cerr << "STATE STACK: " << branchStateStack_.size() << endl;
 //			cerr << "LOCK STACK: " << lockCnt << endl;
 			CV_Assert(branchStateStack_.empty());
@@ -799,21 +795,21 @@ class CV_EXPORTS Plan {
 			//FIXME unlock all on exception?
     	} catch(std::runtime_error& ex) {
 			if(!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
-				if(global.tryUnlockNode(currentState.branchID_)) {
+				if(global->tryUnlockNode(currentState.branchID_)) {
 //					cerr << "unlock exception" << endl;
 				}
 			}
 			throw ex;
 		} catch(std::exception& ex) {
 			if(!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
-				if(global.tryUnlockNode(currentState.branchID_)) {
+				if(global->tryUnlockNode(currentState.branchID_)) {
 //					cerr << "unlock exception" << endl;
 				}
 			}
 			throw ex;
 		} catch(...) {
 			if(!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
-				if(global.tryUnlockNode(currentState.branchID_)) {
+				if(global->tryUnlockNode(currentState.branchID_)) {
 //					cerr << "unlock exception" << endl;
 				}
 			}
@@ -832,7 +828,7 @@ class CV_EXPORTS Plan {
 		currentNodes_.clear();
 	}
 
-	size_t id_ = Global::apply<size_t>(Global::Keys::PLAN_CNT, [](size_t& v){
+	size_t id_ = GlobalState::apply<size_t>(GlobalState::Keys::PLAN_CNT, [](size_t& v){
 		++v;
 		return v;
 	});
@@ -851,7 +847,7 @@ class CV_EXPORTS Plan {
     	plan->setParentOffset(reinterpret_cast<size_t>(parent));
     	plan->template setParentActualTypeSize<Tparent>();
     	plan->template setActualTypeSize<Tplan>();
-    	plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
+    	V4D::set(V4D::Keys::NAMESPACE, plan->space());
 		return plan->template self<Tplan>();
     }
 
@@ -880,7 +876,7 @@ public:
 	struct Property : detail::Edge<const T, false, true, true> {
 		using parent_t = detail::Edge<const T, false, true, true>;
 		Property(cv::Ptr<Plan> plan, const T& val) : parent_t(parent_t::make(plan, val)) {
-			Global::instance().makeSharedVar(val);
+			GlobalState::instance()->makeSharedVar(val);
 		}
 	};
 
@@ -1066,7 +1062,7 @@ public:
         emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... innerArgs){
-			return runtime_->workerIndex() == workerIdx && wrapInner(innerArgs...);
+			return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == workerIdx && wrapInner(innerArgs...);
 		};
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
@@ -1095,7 +1091,7 @@ public:
         emit_access(id, R(*this));
         (emit_access(id, args ),...);
         std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... innerArgs){
-            return runtime_->workerIndex() == workerIdx && wrapInner(innerArgs...);
+            return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == workerIdx && wrapInner(innerArgs...);
         };
         add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
         return self<Plan>();
@@ -1131,7 +1127,7 @@ public:
         emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... innerArgs){
-			return runtime_->workerIndex() == workerIdx && wrapInner(innerArgs...);
+			return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == workerIdx && wrapInner(innerArgs...);
 		};
 
 		add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
@@ -1263,31 +1259,28 @@ public:
     }
 
     cv::Ptr<Plan> clear(const int32_t& glIndex = -1) {
-        gl<-1>(V(glIndex), [](const cv::Rect& vp, const cv::Scalar& bgra){
-    		const float& b = bgra[0] / 255.0f;
+        gl<-1>(V(glIndex), [](const cv::Scalar& bgra){
+            const float& b = bgra[0] / 255.0f;
 		    const float& g = bgra[1] / 255.0f;
 		    const float& r = bgra[2] / 255.0f;
 		    const float& a = bgra[3] / 255.0f;
-		    GL_CHECK(glEnable(GL_SCISSOR_TEST));
-		    GL_CHECK(glScissor(vp.x, vp.y, vp.width, vp.height));
-		    GL_CHECK(glClearColor(r, g, b, a));
+            GL_CHECK(glClearColor(r, g, b, a));
 		    GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
-		    GL_CHECK(glDisable(GL_SCISSOR_TEST));
-    	}, P<cv::Rect>(V4D::Keys::VIEWPORT), P<cv::Scalar>(V4D::Keys::CLEAR_COLOR));
+    	}, P<cv::Scalar>(V4D::Keys::CLEAR_COLOR));
     	return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
     capture(Tfn fn, Args ... args) {
-    	auto srcEdge = makeInternalEdge<false>(runtime_->sourceCtx()->sourceBuffer());
+        auto srcEdge = makeInternalEdge<false>(runtime_->sourceCtx()->sourceBuffer());
     	auto argsTuple = std::make_tuple(srcEdge, args...);
     	return call(runtime_->sourceCtx(), "src", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
     }
 
     template <typename Tedge>
     cv::Ptr<Plan> capture(Tedge&& edge) {
-    	capture([](const cv::UMat& inputFrame, cv::UMat& f){
+        capture([](const cv::UMat& inputFrame, cv::UMat& f){
     	    if(!inputFrame.empty())
     			inputFrame.copyTo(f);
     	}, edge);
@@ -1303,19 +1296,20 @@ public:
 
         fb([](cv::UMat& framebuffer, const cv::UMat& f) {
             if(!f.empty()) {
-                if(f.size() != framebuffer.size())
-                    resize_preserving_aspect_ratio(f, framebuffer, framebuffer.size());
-                else
-                    f.copyTo(framebuffer);
+                    cv::resize(f, framebuffer, framebuffer.size(), INTER_LINEAR);
             }
         }, Edge<cv::UMat, false, true>::make(self<Plan>(), captureFrame_));
+
         return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
     write(Tfn fn, Args ... args) {
-		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
+        if(!getParentID().empty())
+            return self<Plan>();
+
+        using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
 		static_assert((std::is_same<Tfb,cv::UMat>::value) || !"The first argument must be of type 'cv::UMat&'");
 		auto sinkEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->sinkCtx()->sinkBuffer());
 
@@ -1326,6 +1320,9 @@ public:
 
     template<typename Tedge>
     cv::Ptr<Plan> write(Tedge&& edge) {
+        if(!getParentID().empty())
+            return self<Plan>();
+
         write([](cv::UMat& outputFrame, const cv::UMat& f){
             f.copyTo(outputFrame);
         }, edge);
@@ -1333,7 +1330,10 @@ public:
     }
 
     cv::Ptr<Plan> write() {
-    	auto writerEdge = makeInternalEdge<false>(writerFrame_);
+        if(!getParentID().empty())
+            return self<Plan>();
+
+        auto writerEdge = makeInternalEdge<false>(writerFrame_);
     	auto writerEdgeConst = makeInternalEdge<true>(writerFrame_);
 
         fb([](const cv::UMat& framebuffer, cv::UMat& f) {
@@ -1463,7 +1463,7 @@ public:
 	auto make_setter_function(Tkey key, Tfn fn, Ttuple&& args, std::index_sequence<idx...>) {
 		auto plan = self<Plan>();
 		return std::function([plan, key, fn](decltype(std::get<idx>(args).ref()) ... values){
-        	plan->runtime_->set(key, fn(values...));
+        	V4D::set(key, fn(values...));
         });
 	}
 
@@ -1480,7 +1480,7 @@ public:
 			static_assert(sz == 2, "Can not set a Property from multiple Edges");
 			auto plan = self<Plan>();
 			return std::function([plan, key](decltype(val.ref()) v){
-	        	plan->runtime_->set(key, v);
+			    V4D::set(key, v);
 	        });
 		} else {
 
@@ -1852,12 +1852,12 @@ public:
 
     template<typename Tvar>
     void _shared(Tvar& val) {
-        Global::instance().makeSharedVar(val);
+        GlobalState::instance()->makeSharedVar(val);
     }
 
 	template<typename Tvar>
 	void _safe(Tvar& val) {
-		Global::instance().registerSafe(val);
+		GlobalState::instance()->registerSafe(val);
 	}
 
 	template<typename Tfn, typename ... Args>
@@ -1877,7 +1877,7 @@ public:
 
 	template<typename T>
 	detail::Edge<T, false, true, true> RS(const T& t) {
-		if(!Global::instance().checkShared(*this, t)) {
+		if(!GlobalState::instance()->checkShared(*this, t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
 		return detail::Edge<T, false, true, true>::make(self<Plan>(), t);
@@ -1890,7 +1890,7 @@ public:
 
 	template<typename T>
 	detail::Edge<T, false, false, true> RWS(T& t) {
-		if(!Global::instance().checkShared(*this, t)) {
+		if(!GlobalState::instance()->checkShared(*this, t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
 		return detail::Edge<T, false, false, true>::make(self<Plan>(), t);
@@ -1898,7 +1898,7 @@ public:
 
 	template<typename T>
 	detail::Edge<T, true, true, true> CS(T& t) {
-		if(Global::instance().checkShared(*this, t)) {
+		if(GlobalState::instance()->checkShared(*this, t)) {
 			return detail::Edge<T, true, true, true>::make(self<Plan>(), t);
 		} else {
 			throw std::runtime_error("You are trying to safe-copy a non-shared variable. Maybe you forgot to declare it?.");
@@ -1918,14 +1918,14 @@ public:
 	}
 
 	template<typename Tval>
-	Property<Tval> P(RunState::Keys::Enum key) {
-		const auto& ref = RunState::instance().get<Tval>(key);
+	Property<Tval> P(LocalState::Keys::Enum key) {
+		const auto& ref = LocalState::get<Tval>(key);
 		return Property<Tval>(self<Plan>(), ref);
 	}
 
 	template<typename Tval>
-	Property<Tval> P(Global::Keys::Enum key) {
-		const auto& ref = Global::get<Tval>(key);
+	Property<Tval> P(GlobalState::Keys::Enum key) {
+		const auto& ref = GlobalState::get<Tval>(key);
 		return Property<Tval>(self<Plan>(), ref);
 	}
 
@@ -1948,7 +1948,7 @@ public:
 	static cv::Ptr<Tplan> make(Args&& ... args) {
     	Tplan* plan = new Tplan(std::forward<Args>(args)...);
     	plan->template setActualTypeSize<Tplan>();
-		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
+    	V4D::set(V4D::Keys::NAMESPACE, plan->space());
 		return plan->template self<Tplan>();
     }
 
@@ -1964,8 +1964,7 @@ public:
 		}
 
 		cv::Ptr<Tplan> plan;
-		Global& global = Global::instance();
-
+		auto global = GlobalState::instance();
         static std::mutex worker_init_mtx_;
 
 
@@ -1975,14 +1974,14 @@ public:
 			std::lock_guard<std::mutex> lock(runMtx);
 			cv::setNumThreads(0);
 
-			if(global.isFirstRun()) {
-				global.setMainID(std::this_thread::get_id());
+			if(global->isFirstRun()) {
+				global->setMainID(std::this_thread::get_id());
 				CV_LOG_INFO(&v4d_tag, "Starting with " << workers << " workers");
 			}
 
 	    	plan = make<Tplan>(std::forward<Args>(args)...);
 
-			if(global.isMain()) {
+			if(global->isMain()) {
 				const string title = plan->runtime_->title();
 				auto src = plan->runtime_->getSource();
 				auto sink = plan->runtime_->getSink();
@@ -1993,7 +1992,7 @@ public:
 					cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
 				}
 
-                global.set<size_t>(Global::Keys::WORKERS_STARTED, workers);
+                global->set<size_t>(GlobalState::Keys::WORKERS_STARTED, workers);
 				for (int32_t i = 0; i < workers; ++i) {
 					threads.push_back(
 						new std::thread(
@@ -2034,15 +2033,15 @@ public:
 
 		CV_Assert(plan);
 
-		if(global.isMain()) {
+		if(global->isMain()) {
 			plan->runtime_->printSystemInfo();
             CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
             cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
-            CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << Global::get<size_t>(Global::Keys::WORKERS_STARTED) << " workers.");
+            CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED) << " workers.");
 		} else {
 			static std::binary_semaphore setup_sema(1);
 			try {
-				CV_LOG_DEBUG(&v4d_tag, "Setup on worker: " << plan->runtime_->workerIndex());
+				CV_LOG_DEBUG(&v4d_tag, "Setup on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 				setup_sema.acquire();
 				plan->setup();
 				plan->makeGraph();
@@ -2052,12 +2051,12 @@ public:
 			} catch(std::exception& ex) {
 				CV_Error_(cv::Error::StsError, ("Setup failed: %s", ex.what()));
 			}
-			CV_LOG_DEBUG(&v4d_tag, "Setup finished: " << plan->runtime_->workerIndex());
+			CV_LOG_DEBUG(&v4d_tag, "Setup finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 		}
-		if(global.isMain()) {
+		if(global->isMain()) {
 			try {
 				CV_LOG_DEBUG(&v4d_tag, "Loading GUI");
-				plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
+				V4D::set(V4D::Keys::NAMESPACE, plan->space());
 				plan->gui();
 			} catch(std::exception& ex) {
 				CV_Error_(cv::Error::StsError, ("Loading GUI failed: %s", ex.what()));
@@ -2065,20 +2064,20 @@ public:
 		} else {
 
 			try {
-				CV_LOG_DEBUG(&v4d_tag, "Main inference on worker: " << plan->runtime_->workerIndex());
+				CV_LOG_DEBUG(&v4d_tag, "Main inference on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 				plan->infer();
 				plan->makeGraph();
 			} catch(std::exception& ex) {
 				CV_Error_(cv::Error::StsError, ("Main inference failed: %s", ex.what()));
 			}
-			CV_LOG_DEBUG(&v4d_tag, "Main inference finished: " << plan->runtime_->workerIndex());
-            Global::apply<size_t>(Global::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
+			CV_LOG_DEBUG(&v4d_tag, "Main inference finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
+            GlobalState::apply<size_t>(GlobalState::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
 		}
         static std::barrier syncPoint(std::ptrdiff_t(workers + 1));
         syncPoint.arrive_and_wait();
 
-        if(global.isMain()) {
-                    CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << Global::get<size_t>(Global::Keys::WORKERS_STARTED) << " workers.");
+        if(global->isMain()) {
+                    CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED) << " workers.");
         }
 
         try {
@@ -2091,12 +2090,12 @@ public:
 		} catch(std::exception& ex) {
 			CV_Error_(cv::Error::StsError, ("Main plan->runtime_: %s", ex.what()));
 		}
-		CV_LOG_DEBUG(&v4d_tag, "Main plan->runtime_ finished: " << plan->runtime_->workerIndex());
+		CV_LOG_DEBUG(&v4d_tag, "Main plan->runtime_ finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 
 
-		if(!global.isMain()) {
+		if(!global->isMain()) {
 			plan->clearGraph();
-			CV_LOG_DEBUG(&v4d_tag, "Starting teardown on worker: " << plan->runtime_->workerIndex());
+			CV_LOG_DEBUG(&v4d_tag, "Starting teardown on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 			try {
 				plan->teardown();
 				plan->makeGraph();
@@ -2107,7 +2106,7 @@ public:
 			}
 			V4D::instance()->setSink(nullptr);
 			V4D::instance()->setSource(nullptr);
-			CV_LOG_DEBUG(&v4d_tag, "Teardown complete on worker: " << plan->runtime_->workerIndex());
+			CV_LOG_DEBUG(&v4d_tag, "Teardown complete on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 		} else {
 			for(auto& t : threads)
 				t->join();
