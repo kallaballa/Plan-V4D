@@ -373,38 +373,15 @@ bool V4D::display() {
 			std::cerr << "\rFPS:" << global->get<double>(GlobalState::Keys::FPS) << std::endl;
 		}
 
+        cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
 		{
 			FrameBufferContext::WindowScope winScope(fbCtx());
 			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
-			cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
 			GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 			assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 			fbCtx()->blitFrameBufferToFrameBuffer(vp, fbCtx()->size(), false, false);
 		}
 		{
-//			if(getShowFPS()) {
-//				FrameBufferContext::WindowScope winScope(fbCtx());
-//				FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0);
-//#if !defined(OPENCV_V4D_USE_ES3)
-//				GL_CHECK(glDrawBuffer(GL_BACK));
-//#endif
-//
-//				cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
-//				nvgCtx()->render(vp, [](){
-//					using namespace cv::v4d::nvg;
-//
-//					string strFPS = std::to_string(Global::instance().get<double>(Global::Keys::FPS));
-//					fillColor(Scalar(140, 140, 140, 120));
-//					roundedRect(10, 10, 400, 70, 50);
-//					fill();
-//					fontSize(40.0f);
-//					fontFace("sans-bold");
-//					fillColor(Scalar(40, 40, 40, 200));
-//					textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
-//					text(25, 25, strFPS.c_str(), strFPS.c_str() + strFPS.size());
-//				});
-//			}
-
 			if((allocateFlags() & AllocateFlags::IMGUI) && global->get<bool>(GlobalState::Keys::SHOW_GUI)) {
 				FrameBufferContext::WindowScope winScope(fbCtx());
 				FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0);
@@ -412,7 +389,7 @@ bool V4D::display() {
 #if !defined(OPENCV_V4D_USE_ES3)
 				GL_CHECK(glDrawBuffer(GL_BACK));
 #endif
-				imguiCtx()->render(getShowFPS());
+				imguiCtx()->execute(vp);
 			}
 		}
 

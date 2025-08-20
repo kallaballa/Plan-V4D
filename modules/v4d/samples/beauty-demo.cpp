@@ -282,7 +282,7 @@ private:
 
 	//think of properties as data-pinholes into one of the v4d runtime's state-machines. Properties are in fact a special kind of edge.
 	Property<cv::Size> size_ = P<cv::Size>(V_::SIZE);
-	Property<uint64_t> seqCnt_ = P<uint64_t>(G_::SEQUENCE_CNT);
+	Property<uint64_t> seqCnt_ = P<uint64_t>(G_::FRAME_CNT);
 
 	//A special kind of edge used to signal user input events
 	Event<Mouse> pressEvents_ = E<Mouse>(M_::PRESS);
@@ -369,7 +369,7 @@ public:
 			Begin("Status");
 			TextColored(color, text.c_str(), "");
 			End();
-		}, params_);
+		}, RWS(params_));
 	}
 
 	void setup() override {

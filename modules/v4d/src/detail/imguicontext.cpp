@@ -49,16 +49,17 @@ void ImGuiContextImpl::setContext(ImGuiContext* ctx) {
 	context_ = ctx;
 }
 
-void ImGuiContextImpl::build(std::function<void()> fn) {
-    renderCallback_ = fn;
+void ImGuiContextImpl::setTransaction(cv::Ptr<Transaction> tx) {
+    renderCallback_ = tx;
 }
 
-void ImGuiContextImpl::render(bool showFPS) {
-	ImGui_ImplOpenGL3_NewFrame();
-	ImGui_ImplGlfw_NewFrame();
-	ImGui::NewFrame();
-	if (showFPS) {
-		static bool open_ptr[1] = { true };
+void ImGuiContextImpl::execute(const cv::Rect& vp) {
+	if (context_ && GlobalState::get<bool>(GlobalState::Keys::SHOW_GUI)) {
+	    ImGui_ImplOpenGL3_NewFrame();
+	    ImGui_ImplGlfw_NewFrame();
+	    ImGui::NewFrame();
+
+	    static bool open_ptr[1] = { true };
 		static ImGuiWindowFlags window_flags = 0;
 //            window_flags |= ImGuiWindowFlags_NoBackground;
 		window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus;
@@ -96,11 +97,12 @@ void ImGuiContextImpl::render(bool showFPS) {
 	        ImGui::PopStyleColor(1);
 	        ImGui::PopFont();
 		}
+	    if (renderCallback_)
+	        renderCallback_->perform();
+
+	    ImGui::Render();
+	    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 	}
-	if (renderCallback_)
-		renderCallback_();
-	ImGui::Render();
-	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 }
 }

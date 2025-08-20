@@ -31,7 +31,7 @@ int SinkContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	if(v4d->getSink()->isOpen()) {
         cvtColor(sinkBuffer(), rgba_, cv::COLOR_BGRA2RGBA);
 
-        v4d->getSink()->operator ()(GlobalState::get<size_t>(GlobalState::Keys::SEQUENCE_CNT), rgba_);
+        v4d->getSink()->operator ()(GlobalState::get<size_t>(GlobalState::Keys::FRAME_CNT), rgba_);
         return 1;
 	}
 	return 0;

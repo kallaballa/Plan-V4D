@@ -12,6 +12,7 @@
 
 
 #include "framebuffercontext.hpp"
+#include "opencv2/v4d/detail/transaction.hpp"
 #include "../../../third/imgui/imgui.h"
 
 struct ImGuiContext;
@@ -23,15 +24,15 @@ class CV_EXPORTS ImGuiContextImpl {
     friend class cv::v4d::V4D;
     cv::Ptr<FrameBufferContext> mainFbContext_;
     inline static ImGuiContext* context_;
-    std::function<void()> renderCallback_;
+    cv::Ptr<Transaction> renderCallback_;
     bool firstFrame_ = true;
 public:
     CV_EXPORTS ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext);
-    CV_EXPORTS void build(std::function<void()> fn);
+    CV_EXPORTS void setTransaction(cv::Ptr<Transaction> tx);
     CV_EXPORTS static ImGuiContext* getContext();
     CV_EXPORTS static void setContext(ImGuiContext* ctx);
 protected:
-    CV_EXPORTS void render(bool displayFPS);
+    CV_EXPORTS void execute(const cv::Rect& vp);
 };
 }
 }

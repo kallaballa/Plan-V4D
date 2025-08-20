@@ -27,7 +27,7 @@ private:
 		//BGRA
 		cv::UMat background_;
     	//RGB
-    	cv::UMat videoFrame_, videoFrameDown_;
+    	cv::UMat videoFrame_, videoFrameBGR_, videoFrameDown_;
     	//GREY
     	cv::UMat videoFrameDownGrey_;
 	} frames_;
@@ -59,9 +59,9 @@ private:
 	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 
 	static void prepare_frames(const Params& params, Frames &frames) {
-		cv::resize(frames.videoFrame_, frames.videoFrameDown_, params.downSize_);
+		cv::resize(frames.videoFrameBGR_, frames.videoFrameDown_, params.downSize_);
 		cv::cvtColor(frames.videoFrameDown_, frames.videoFrameDownGrey_, cv::COLOR_RGB2GRAY);
-		cv::cvtColor(frames.videoFrame_, frames.background_, cv::COLOR_RGB2BGRA);
+		frames.videoFrame_.copyTo(frames.background_);
 	}
 
 	static void present(cv::UMat& framebuffer, const cv::UMat& background) {
@@ -241,7 +241,7 @@ private:
 	} marker_;
 public:
     void setup() override {
-    	plain([](const cv::Size& sz, Detection& detection, Params& params){
+    	plain([](const cv::Size& sz, Detection& detection, Frames& frames, Params& params){
     		detection.params_.desc_pca = cv::TrackerKCF::GRAY;
     		detection.params_.compress_feature = false;
     		detection.params_.compressed_size = 1;
@@ -249,13 +249,16 @@ public:
     		detection.hog_.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
     		params.downSize_ = { sz.width / 4 , sz.height / 4 };
     		params.scale_ = { 4.0f, 4.0f };
-    	}, size_, RW(detection_), RW(params_));
+    		frames.videoFrame_.create(sz, CV_8UC4);
+    		frames.videoFrameBGR_.create(sz, CV_8UC3);
+    		frames.videoFrameDownGrey_.create(sz, CV_8UC1);
+    	}, size_, RW(detection_), RW(frames_), RW(params_));
 	}
 
 	void infer() override {
 		capture(RW(frames_.videoFrame_));
 
-		plain(cv::cvtColor,R(frames_.videoFrame_), RW(frames_.videoFrame_),V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
+		plain(cv::cvtColor,R(frames_.videoFrame_), RW(frames_.videoFrameBGR_),V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->plain(prepare_frames, R(params_), RW(frames_));
 
 		//Try to track the pedestrian (if we currently are tracking one), else re-detect using HOG descriptor

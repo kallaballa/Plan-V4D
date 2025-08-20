@@ -171,7 +171,7 @@ public:
             if(SliderFloat("Max Star Alpha", &stars.maxStarAlpha_, 0.0f, 1.0f))
             	stars.update_ = true;
             End();
-        }, text_, stars_, warp_);
+        }, RWS(text_), RWS(stars_), RWS(warp_));
     }
 
     void setup() override {

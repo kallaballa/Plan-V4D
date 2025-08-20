@@ -159,7 +159,7 @@ public:
 			PosColorVertex::init();
 
 			// Set view 0 default viewport.
-			bgfx::setViewRect(0, sz.x, sz.y, uint16_t(sz.width), uint16_t(sz.height));
+			bgfx::setViewRect(0, 0, 0, uint16_t(sz.width), uint16_t(sz.height));
 
 			// Create static vertex buffer.
 			params.vbh_ = bgfx::createVertexBuffer(
