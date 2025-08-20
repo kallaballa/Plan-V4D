@@ -17,8 +17,6 @@ SourceContext::SourceContext(cv::Ptr<FrameBufferContext> mainFbContext) : mainFb
 int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
     CV_UNUSED(vp);
 
-    const uint64_t seqCnt = GlobalState::get<uint64_t>(GlobalState::Keys::SEQUENCE_CNT);
-    const uint64_t captureCnt = GlobalState::get<uint64_t>(GlobalState::Keys::CAPTURE_CNT);
     const cv::Size sz = V4D::get<cv::Size>(V4D::Keys::SIZE);
     if(sourceBuffer().empty()) {
         sourceBuffer().create(sz, CV_8UC4);
@@ -31,32 +29,30 @@ int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 
             //only one capture per sequence
             if(src->isOpen()) {
-                if(captureCnt <= seqCnt) {
-                    auto frame = src->operator ()();
+                auto frame = src->operator ()();
 
-                    if(frame.empty()) {
-                        CV_Error(cv::Error::StsError, "End of stream");
-                    }
-
-                    CV_Assert(frame.type() == CV_8UC3 || frame.type() == CV_8UC4);
-
-                    if(vp.size() != sz) {
-                        sourceBuffer().setTo(cv::Scalar(0,0,0,0));
-                    }
-
-                    cv::resize(frame, frame, vp.size(), 0.0, 0.0, cv::INTER_LINEAR);
-
-                    cv::Rect flipped = cv::Rect(vp.x, sz.height - (vp.y + vp.height), vp.width, vp.height);
-                    if(frame.channels() == 3)
-                        cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGB2BGRA);
-                    else
-                        cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGBA2BGRA);
-
-                    GlobalState::apply<uint64_t>(GlobalState::Keys::CAPTURE_CNT, [](uint64_t& v){
-                        ++v;
-                        return v;
-                    });
+                if(frame.empty()) {
+                    CV_Error(cv::Error::StsError, "End of stream");
                 }
+
+                CV_Assert(frame.type() == CV_8UC3 || frame.type() == CV_8UC4);
+
+                if(vp.size() != sz) {
+                    sourceBuffer().setTo(cv::Scalar(0,0,0,0));
+                }
+
+                cv::resize(frame, frame, vp.size(), 0.0, 0.0, cv::INTER_LINEAR);
+
+                cv::Rect flipped = cv::Rect(vp.x, sz.height - (vp.y + vp.height), vp.width, vp.height);
+                if(frame.channels() == 3)
+                    cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGB2BGRA);
+                else
+                    cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGBA2BGRA);
+
+                GlobalState::apply<uint64_t>(GlobalState::Keys::CAPTURE_CNT, [](uint64_t& v){
+                    ++v;
+                    return v;
+                });
             }
             fn();
             return 1;
@@ -69,32 +65,30 @@ int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 
             //only one capture per sequence
             if(src->isOpen()) {
-                if(captureCnt <= seqCnt) {
-                    auto frame = src->operator ()();
+                auto frame = src->operator ()();
 
-                    if(frame.empty()) {
-                        CV_Error(cv::Error::StsError, "End of stream");
-                    }
-
-                    CV_Assert(frame.type() == CV_8UC3 || frame.type() == CV_8UC4);
-
-                    if(vp.size() != sz) {
-                        sourceBuffer().setTo(cv::Scalar(0,0,0,0));
-                    }
-
-                    cv::resize(frame, frame, vp.size(), 0.0, 0.0, cv::INTER_LINEAR);
-
-                    cv::Rect flipped = cv::Rect(vp.x, sz.height - (vp.y + vp.height), vp.width, vp.height);
-                    if(frame.channels() == 3)
-                        cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGB2BGRA);
-                    else
-                        cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGBA2BGRA);
-
-                    GlobalState::apply<uint64_t>(GlobalState::Keys::CAPTURE_CNT, [](uint64_t& v){
-                        ++v;
-                        return v;
-                    });
+                if(frame.empty()) {
+                    CV_Error(cv::Error::StsError, "End of stream");
                 }
+
+                CV_Assert(frame.type() == CV_8UC3 || frame.type() == CV_8UC4);
+
+                if(vp.size() != sz) {
+                    sourceBuffer().setTo(cv::Scalar(0,0,0,0));
+                }
+
+                cv::resize(frame, frame, vp.size(), 0.0, 0.0, cv::INTER_LINEAR);
+
+                cv::Rect flipped = cv::Rect(vp.x, sz.height - (vp.y + vp.height), vp.width, vp.height);
+                if(frame.channels() == 3)
+                    cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGB2BGRA);
+                else
+                    cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGBA2BGRA);
+
+                GlobalState::apply<uint64_t>(GlobalState::Keys::CAPTURE_CNT, [](uint64_t& v){
+                    ++v;
+                    return v;
+                });
             }
             fn();
 

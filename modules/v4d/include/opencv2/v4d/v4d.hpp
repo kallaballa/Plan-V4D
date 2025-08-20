@@ -23,6 +23,7 @@
 #include "detail/sinkcontext.hpp"
 #include "detail/bgfxcontext.hpp"
 #include "detail/resequence.hpp"
+#include "detail/pipelineoverlay.hpp"
 #include "threadsafeanymap.hpp"
 #define EVENT_API_EXPORT CV_EXPORTS
 #include "events.hpp"
@@ -359,6 +360,11 @@ public:
 							result = false;
 						}
 					}
+//                    const cv::Rect vp = V4D::get<cv::Rect>(V4D::Keys::VIEWPORT);
+//                    runtime->nvgCtx()->execute(vp, [vp](){
+//                      cv::Rect drawRect(vp.x, vp.y + 40, vp.width, vp.height);
+//                      drawBasicTimeline(drawRect);
+//					});
 					});
 					if(!result)
 						break;
@@ -373,7 +379,7 @@ public:
                             return s;
                         });
 
-                        size_t seq = GlobalState::apply<size_t>(GlobalState::Keys::SEQUENCE_CNT, [runtime](size_t& s) {
+                        size_t seq = GlobalState::apply<size_t>(GlobalState::Keys::FRAME_CNT, [runtime](size_t& s) {
                             ++s;
                             return s;
                         });
@@ -759,24 +765,39 @@ class CV_EXPORTS Plan {
 							std::lock_guard<std::mutex> guard(*lock.get());
 							auto ctx = n->tx_->getContextCallback()();
 							auto viewport = V4D::get<cv::Rect>(V4D::Keys::VIEWPORT);
+//                            auto now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+//                            size_t idx = LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX);
+//                            announceTask({uint64_t(now), uint32_t(idx), n->name_.c_str(), BasicEvType::Start});
+
 							int res = ctx->execute(viewport, [plan, countLockContention, n,currentState]() {
 								TimeTracker::getInstance()->execute(n->name_, [plan, countLockContention, n,currentState](){
 //									cerr << "locked: " << currentState.branchID_ << "->" << n->name_ << endl;
 									n->tx_->perform();
 								});
 							});
-                            if(res <= 0) {
+
+//							now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+//                            announceTask({uint64_t(now), uint32_t(idx), n->name_.c_str(), BasicEvType::End});
+
+							if(res <= 0) {
                                 CV_LOG_WARNING(&v4d_tag, "Context failed while: " + n->name_);
 							}
 						} else {
 							auto ctx = n->tx_->getContextCallback()();
 							auto viewport = V4D::get<cv::Rect>(V4D::Keys::VIEWPORT);
+//                            auto now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+//                            size_t idx = LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX);
+//                            announceTask({uint64_t(now), uint32_t(idx), n->name_.c_str(), BasicEvType::Start});
+
 							int res = ctx->execute(viewport, [plan, countLockContention, n,currentState]() {
 								TimeTracker::getInstance()->execute(n->name_, [plan, countLockContention, n,currentState](){
 //									cerr << "unlocked: " << currentState.branchID_ << "->" << n->name_ << endl;
 									n->tx_->perform();
 								});
 							});
+//							now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+//                            announceTask({uint64_t(now), uint32_t(idx), n->name_.c_str(), BasicEvType::End});
+
 							if(res <= 0) {
 								CV_LOG_WARNING(&v4d_tag, "Context failed while: " + n->name_);
 							}
@@ -943,6 +964,14 @@ public:
 		return parent_;
 	}
 
+
+    template<typename Tfn, typename ... Args>
+    void imgui(Tfn fn, Args&& ... args) {
+        auto argsTuple = std::make_tuple(args...);
+        auto wrap = wrapGuiCall(fn, argsTuple, std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
+        cv::Ptr<Transaction> tx = make_transaction(wrap, args...);
+        runtime_->imguiCtx()->setTransaction(tx);
+    }
 
     template <typename Tfn, typename ... Args>
     typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
@@ -1228,6 +1257,11 @@ public:
 		std::function functor = [](){ return true; };
 		add_transaction(current.second, runtime_->plainCtx(), id, functor);
 		return self<Plan>();
+    }
+
+    template <typename Tfn, typename Tuple, size_t ... idx>
+    auto wrapGuiCall(Tfn fn, Tuple&& args, std::index_sequence<idx...>) {
+        return wrap_callable<typename std::remove_reference<decltype(std::get<idx>(args))>::type::ref_t...>(fn);
     }
 
     template <typename Tctx, typename Tfn, typename Tuple, size_t ... idx>
@@ -1860,16 +1894,6 @@ public:
 		GlobalState::instance()->registerSafe(val);
 	}
 
-	template<typename Tfn, typename ... Args>
-    void imgui(Tfn fn, Args&& ... args) {
-        if(!runtime_->hasImguiCtx())
-        	return;
-
-        runtime_->imguiCtx()->build([fn, &args...]() {
-        	fn(args...);
-		});
-    }
-
 	template<typename T>
 	detail::Edge<T, false, true> R(const T& t) {
 		return detail::Edge<T, false, true>::make(self<Plan>(), t);
@@ -1985,7 +2009,7 @@ public:
 				const string title = plan->runtime_->title();
 				auto src = plan->runtime_->getSource();
 				auto sink = plan->runtime_->getSink();
-	            setThreadName((title + "-display").c_str());
+//	            setThreadName((title + "-display").c_str());
 
 				if(!(plan->runtime_->debugFlags() & DebugFlags::DONT_PAUSE_LOG)) {
 					CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
@@ -2013,6 +2037,7 @@ public:
 									}
 								}
 
+								LocalState::set(LocalState::Keys::WORKER_INDEX, size_t(i));
 								Plan::run<Tplan>(0, std::forward<Args>(args)...);
 							}
 						)

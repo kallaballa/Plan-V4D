@@ -189,7 +189,7 @@ public:
         //contrast boost
         int contrastBoost_ = 30; //0.0-255
         //max fractal iterations
-        int maxIterations_ = 15000;
+        int maxIterations_ = 8000;
 
         bool autoZoom_ = true;
     };
@@ -306,7 +306,7 @@ public:
             ColorPicker4("Color", params.settings_.baseColor_.val);
             SliderInt("Contrast boost", &params.settings_.contrastBoost_, 1, 255);
             End();
-        }, params_);
+        }, RWS(params_));
     }
 
     void setup() override {
@@ -351,7 +351,7 @@ int main(int argc, char** argv) {
 //	runtime->setSink(sink);
 
 	//15 seconds auto zoom
-	Plan::run<ShaderDemoPlan>(16, 15);
+	Plan::run<ShaderDemoPlan>(7, 15);
 
 	return 0;
 }

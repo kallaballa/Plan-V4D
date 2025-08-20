@@ -19,7 +19,7 @@ public:
 			SliderFloat("Font Size", &params.frontSize_, 1.0f, 100.0f);
 			ColorPicker4("Text Color", params.color_.val);
 			End();
-		}, params_);
+		}, RWS(params_));
 	}
 
 	void infer() override {

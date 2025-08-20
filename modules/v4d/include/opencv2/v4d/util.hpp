@@ -522,7 +522,7 @@ class CV_EXPORTS GlobalState : public SharedVariables {
 public:
 	struct Keys {
 		enum Enum {
-			SEQUENCE_CNT,
+			FRAME_CNT,
 			CAPTURE_CNT,
             FPS_CNT,
 			RUN_CNT,
@@ -588,7 +588,7 @@ private:
 	}
 
 	GlobalState() {
-		create<false, uint64_t>(Keys::SEQUENCE_CNT, 0);
+		create<false, uint64_t>(Keys::FRAME_CNT, 0);
 		create<false, uint64_t>(Keys::CAPTURE_CNT, 0);
 		create<false, uint64_t>(Keys::FPS_CNT, 0);
 		create<false, size_t>(Keys::RUN_CNT, 0);

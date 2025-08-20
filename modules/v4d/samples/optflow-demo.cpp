@@ -449,7 +449,7 @@ public:
 			};
 
 			End();
-	    }, params_);
+	    }, RWS(params_));
 	}
 
     void setup() override {
@@ -548,7 +548,7 @@ int main(int argc, char **argv) {
 //	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
 	runtime->setSource(src);
 //	runtime->setSink(sink);
-	Plan::run<OptflowDemoPlan>(2);
+	Plan::run<OptflowDemoPlan>(7);
 
     return 0;
 }
