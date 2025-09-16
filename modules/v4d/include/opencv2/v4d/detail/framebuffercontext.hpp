@@ -127,7 +127,6 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     const cv::Size framebufferSize_;
     cv::Ptr<FrameBufferContext> parent_;
     bool isRoot_ = true;
-    int index_;
     std::map<size_t, GLint> texture_hdls_;
     std::map<size_t, GLuint> shader_program_hdls_;
     std::map<size_t, GLuint> copyFramebuffers_;

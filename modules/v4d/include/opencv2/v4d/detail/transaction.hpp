@@ -426,18 +426,18 @@ public:
 		} else {
 			if constexpr(issmart_t::value){
 				if constexpr(shared_t::value) {
-					GlobalState::instance()->safe_copy(*ptr()->get(), *copyPtr_.get());
+					GlobalState::shared_vars().safe_copy(*ptr()->get(), *copyPtr_.get());
 					return copyPtr_;
 				} else {
-					GlobalState::instance()->copy(*ptr()->get(), *copyPtr_.get());
+					GlobalState::shared_vars().copy(*ptr()->get(), *copyPtr_.get());
 					return copyPtr_;
 				}
 			} else {
 				if constexpr(shared_t::value) {
-					GlobalState::instance()->safe_copy(*ptr(), *copyPtr_);
+					GlobalState::shared_vars().safe_copy(*ptr(), *copyPtr_);
 					return *copyPtr_;
 				} else {
-					GlobalState::instance()->copy(*ptr(), *copyPtr_);
+					GlobalState::shared_vars().copy(*ptr(), *copyPtr_);
 					return *copyPtr_;
 				}
 			}
@@ -447,9 +447,9 @@ public:
     void copyBack() {
     	if constexpr(!read_t::value && (copy_t::value || iswriteable_func_t::value)) {
     		if constexpr(shared_t::value) {
-    			GlobalState::instance()->safe_copy(*copyPtr_, *ptr_);
+    			GlobalState::shared_vars().safe_copy(*copyPtr_, *ptr_);
     		} else {
-    			GlobalState::instance()->copy(*copyPtr_, *ptr_);
+    			GlobalState::shared_vars().copy(*copyPtr_, *ptr_);
     		}
     	}
     }
@@ -457,7 +457,7 @@ public:
     std::mutex& getMutex() {
     	static_assert(lockie_t::value, "Internal Error: Trying to get mutex from a non-lockie edge");
     	//uses the no check variant because this should never fail due to previous checks.
-    	return *GlobalState::instance()->getMutexPtr(*ptr(), true);
+    	return *GlobalState::shared_vars().getMutexPtr(*ptr(), true);
     }
 
     bool tryLock() {
