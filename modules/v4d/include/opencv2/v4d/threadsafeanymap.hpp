@@ -59,7 +59,7 @@ public:
 template<typename K>
 class CV_EXPORTS AnyPropertyMap {
 private:
-	std::vector<Value> properties_;
+	CV_EXPORTS std::vector<Value> properties_;
     template<typename V>
     constexpr void check_value_type() const {
     	using U = std::remove_cv_t<std::remove_reference_t<V>>;
@@ -141,6 +141,15 @@ public:
 //    	CV_Assert(p != nullptr);
     	return p;
     }
+
+    const size_t size() const {
+    	return properties_.size();
+    }
+
+    const bool empty() const {
+    	return properties_.empty();
+    }
+
 };
 
 template<typename K>

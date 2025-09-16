@@ -74,7 +74,6 @@ FrameBufferContext::FrameBufferContext(const cv::Size& framebufferSize,
         const string& title, int major, int minor, int samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, bool root, int confFlags) :
         title_(title), major_(major), minor_(minor), samples_(samples), configFlags_(confFlags), isVisible_(!(confFlags & FBConfigFlags::OFFSCREEN)), framebufferSize_(framebufferSize), parent_(parent), isRoot_(root), framebuffer_(), view_() {
     CV_UNUSED(parentWindow);
-    index_ = GlobalState::instance()->apply<size_t>(GlobalState::Keys::FRAMEBUFFER_INDEX, [](size_t& v){ return v++; });
 }
 
 
@@ -245,7 +244,8 @@ void FrameBufferContext::init() {
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
     glfwWindowHint(GLFW_DEPTH_BITS, 24);
     glfwWindowHint(GLFW_RESIZABLE, configFlags() & FBConfigFlags::RESIZEABLE ? GLFW_TRUE : GLFW_FALSE);
-    glfwWindowHint(GLFW_VISIBLE, configFlags() & FBConfigFlags::OFFSCREEN ? GLFW_FALSE : GLFW_TRUE );
+    std::cerr << "par:" << hasParent() << " root:" << isRoot() << std::endl;
+    glfwWindowHint(GLFW_VISIBLE, !isRoot() || (configFlags() & FBConfigFlags::OFFSCREEN) ? GLFW_FALSE : GLFW_TRUE );
 //    glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
 
     glfwWindow_ = glfwCreateWindow(framebufferSize_.width, framebufferSize_.height, title_.c_str(), nullptr, parent_ ? parent_->getGLFWWindow() : nullptr);
@@ -293,8 +293,8 @@ void FrameBufferContext::init() {
     	context_ = CLExecContext_t::getCurrent();
 
     setup();
-    if(GlobalState::instance()->isMain() && !parent_) {
-        event::init<cv::Point>(
+    if(GlobalState::isMain() && !parent_) {
+        gwe::init<cv::Point>(
           [](GLFWwindow *window, int key, int scancode, int action, int mods){
               ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
               if(ImGui::GetCurrentContext()) {
@@ -328,10 +328,6 @@ void FrameBufferContext::init() {
           }
       );
     }
-}
-
-int FrameBufferContext::getIndex() {
-   return index_;
 }
 
 void FrameBufferContext::setup() {
@@ -766,6 +762,7 @@ void FrameBufferContext::setResizable(bool r) {
 }
 
 void FrameBufferContext::setWindowSize(const cv::Size& sz) {
+	std::cerr << "SZ: " << sz << std::endl;
     glfwSetWindowSize(getGLFWWindow(), sz.width, sz.height);
 }
 
@@ -780,11 +777,13 @@ bool FrameBufferContext::isFullscreen() {
 }
 
 void FrameBufferContext::setFullscreen(bool f) {
+	std::cerr << "FULL: " << f << std::endl;
     auto monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
     if (f) {
     	glfwSetWindowMonitor(getGLFWWindow(), monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-    	setWindowSize(cv::Size(mode->width, mode->height));
+//    	setWindowSize(cv::Size(mode->width, mode->height));
+        setWindowSize(size());
     } else {
         glfwSetWindowMonitor(getGLFWWindow(), nullptr, 0, 0, size().width,
                 size().height, 0);

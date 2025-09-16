@@ -23,7 +23,6 @@
 #include "detail/sinkcontext.hpp"
 #include "detail/bgfxcontext.hpp"
 #include "detail/resequence.hpp"
-#include "detail/pipelineoverlay.hpp"
 #include "threadsafeanymap.hpp"
 #define EVENT_API_EXPORT CV_EXPORTS
 #include "events.hpp"
@@ -61,6 +60,7 @@ const LogTag v4d_tag("V4D", LogLevel::LOG_LEVEL_INFO);
 const LogTag mon_tag("Monitor", LogLevel::LOG_LEVEL_INFO);
 
 namespace event {
+	using namespace gwe;
 	typedef Mouse_<cv::Point> Mouse;
 	typedef Window_<cv::Point> Window;
 
@@ -339,10 +339,9 @@ public:
 		static Resequence reseq(1);
     	static std::binary_semaphore frame_sync_render(0);
 		static std::binary_semaphore frame_sync_sema_swap(0);
-		auto global = GlobalState::instance();
 
 		try {
-			if(global->isMain()) {
+			if(GlobalState::isMain()) {
 				CV_LOG_INFO(&v4d_tag, "Display thread started.");
 				while(keep_running()) {
 					bool result = true;
@@ -418,7 +417,7 @@ public:
 		request_finish();
 		reseq.finish();
 		if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-			if(global->isMain()) {
+			if(GlobalState::isMain()) {
 				for(size_t i = 0; i < GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED); ++i)
 					frame_sync_render.release();
 			} else {
@@ -674,7 +673,6 @@ class CV_EXPORTS Plan {
     void runGraph() {
 		BranchType::Enum btype;
     	BranchState currentState;
-    	auto global = GlobalState::instance();
     	bool countLockContention = DebugFlags::PRINT_LOCK_CONTENTION & runtime_->debugFlags();
     	try {
 			for (auto& n : currentNodes_) {
@@ -704,7 +702,7 @@ class CV_EXPORTS Plan {
 						if(currentState.isEnabled_) {
 							if(currentState.isOnce_) {
 								if((btype == BranchType::ONCE)) {
-									currentState.condition_ = global->once(n->name_) && n->tx_->performPredicate();
+									currentState.condition_ = GlobalState::once(n->name_) && n->tx_->performPredicate();
 								} else if((btype == BranchType::PARALLEL_ONCE)) {
 									currentState.condition_ = !n->tx_->ran() && n->tx_->performPredicate();
 								} else {
@@ -719,7 +717,7 @@ class CV_EXPORTS Plan {
 							if(currentState.isEnabled_ && currentState.isSingle_) {
 								CV_Assert(btype != BranchType::PARALLEL);
 
-								global->lockNode(currentState.branchID_);
+								GlobalState::lockNode(currentState.branchID_);
 
 								currentState.isLocked_ = true;
 							}
@@ -736,7 +734,7 @@ class CV_EXPORTS Plan {
 						currentState.isSingle_ = false;
 
 						if(currentState.isLocked_) {
-						    global->tryUnlockNode(currentState.branchID_);
+						    GlobalState::tryUnlockNode(currentState.branchID_);
 						}
 
 						currentState.isLocked_ = false;
@@ -748,7 +746,7 @@ class CV_EXPORTS Plan {
 							continue;
 
 						currentState = branchStateStack_.front();
-						global->tryUnlockNode(currentState.branchID_);
+						GlobalState::tryUnlockNode(currentState.branchID_);
 						pf(branchStateStack_.size(), currentState, n);
 						branchStateStack_.pop_front();
 					} else {
@@ -758,7 +756,7 @@ class CV_EXPORTS Plan {
 					CV_Assert(!n->tx_->isPredicate());
 					currentState = !branchStateStack_.empty() ? branchStateStack_.front() : BranchState();
 					if(currentState.isEnabled_) {
-						auto lock = global->tryGetNodeLock(currentState.branchID_);
+						auto lock = GlobalState::tryGetNodeLock(currentState.branchID_);
 						auto plan = self<Plan>();
 						if(lock)
 						{
@@ -808,7 +806,7 @@ class CV_EXPORTS Plan {
 				}
 			}
 
-			size_t lockCnt = global->countNodeLocks();
+			size_t lockCnt = GlobalState::countNodeLocks();
 //			cerr << "STATE STACK: " << branchStateStack_.size() << endl;
 //			cerr << "LOCK STACK: " << lockCnt << endl;
 			CV_Assert(branchStateStack_.empty());
@@ -816,21 +814,21 @@ class CV_EXPORTS Plan {
 			//FIXME unlock all on exception?
     	} catch(std::runtime_error& ex) {
 			if(!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
-				if(global->tryUnlockNode(currentState.branchID_)) {
+				if(GlobalState::tryUnlockNode(currentState.branchID_)) {
 //					cerr << "unlock exception" << endl;
 				}
 			}
 			throw ex;
 		} catch(std::exception& ex) {
 			if(!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
-				if(global->tryUnlockNode(currentState.branchID_)) {
+				if(GlobalState::tryUnlockNode(currentState.branchID_)) {
 //					cerr << "unlock exception" << endl;
 				}
 			}
 			throw ex;
 		} catch(...) {
 			if(!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
-				if(global->tryUnlockNode(currentState.branchID_)) {
+				if(GlobalState::tryUnlockNode(currentState.branchID_)) {
 //					cerr << "unlock exception" << endl;
 				}
 			}
@@ -848,11 +846,6 @@ class CV_EXPORTS Plan {
 		transactions_.clear();
 		currentNodes_.clear();
 	}
-
-	size_t id_ = GlobalState::apply<size_t>(GlobalState::Keys::PLAN_CNT, [](size_t& v){
-		++v;
-		return v;
-	});
 
 	template<typename Tinstance>
     cv::Ptr<Tinstance> self() {
@@ -897,7 +890,7 @@ public:
 	struct Property : detail::Edge<const T, false, true, true> {
 		using parent_t = detail::Edge<const T, false, true, true>;
 		Property(cv::Ptr<Plan> plan, const T& val) : parent_t(parent_t::make(plan, val)) {
-			GlobalState::instance()->makeSharedVar(val);
+			GlobalState::shared_vars().makeSharedVar(val);
 		}
 	};
 
@@ -905,7 +898,7 @@ public:
 	struct Event : Tparent {
 		Event(cv::Ptr<Plan> plan) : Tparent(Tparent::make(plan, wrap_callable<>([]() {
 			if(!V4D::instance()->get<bool>(V4D::Keys::DISABLE_INPUT_EVENTS))
-				return cv::v4d::event::fetch<TeventClass>();
+				return gwe::fetch<TeventClass>();
 			else
 				return typename TeventClass::List();
 		}))) {
@@ -914,7 +907,7 @@ public:
 
 		Event(cv::Ptr<Plan> plan, const typename TeventClass::Type t) : Tparent(Tparent::make(plan, wrap_callable<>([t]() {
 			if(!V4D::instance()->get<bool>(V4D::Keys::DISABLE_INPUT_EVENTS))
-				return cv::v4d::event::fetch(t);
+				return gwe::fetch<TeventClass>(t);
 			else
 				return typename TeventClass::List();
 		}))) {
@@ -924,7 +917,7 @@ public:
 		template<typename Ttrigger>
 		Event(cv::Ptr<Plan> plan, const typename TeventClass::Type t, const Ttrigger tr) : Tparent(Tparent::make(plan, wrap_callable<>([t, tr]() {
 			if(!V4D::instance()->get<bool>(V4D::Keys::DISABLE_INPUT_EVENTS))
-				return cv::v4d::event::fetch(t, tr);
+				return gwe::fetch<TeventClass>(t, tr);
 			else
 				return typename TeventClass::List();
 		}))) {
@@ -970,7 +963,8 @@ public:
         auto argsTuple = std::make_tuple(args...);
         auto wrap = wrapGuiCall(fn, argsTuple, std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
         cv::Ptr<Transaction> tx = make_transaction(wrap, args...);
-        runtime_->imguiCtx()->setTransaction(tx);
+        if(runtime_->hasImguiCtx())
+        	runtime_->imguiCtx()->setTransaction(tx);
     }
 
     template <typename Tfn, typename ... Args>
@@ -1886,12 +1880,12 @@ public:
 
     template<typename Tvar>
     void _shared(Tvar& val) {
-        GlobalState::instance()->makeSharedVar(val);
+        GlobalState::shared_vars().makeSharedVar(val);
     }
 
 	template<typename Tvar>
 	void _safe(Tvar& val) {
-		GlobalState::instance()->registerSafe(val);
+		GlobalState::shared_vars().registerSafe(val);
 	}
 
 	template<typename T>
@@ -1901,7 +1895,7 @@ public:
 
 	template<typename T>
 	detail::Edge<T, false, true, true> RS(const T& t) {
-		if(!GlobalState::instance()->checkShared(*this, t)) {
+		if(!GlobalState::shared_vars().checkShared(*this, t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
 		return detail::Edge<T, false, true, true>::make(self<Plan>(), t);
@@ -1914,7 +1908,7 @@ public:
 
 	template<typename T>
 	detail::Edge<T, false, false, true> RWS(T& t) {
-		if(!GlobalState::instance()->checkShared(*this, t)) {
+		if(!GlobalState::shared_vars().checkShared(*this, t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
 		return detail::Edge<T, false, false, true>::make(self<Plan>(), t);
@@ -1922,7 +1916,7 @@ public:
 
 	template<typename T>
 	detail::Edge<T, true, true, true> CS(T& t) {
-		if(GlobalState::instance()->checkShared(*this, t)) {
+		if(GlobalState::shared_vars().checkShared(*this, t)) {
 			return detail::Edge<T, true, true, true>::make(self<Plan>(), t);
 		} else {
 			throw std::runtime_error("You are trying to safe-copy a non-shared variable. Maybe you forgot to declare it?.");
@@ -1988,7 +1982,6 @@ public:
 		}
 
 		cv::Ptr<Tplan> plan;
-		auto global = GlobalState::instance();
         static std::mutex worker_init_mtx_;
 
 
@@ -1998,14 +1991,14 @@ public:
 			std::lock_guard<std::mutex> lock(runMtx);
 			cv::setNumThreads(0);
 
-			if(global->isFirstRun()) {
-				global->setMainID(std::this_thread::get_id());
+			if(GlobalState::isFirstRun()) {
+				GlobalState::setMainID(std::this_thread::get_id());
 				CV_LOG_INFO(&v4d_tag, "Starting with " << workers << " workers");
 			}
 
 	    	plan = make<Tplan>(std::forward<Args>(args)...);
 
-			if(global->isMain()) {
+			if(GlobalState::isMain()) {
 				const string title = plan->runtime_->title();
 				auto src = plan->runtime_->getSource();
 				auto sink = plan->runtime_->getSink();
@@ -2016,12 +2009,12 @@ public:
 					cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
 				}
 
-                global->set<size_t>(GlobalState::Keys::WORKERS_STARTED, workers);
+                GlobalState::set<size_t>(GlobalState::Keys::WORKERS_STARTED, workers);
 				for (int32_t i = 0; i < workers; ++i) {
 					threads.push_back(
 						new std::thread(
 							[plan, i, src, sink, &args...] {
-					            string name = plan->runtime_->title() + "-" + std::to_string(i);
+								string name = plan->runtime_->title() + "-" + std::to_string(i);
 					            setThreadName(name.c_str());
 					            CV_LOG_DEBUG(&v4d_tag, "Creating worker: " << name);
 								cv::Ptr<V4D> worker;
@@ -2058,7 +2051,7 @@ public:
 
 		CV_Assert(plan);
 
-		if(global->isMain()) {
+		if(GlobalState::isMain()) {
 			plan->runtime_->printSystemInfo();
             CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
             cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
@@ -2078,7 +2071,7 @@ public:
 			}
 			CV_LOG_DEBUG(&v4d_tag, "Setup finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 		}
-		if(global->isMain()) {
+		if(GlobalState::isMain()) {
 			try {
 				CV_LOG_DEBUG(&v4d_tag, "Loading GUI");
 				V4D::set(V4D::Keys::NAMESPACE, plan->space());
@@ -2101,7 +2094,7 @@ public:
         static std::barrier syncPoint(std::ptrdiff_t(workers + 1));
         syncPoint.arrive_and_wait();
 
-        if(global->isMain()) {
+        if(GlobalState::isMain()) {
                     CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED) << " workers.");
         }
 
@@ -2118,7 +2111,7 @@ public:
 		CV_LOG_DEBUG(&v4d_tag, "Main plan->runtime_ finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 
 
-		if(!global->isMain()) {
+		if(!GlobalState::isMain()) {
 			plan->clearGraph();
 			CV_LOG_DEBUG(&v4d_tag, "Starting teardown on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 			try {

@@ -518,7 +518,7 @@ public:
 	}
 };
 
-class CV_EXPORTS GlobalState : public SharedVariables {
+class CV_EXPORTS GlobalState {
 public:
 	struct Keys {
 		enum Enum {
@@ -530,30 +530,27 @@ public:
 			FPS,
 			WORKERS_READY,
 			WORKERS_STARTED,
-			FRAMEBUFFER_INDEX,
 			LOCKING,
 			DISPLAY_READY,
 			LOCK_CONTENTION_CNT,
 			LOCK_CONTENTION_RATE,
 			LCR_CNT,
-			PLAN_CNT,
 		    SHOW_GUI,
 		    TIME_TRACKER
 		};
 	};
 private:
-	CV_EXPORTS inline static ThreadSafeAnyMap<Keys::Enum> map_;
-    CV_EXPORTS inline static std::mutex instance_mtx_;
-	CV_EXPORTS inline static cv::Ptr<GlobalState> instance_ = nullptr;
-	std::mutex threadIDMtx_;
-	const std::thread::id defaultThreadID_;
-	std::thread::id mainThreadID_;
-	bool isFirstRun_ = true;
-	std::set<string> once_;
-	std::mutex nodeLockMtx_;
-	std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> nodeLockMap_;
+	CV_EXPORTS static ThreadSafeAnyMap<Keys::Enum> map_;
+	CV_EXPORTS static std::mutex threadIDMtx_;
+	CV_EXPORTS static const std::thread::id defaultThreadID_;
+	CV_EXPORTS static std::thread::id mainThreadID_;
+	CV_EXPORTS static bool isFirstRun_;
+	CV_EXPORTS static std::set<string> once_;
+	CV_EXPORTS static std::mutex nodeLockMtx_;
+	CV_EXPORTS static std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> nodeLockMap_;
+	CV_EXPORTS static SharedVariables sharedVars_;
 
-	CV_EXPORTS cv::Ptr<std::mutex> getNodeLockInternal(const string& name, const bool owned = true) {
+	CV_EXPORTS static cv::Ptr<std::mutex> getNodeLockInternal(const string& name, const bool owned = true) {
 		auto it = nodeLockMap_.find(name);
 		if(owned) {
 			if(it != nodeLockMap_.end()) {
@@ -577,7 +574,7 @@ private:
 		return nullptr;
 	}
 
-	CV_EXPORTS bool invalidateNodeLockInternal(const string& name) {
+	CV_EXPORTS static bool invalidateNodeLockInternal(const string& name) {
 		auto it = nodeLockMap_.find(name);
 		if(it != nodeLockMap_.end()) {
 			auto& entry = *it;
@@ -587,57 +584,63 @@ private:
 		return false;
 	}
 
-	GlobalState() {
-		create<false, uint64_t>(Keys::FRAME_CNT, 0);
-		create<false, uint64_t>(Keys::CAPTURE_CNT, 0);
-		create<false, uint64_t>(Keys::FPS_CNT, 0);
-		create<false, size_t>(Keys::RUN_CNT, 0);
-		create<false, uint64_t>(Keys::START_TIME, get_epoch_nanos());
-		create<false, double>(Keys::FPS, 0);
-		create<false, size_t>(Keys::WORKERS_READY, 0);
-		create<false, size_t>(Keys::WORKERS_STARTED, 0);
-		create<false, size_t>(Keys::FRAMEBUFFER_INDEX, 0);
-		create<false, bool>(Keys::LOCKING, false);
-		create<false, bool>(Keys::DISPLAY_READY, false);
-		create<false, uint64_t>(Keys::LOCK_CONTENTION_CNT, 0);
-		create<false, double>(Keys::LOCK_CONTENTION_RATE, 0.0);
-		create<false, uint64_t>(Keys::LCR_CNT, 0);
-		create<false, size_t>(Keys::PLAN_CNT, 0);
-	    create<false, bool>(Keys::SHOW_GUI, true);
-	    create<false, bool>(Keys::TIME_TRACKER, true);
-	}
 public:
+	CV_EXPORTS static void init_keys() {
+		if(map_.empty()) {
+			std::cerr << "Global Keys" << std::endl;
+			create<false, uint64_t>(Keys::FRAME_CNT, 0);
+			create<false, uint64_t>(Keys::CAPTURE_CNT, 0);
+			create<false, uint64_t>(Keys::FPS_CNT, 0);
+			create<false, size_t>(Keys::RUN_CNT, 0);
+			create<false, uint64_t>(Keys::START_TIME, get_epoch_nanos());
+			create<false, double>(Keys::FPS, 0);
+			create<false, size_t>(Keys::WORKERS_READY, 0);
+			create<false, size_t>(Keys::WORKERS_STARTED, 0);
+			create<false, bool>(Keys::LOCKING, false);
+			create<false, bool>(Keys::DISPLAY_READY, false);
+			create<false, uint64_t>(Keys::LOCK_CONTENTION_CNT, 0);
+			create<false, double>(Keys::LOCK_CONTENTION_RATE, 0.0);
+			create<false, uint64_t>(Keys::LCR_CNT, 0);
+			create<false, bool>(Keys::SHOW_GUI, true);
+			create<false, bool>(Keys::TIME_TRACKER, true);
+		}
+	}
+
+	CV_EXPORTS static SharedVariables& shared_vars() {
+		return sharedVars_;
+	}
+
 	template <typename V>
-	static const auto& get(Keys::Enum k) {
+	CV_EXPORTS static const auto& get(Keys::Enum k) {
 	    return map_.get<V>(k);
 	}
 
 	template <typename V>
-	static void set(Keys::Enum k, V v) {
+	CV_EXPORTS static void set(Keys::Enum k, V v) {
 	    map_.set(k, v);
 	}
 
 	template <bool Tread, typename V>
-	static void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
+	CV_EXPORTS static void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
 	    map_.create<Tread>(k, v, cb);
 	}
 
 	template <typename V>
-	static V apply(Keys::Enum k, std::function<V(V&)> f) {
+	CV_EXPORTS static V apply(Keys::Enum k, std::function<V(V&)> f) {
 		return map_.apply(k, f);
 	}
 
-	CV_EXPORTS void setMainID(const std::thread::id& id) {
+	CV_EXPORTS static void setMainID(const std::thread::id& id) {
 		std::lock_guard<std::mutex> lock(threadIDMtx_);
 		mainThreadID_ = id;
     }
 
-	CV_EXPORTS bool isMain() {
+	CV_EXPORTS static bool isMain() {
 		std::lock_guard<std::mutex> lock(threadIDMtx_);
 		return (mainThreadID_ == defaultThreadID_ || mainThreadID_ == std::this_thread::get_id());
 	}
 
-	CV_EXPORTS bool isFirstRun() {
+	CV_EXPORTS static bool isFirstRun() {
 		static std::mutex mtx;
 		std::lock_guard<std::mutex> lock(mtx);
     	bool f = isFirstRun_;
@@ -645,20 +648,12 @@ public:
 		return f;
     }
 
-	CV_EXPORTS static cv::Ptr<GlobalState> instance() {
-		std::lock_guard guard(instance_mtx_);
-		if(instance_ == nullptr) {
-			instance_ = new GlobalState();
-		}
-		return instance_;
-	}
-
-	CV_EXPORTS cv::Ptr<std::mutex> tryGetNodeLock(const string& name) {
+	CV_EXPORTS static cv::Ptr<std::mutex> tryGetNodeLock(const string& name) {
 		std::lock_guard guard(nodeLockMtx_);
 		return getNodeLockInternal(name, false);
 	}
 
-	CV_EXPORTS bool lockNode(const string& name) {
+	CV_EXPORTS static bool lockNode(const string& name) {
 		std::lock_guard guard(nodeLockMtx_);
 		auto lock = getNodeLockInternal(name);
 		if(lock) {
@@ -669,7 +664,7 @@ public:
 		}
 	}
 
-	CV_EXPORTS bool tryUnlockNode(const string& name) {
+	CV_EXPORTS static bool tryUnlockNode(const string& name) {
 		std::lock_guard guard(nodeLockMtx_);
 		auto lock = getNodeLockInternal(name);
 		if(lock) {
@@ -683,7 +678,7 @@ public:
 		}
 	}
 
-	CV_EXPORTS size_t countNodeLocks() {
+	CV_EXPORTS static size_t countNodeLocks() {
 		std::lock_guard guard(nodeLockMtx_);
 		size_t cnt = 0;
 		for(auto entry : nodeLockMap_) {
@@ -694,7 +689,7 @@ public:
 		return cnt;
 	}
 
-	CV_EXPORTS bool once(string name) {
+	CV_EXPORTS static bool once(string name) {
 	    static std::mutex mtx;
 		std::lock_guard<std::mutex> lock(mtx);
 		string stem = name.substr(0, name.find_last_of("-"));
@@ -710,8 +705,7 @@ public:
 };
 
 
-class LocalState {
-	CV_EXPORTS inline static thread_local LocalState* instance_;
+class CV_EXPORTS LocalState {
 public:
 	struct Keys {
 		enum Enum {
@@ -719,19 +713,11 @@ public:
 		};
 	};
 private:
-	inline static thread_local ThreadSafeAnyMap<Keys::Enum> map_;
+	CV_EXPORTS static thread_local ThreadSafeAnyMap<Keys::Enum> map_;
 public:
-	LocalState() {
-		create<false, size_t>(Keys::WORKER_INDEX, 0);
-	}
 
-	static thread_local cv::Ptr<LocalState> instance() {
-		static std::mutex mtx;
-		std::lock_guard guard(mtx);
-		if(instance_ == nullptr) {
-			instance_ = new LocalState();
-		}
-		return instance_;
+	static thread_local void init_keys(){
+		create<false, size_t>(Keys::WORKER_INDEX, 0);
 	}
 
 	template <typename V>

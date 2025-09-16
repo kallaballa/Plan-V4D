@@ -25,6 +25,17 @@ using std::endl;
 
 namespace cv {
 namespace v4d {
+CV_EXPORTS ThreadSafeAnyMap<GlobalState::Keys::Enum> GlobalState::map_;
+CV_EXPORTS std::mutex GlobalState::threadIDMtx_;
+CV_EXPORTS const std::thread::id GlobalState::defaultThreadID_;
+CV_EXPORTS std::thread::id GlobalState::mainThreadID_;
+CV_EXPORTS bool GlobalState::isFirstRun_ = true;
+CV_EXPORTS std::set<string> GlobalState::once_;
+CV_EXPORTS std::mutex GlobalState::nodeLockMtx_;
+CV_EXPORTS std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> GlobalState::nodeLockMap_;
+CV_EXPORTS SharedVariables GlobalState::sharedVars_;
+CV_EXPORTS thread_local ThreadSafeAnyMap<LocalState::Keys::Enum> LocalState::map_;
+
 namespace detail {
 void print_nth_line(const std::string& str, int n);
 void print_nth_line(const std::string& str, int n) {

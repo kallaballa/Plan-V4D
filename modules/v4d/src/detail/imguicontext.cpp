@@ -76,7 +76,7 @@ void ImGuiContextImpl::execute(const cv::Rect& vp) {
 		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
 		ImGui::Begin("Display", open_ptr, window_flags);
 		double fps = GlobalState::get<double>(GlobalState::Keys::FPS);
-		size_t workers = GlobalState::instance()->get<size_t>(GlobalState::Keys::WORKERS_READY);
+		size_t workers = GlobalState::get<size_t>(GlobalState::Keys::WORKERS_READY);
 		ImGui::Text("%.4f ms/frame (%.1f FPS), workers: %ld", (1000.0f / fps), fps, workers);
 		ImGui::End();
         ImGui::PopStyleColor(1);
