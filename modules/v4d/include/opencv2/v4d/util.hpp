@@ -32,6 +32,7 @@
 #include <thread>
 #include <latch>
 #include <deque>
+#include <mutex>
 
 using std::cout;
 using std::endl;
@@ -259,31 +260,6 @@ auto sub_tuple(tuple&& t) {
 }
 
 
-template<typename Tfn, typename Tret = typename CallableTraits<Tfn>::return_t, typename ... Args>
-struct AssignableMemData {
-	Tfn fn_;
-	std::tuple<Args...> args_;
-	AssignableMemData(Tfn fn, Args ... args) : fn_(fn), args_(args...) {
-
-	}
-
-	void operator=(Tret v) {
-		std::get<0>(args_).*fn_ = v;
-	}
-
-	operator Tret() {
-		return fn_(std::get<0>(args_));
-	}
-};
-
-template <const size_t _UniqueId, typename _Res, typename... _ArgTypes>
-typename fun_ptr_helper<_UniqueId, _Res, _ArgTypes...>::pointer_type
-get_fn_ptr(const std::function<_Res(_ArgTypes...)>& f)
-{
-    fun_ptr_helper<_UniqueId, _Res, _ArgTypes...>::bind(f);
-    return fun_ptr_helper<_UniqueId, _Res, _ArgTypes...>::ptr();
-}
-
 template<typename T>
 std::function<typename std::enable_if<std::is_function<T>::value, T>::type>
 make_function(T *t)
@@ -292,21 +268,24 @@ make_function(T *t)
 }
 
 //https://stackoverflow.com/a/33047781/1884837
-class Lambda {
+class TFN {
     template<typename T>
     static const void* fn(const void* new_fn = nullptr) {
         CV_Assert(new_fn);
     	return new_fn;
     }
-	template<typename Tret, typename T>
-    static Tret lambda_ptr_exec() {
+
+    template<typename Tret, typename T>
+    static Tret tfn_ptr_exec() {
         return (Tret) (*(T*)fn<T>());
     }
 public:
     template<typename Tret = void, typename Tfp = Tret(*)(), typename T>
     static Tfp ptr(T& t) {
-        fn<T>(&t);
-        return (Tfp) lambda_ptr_exec<Tret, T>;
+        static std::mutex tfn_mtx;
+        std::scoped_lock lock(tfn_mtx);
+	fn<T>(&t);
+        return (Tfp) tfn_ptr_exec<Tret, T>;
     }
 };
 

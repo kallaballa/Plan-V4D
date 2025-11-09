@@ -140,6 +140,32 @@ static auto make_function_ptr(Tfn&& fn, Args ... args) {
 //
 //	return detail::Edge<cv::Ptr<fun_t>, false, read, false>::make(self<Plan>(), cv::makePtr<fun_t>(std::forward<Tfn>(fn)));
 //}
+static void clear_color(const cv::Scalar& bgra) {
+  const float& b = bgra[0] / 255.0f;
+  const float& g = bgra[1] / 255.0f;
+  const float& r = bgra[2] / 255.0f;
+  const float& a = bgra[3] / 255.0f;
+  GL_CHECK(glClearColor(r, g, b, a));
+  GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
+}
+
+static void copy_to(const cv::UMat& src, cv::UMat& dst) {
+  if(!src.empty())
+    src.copyTo(dst);
+}
+
+static void copy_from(cv::UMat& dst, const cv::UMat& src) {
+  if(!src.empty())
+    src.copyTo(dst);
+}
+
+static cv::Size get_size(const cv::UMat& u) {
+  return u.size();
+}
+
+template<typename Tfn> std::string tfn_ptr_hex(Tfn&& fn) {
+    return int_to_hex((size_t)TFN::ptr(fn));
+}
 }
 class CV_EXPORTS Plan;
 class CV_EXPORTS V4D {
@@ -851,15 +877,71 @@ class CV_EXPORTS Plan {
 		return plan->template self<Tplan>();
     }
 
-    template<typename Tfn, typename ... Args>
+template<bool TmakeEdge = true, typename TfnOp, typename ... Args>
+auto make_op(TfnOp fn, Args ... args) {
+	auto op = wrap_callable<typename Args::ref_t ...>(fn);
+	using ret_t = typename CallableTraits<decltype(op)>::return_type_t;
+	constexpr bool hasReturn = !std::is_same<ret_t, void>::value;
+//		static_assert(hasReturn || !TmakeEdge, "Operators may not have a return type of void.");
+	using ret_no_ref_t = typename std::remove_reference<ret_t>::type;
+	static_assert(!std::is_same<ret_no_ref_t, std::false_type>::value, "Invalid callable passed to Plan::op");
+
+	using val_t = typename std::disjunction<
+					values_equal<hasReturn, true, typename std::remove_pointer<ret_no_ref_t>::type>,
+					default_type<int>
+				>::type;
+
+
+	if constexpr(hasReturn && TmakeEdge) {
+		cv::Ptr<cv::Ptr<val_t>> retPtr = new cv::Ptr<val_t>(cv::Ptr<val_t>(), nullptr);
+		std::function wrap = [op](cv::Ptr<val_t>& v, typename Args::ref_t ... values) mutable {
+			if constexpr(std::is_pointer<ret_no_ref_t>::value) {
+				v = cv::Ptr<val_t>(cv::Ptr<val_t>(),op(values...));
+			} else if constexpr(std::is_lvalue_reference<ret_t>::value) {
+				auto& ref = op(values...);
+				v = cv::Ptr<val_t>(cv::Ptr<val_t>(),std::addressof(ref));
+			} else {
+				v = cv::Ptr<val_t>(cv::Ptr<val_t>(),new val_t(op(values...)));
+			}
+		};
+
+		const string id = make_id(this->space(), "nary-op", wrap, args...);
+		emit_access(id, R(*this));
+		(emit_access(id, args ),...);
+
+		auto ptrEdge = detail::Edge<cv::Ptr<cv::Ptr<val_t>>, false, false, false, cv::Ptr<val_t>, true>::make(self<Plan>(), retPtr);
+		add_transaction(runtime_->plainCtx(), id, wrap, ptrEdge, args...);
+
+		return detail::Edge<cv::Ptr<val_t>, false, false, false, val_t>::make(self<Plan>(), *retPtr.get());
+	} else {
+		std::function wrap = [op](typename Args::ref_t ... values) {
+			op(values...);
+		};
+
+		const string id = make_id(this->space(), "nary-op", wrap, args...);
+		emit_access(id, R(*this));
+		(emit_access(id, args ),...);
+		add_transaction(runtime_->plainCtx(), id, wrap, args...);
+		return self<Plan>();
+	}
+}
+
+
+  template<typename Tfn, typename ... Args>
     const string make_id(string id, const string& name, Tfn fn, Args ... args) {
     	stringstream ss;
     	if(!id.empty())
     		id = "::" + id;
-        using return_type_t = typename CallableTraits<Tfn>::return_type_t;
-	static_assert(!std::is_same<return_type_t, std::false_type>::value, "There is no support for Lambdas! Use Edge-expressions DSL instead, which brings much better guarantess anyway.");
-        ss << name << id << " [" << detail::int_to_hex(fn) << "] ";
-
+	
+	if constexpr(std::is_pointer<Tfn>::value) {
+          ss << name << id << " [" << detail::int_to_hex(fn) << "] ";
+	} else if constexpr(!std::is_same<typename CallableTraits<Tfn>::return_type_t, std::false_type>::value) {
+	  ss << name << id << " [" << detail::int_to_hex(tfn_ptr_hex(fn)) << "] ";
+        } else if constexpr(std::is_same<V4D::Keys::Enum, Tfn>::value || std::is_same<GlobalState::Keys::Enum, Tfn>::value || std::is_same<LocalState::Keys::Enum, Tfn>::value) {
+          ss << name << id << " [" << size_t(fn) << "] ";
+	} else {
+	  static_assert(false, "There is no support for Lambdas! Use Edge-expressions DSL instead, which brings much better guarantess anyway.");
+	}
     	((ss << demangle(typeid(typename std::remove_reference_t<decltype(args)>::ref_t).name()) << "(" << int_to_hex(args.id()) << ") "), ...);
     	ss << "- " <<  map_index(std::this_thread::get_id());
     	while(transactions_.find(ss.str()) != transactions_.end()) {
@@ -1270,15 +1352,13 @@ public:
     }
 
     cv::Ptr<Plan> clear(const int32_t& glIndex = -1) {
-        gl<-1>(V(glIndex), [](const cv::Scalar& bgra){
-            const float& b = bgra[0] / 255.0f;
-		    const float& g = bgra[1] / 255.0f;
-		    const float& r = bgra[2] / 255.0f;
-		    const float& a = bgra[3] / 255.0f;
-            GL_CHECK(glClearColor(r, g, b, a));
-		    GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
-    	}, P<cv::Scalar>(V4D::Keys::CLEAR_COLOR));
+        gl<-1>(V(glIndex), clear_color, P<cv::Scalar>(V4D::Keys::CLEAR_COLOR));
     	return self<Plan>();
+    }
+
+    template<typename Tfn, typename ... Args>
+    auto F(Tfn src, Args&& ... args) {
+      return make_op(src, args...);
     }
 
     template <typename Tfn, typename ... Args>
@@ -1291,25 +1371,17 @@ public:
 
     template <typename Tedge>
     cv::Ptr<Plan> capture(Tedge&& edge) {
-        capture([](const cv::UMat& inputFrame, cv::UMat& f){
-    	    if(!inputFrame.empty())
-    			inputFrame.copyTo(f);
-    	}, edge);
-
-		return self<Plan>();
+        capture(detail::copy_from, edge);
+	return self<Plan>();
     }
 
     cv::Ptr<Plan> capture() {
-        capture([](const cv::UMat& inputFrame, cv::UMat& f){
-            if(!inputFrame.empty())
-                inputFrame.copyTo(f);
-        }, Edge<cv::UMat, false, false>::make(self<Plan>(), captureFrame_));
+        Edge<cv::UMat, false, false> cfEdge = Edge<cv::UMat, false, false>::make(self<Plan>(), captureFrame_);
+        Edge<cv::UMat, false, true> ccfEdge = Edge<cv::UMat, false, true>::make(self<Plan>(), captureFrame_);
 
-        fb([](cv::UMat& framebuffer, const cv::UMat& f) {
-            if(!f.empty()) {
-                    cv::resize(f, framebuffer, framebuffer.size(), INTER_LINEAR);
-            }
-        }, Edge<cv::UMat, false, true>::make(self<Plan>(), captureFrame_));
+	capture(detail::copy_from, ccfEdge);
+
+	fb(_OL_(void, cv::resize, cv::InputArray, cv::OutputArray, cv::Size, double, double, int), cfEdge, F(detail::get_size, ccfEdge), V(0.0), V(0.0), V(INTER_LINEAR));
 
         return self<Plan>();
     }
@@ -1334,9 +1406,7 @@ public:
         if(!getParentID().empty())
             return self<Plan>();
 
-        write([](cv::UMat& outputFrame, const cv::UMat& f){
-            f.copyTo(outputFrame);
-        }, edge);
+        write(detail::copy_from, edge);
         return self<Plan>();
     }
 
@@ -1347,14 +1417,10 @@ public:
         auto writerEdge = makeInternalEdge<false>(writerFrame_);
     	auto writerEdgeConst = makeInternalEdge<true>(writerFrame_);
 
-        fb([](const cv::UMat& framebuffer, cv::UMat& f) {
-            framebuffer.copyTo(f);
-        }, writerEdge);
+        fb(detail::copy_to, writerEdge);
 
-     	write([](cv::UMat& outputFrame, const cv::UMat& f){
-   			f.copyTo(outputFrame);
-    	}, writerEdgeConst);
-		return self<Plan>();
+     	write(detail::copy_from, writerEdgeConst);
+	return self<Plan>();
     }
 
 
@@ -1507,7 +1573,7 @@ public:
 	cv::Ptr<Plan> set(const string& id, TwrapFn fn, Ttuple&& args, std::index_sequence<idx...>) {
         auto wrap = wrap_callable<decltype(std::get<0>(args))>(fn);
 
-		emit_access(id, R(*this));
+	emit_access(id, R(*this));
         (emit_access(id, std::get<idx>(args)),...);
         add_transaction(runtime_->plainCtx(), id, wrap, std::get<idx>(args)...);
 		return self<Plan>();
@@ -1597,56 +1663,6 @@ public:
 //			return self<Plan>();
 //		}
 //	}
-
-	template<bool TmakeEdge = true, typename TfnOp, typename ... Args>
-	auto make_op(TfnOp fn, Args ... args) {
-		auto op = wrap_callable<typename Args::ref_t ...>(fn);
-		using ret_t = typename CallableTraits<decltype(op)>::return_type_t;
-		constexpr bool hasReturn = !std::is_same<ret_t, void>::value;
-//		static_assert(hasReturn || !TmakeEdge, "Operators may not have a return type of void.");
-		using ret_no_ref_t = typename std::remove_reference<ret_t>::type;
-		static_assert(!std::is_same<ret_no_ref_t, std::false_type>::value, "Invalid callable passed to Plan::op");
-
-		using val_t = typename std::disjunction<
-						values_equal<hasReturn, true, typename std::remove_pointer<ret_no_ref_t>::type>,
-						default_type<int>
-					>::type;
-
-
-		if constexpr(hasReturn && TmakeEdge) {
-			cv::Ptr<cv::Ptr<val_t>> retPtr = new cv::Ptr<val_t>(cv::Ptr<val_t>(), nullptr);
-			std::function wrap = [op](cv::Ptr<val_t>& v, typename Args::ref_t ... values) mutable {
-				if constexpr(std::is_pointer<ret_no_ref_t>::value) {
-					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),op(values...));
-				} else if constexpr(std::is_lvalue_reference<ret_t>::value) {
-					auto& ref = op(values...);
-					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),std::addressof(ref));
-				} else {
-					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),new val_t(op(values...)));
-				}
-			};
-
-			const string id = make_id(this->space(), "nary-op", wrap, args...);
-			emit_access(id, R(*this));
-			(emit_access(id, args ),...);
-
-			auto ptrEdge = detail::Edge<cv::Ptr<cv::Ptr<val_t>>, false, false, false, cv::Ptr<val_t>, true>::make(self<Plan>(), retPtr);
-			add_transaction(runtime_->plainCtx(), id, wrap, ptrEdge, args...);
-
-			return detail::Edge<cv::Ptr<val_t>, false, false, false, val_t>::make(self<Plan>(), *retPtr.get());
-		} else {
-			std::function wrap = [op](typename Args::ref_t ... values) {
-				op(values...);
-			};
-
-			const string id = make_id(this->space(), "nary-op", wrap, args...);
-			emit_access(id, R(*this));
-			(emit_access(id, args ),...);
-			add_transaction(runtime_->plainCtx(), id, wrap, args...);
-			return self<Plan>();
-		}
-	}
-
 
 
 //	template<typename TdstEdge, typename TfnOp, typename ... Args>
@@ -1831,11 +1847,6 @@ public:
 	template<typename ... Edges>
 	auto SHR(Edges&& ... edges){
 		return OP<Operators::SHR_>(edges...);
-	}
-
-	template<typename Tfn, typename ... Args>
-	auto F(Tfn src, Args&& ... args) {
-		return make_op(src, args...);
 	}
 
 
