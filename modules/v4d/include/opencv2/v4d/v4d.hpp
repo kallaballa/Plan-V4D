@@ -116,10 +116,6 @@ template<typename T> std::string int_to_hex( T i )
   return stream.str();
 }
 
-template<typename Tlamba> std::string lambda_ptr_hex(Tlamba&& l) {
-    return int_to_hex((size_t)Lambda::ptr(l));
-}
-
 static std::size_t map_index(const std::thread::id id) {
     static std::size_t nextindex = 0;
     static std::mutex my_mutex;
@@ -521,23 +517,13 @@ class CV_EXPORTS Plan {
 
     template <typename ... Args, typename Tfn>
     static auto wrap_callable(Tfn fn) {
-    	if constexpr(std::is_void<typename CallableTraits<Tfn>::return_type_t>::value || std::is_same<typename CallableTraits<Tfn>::return_type_t, std::false_type>::value) {
-			if constexpr(CallableTraits<Tfn>::member_t::value) {
-				return std::function([fn](Args... values) -> decltype(std::mem_fn(fn)(values...))  {
-					return std::mem_fn(fn)(values...);
-				});
-			} else {
-				return std::function(fn);
-			}
-    	} else {
-			if constexpr(CallableTraits<Tfn>::member_t::value) {
-				return std::function([fn](Args... values) ->  decltype(std::mem_fn(fn)(values...))  {
-					return std::mem_fn(fn)(values...);
-				});
-			} else {
-				return std::function(fn);
-			}
-   	   }
+	if constexpr(CallableTraits<Tfn>::member_t::value) {
+		return std::function([fn](Args... values) ->  decltype(std::mem_fn(fn)(values...))  {
+			return std::mem_fn(fn)(values...);
+		});
+	} else {
+		return std::function(fn);
+	}
    }
 
 	template<bool Tconst, typename T>
@@ -870,12 +856,9 @@ class CV_EXPORTS Plan {
     	stringstream ss;
     	if(!id.empty())
     		id = "::" + id;
-
-    	if constexpr(std::is_pointer<Tfn>::value) {
-    		ss << name << id << " [" << detail::int_to_hex(reinterpret_cast<size_t>(fn)) << "] ";
-    	} else {
-    		ss << name << id << " [" << detail::lambda_ptr_hex(std::forward<Tfn>(fn)) << "] ";
-    	}
+        using return_type_t = typename CallableTraits<Tfn>::return_type_t;
+	static_assert(!std::is_same<return_type_t, std::false_type>::value, "There is no support for Lambdas! Use Edge-expressions DSL instead, which brings much better guarantess anyway.");
+        ss << name << id << " [" << detail::int_to_hex(fn) << "] ";
 
     	((ss << demangle(typeid(typename std::remove_reference_t<decltype(args)>::ref_t).name()) << "(" << int_to_hex(args.id()) << ") "), ...);
     	ss << "- " <<  map_index(std::this_thread::get_id());
