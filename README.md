@@ -4,6 +4,8 @@ Plan-V4D is a C++20 framework for building high-performance, graphical applicati
 
 This combination allows developers to create complex, parallelized computer vision and visualization pipelines with a clean, declarative syntax.
 
+## #How it Compares: Plan-V4D is like GStreamer, but with a compile-time graph that is type-safe C++. It has the pipeline-thinking of a node-based compositor like Blender or Nuke, but implemented in code. It delivers the performance of a low-level tasking library like Intel TBB, but is specialized for the computer vision and graphics domain.
+
 ![Beauty Filter Demo](modules/v4d/doc/beauty.png)
 *A real-time "beauty filter" demo running in Plan-V4D, showcasing DNN-based face and landmark detection, image segmentation, and multi-band blending.*
 
@@ -14,8 +16,6 @@ This combination allows developers to create complex, parallelized computer visi
 -   **Edges for Data Flow**: To build this graph, the compiler needs to know exactly how each task interacts with data. You declare this using **edge-calls** (`R` for Read, `RW` for Read-Write, etc.). This is how you draw the conveyor belts in the assembly line analogy. By being explicit about data access, you allow the Plan engine to automatically manage memory and schedule tasks for maximum parallelism, eliminating entire classes of concurrency bugs.
 
 -   **Contexts as Workstations**: The V4D runtime provides **contexts** (`nvg`, `gl`, `fb`, `imgui`, `plain`) which are the workstations on your assembly line. Each is a specialized environment for a specific task, like 2D vector drawing, raw OpenGL rendering, or running standard OpenCV functions.
-
--   **How it Compares**: Plan-V4D is like **GStreamer**, but with a compile-time graph that is type-safe C++. It has the pipeline-thinking of a node-based compositor like **Blender or Nuke**, but implemented in code. It delivers the performance of a low-level tasking library like **Intel TBB**, but is specialized for the computer vision and graphics domain.
 
 ## Learn More
 
