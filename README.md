@@ -4,7 +4,7 @@ Plan-V4D is a C++20 framework for building high-performance, graphical applicati
 
 This combination allows developers to create complex, parallelized computer vision and visualization pipelines with a clean, declarative syntax.
 
-## #How it Compares: Plan-V4D is like GStreamer, but with a compile-time graph that is type-safe C++. It has the pipeline-thinking of a node-based compositor like Blender or Nuke, but implemented in code. It delivers the performance of a low-level tasking library like Intel TBB, but is specialized for the computer vision and graphics domain.
+## How it Compares: Plan-V4D is like GStreamer, but with a compile-time graph that is type-safe C++. It has the pipeline-thinking of a node-based compositor like Blender or Nuke, but implemented in code. It delivers the performance of a low-level tasking library like Intel TBB, but is specialized for the computer vision and graphics domain.
 
 ![Beauty Filter Demo](modules/v4d/doc/beauty.png)
 *A real-time "beauty filter" demo running in Plan-V4D, showcasing DNN-based face and landmark detection, image segmentation, and multi-band blending.*
