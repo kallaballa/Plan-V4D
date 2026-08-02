@@ -1,0 +1,164 @@
+# Plan-V4D/.clang-uml
+#
+# clang-uml configuration for Plan-V4D built as an external OpenCV module.
+#
+# Run from inside Plan-V4D/:
+#
+#   clang-uml --config .clang-uml
+#
+# Output will be written to:
+#
+#   Plan-V4D/docs/uml/
+
+compilation_database_dir: ../opencv/build
+output_directory: docs/uml
+
+# Optional:
+# Uncomment if libclang cannot find GCC system headers.
+query_driver: /usr/bin/clang++-18
+
+diagrams:
+
+  # --------------------------------------------------------------------------
+  # Public API class diagram
+  # --------------------------------------------------------------------------
+  v4d_public_api_class:
+    type: class
+    glob:
+      - modules/v4d/src/*.cpp
+      - modules/v4d/src/detail/*.cpp
+
+    using_namespace:
+      - cv::v4d
+      - gwe
+
+    include:
+      namespaces:
+        - cv::v4d
+        - gwe
+      paths:
+        - modules/v4d/include/opencv2/v4d
+
+    exclude:
+      namespaces:
+        - std
+        - cv::v4d::detail
+        - bgfx
+        - bx
+        - bimg
+        - ImGui
+      paths:
+        - modules/v4d/third
+        - modules/v4d/samples
+        - modules/v4d/include/opencv2/v4d/detail
+
+
+  # --------------------------------------------------------------------------
+  # Full module class diagram
+  # --------------------------------------------------------------------------
+  v4d_full_class:
+    type: class
+    glob:
+      - modules/v4d/src/*.cpp
+      - modules/v4d/src/detail/*.cpp
+
+    using_namespace:
+      - cv::v4d
+      - gwe
+
+    include:
+      namespaces:
+        - cv::v4d
+        - gwe
+      paths:
+        - modules/v4d/include/opencv2/v4d
+        - modules/v4d/src
+
+    exclude:
+      namespaces:
+        - std
+        - bgfx
+        - bx
+        - bimg
+        - ImGui
+      paths:
+        - modules/v4d/third
+        - modules/v4d/samples
+
+
+  # --------------------------------------------------------------------------
+  # Samples class diagram
+  #
+  # Only useful if you configured OpenCV with:
+  #
+  #   -DBUILD_EXAMPLES=ON
+  # --------------------------------------------------------------------------
+  v4d_samples_class:
+    type: class
+    glob:
+      - modules/v4d/samples/*.cpp
+
+    using_namespace:
+      - cv::v4d
+      - gwe
+
+    include:
+      paths:
+        - modules/v4d/samples
+
+    exclude:
+      namespaces:
+        - std
+        - bgfx
+        - bx
+        - bimg
+        - ImGui
+      paths:
+        - modules/v4d/third
+
+
+  # --------------------------------------------------------------------------
+  # Package diagram
+  # --------------------------------------------------------------------------
+  v4d_package:
+    type: package
+    glob:
+      - modules/v4d/src/*.cpp
+      - modules/v4d/src/detail/*.cpp
+      - modules/v4d/samples/*.cpp
+
+    include:
+      namespaces:
+        - cv::v4d
+        - gwe
+
+    exclude:
+      namespaces:
+        - std
+        - bgfx
+        - bx
+        - bimg
+        - ImGui
+
+
+  # --------------------------------------------------------------------------
+  # Include graph
+  # --------------------------------------------------------------------------
+  v4d_include:
+    type: include
+    glob:
+      - modules/v4d/src/*.cpp
+      - modules/v4d/src/detail/*.cpp
+      - modules/v4d/samples/*.cpp
+
+    include:
+      paths:
+        - modules/v4d/include/opencv2/v4d
+        - modules/v4d/src
+        - modules/v4d/samples
+
+    exclude:
+      paths:
+        - modules/v4d/third
+        - /usr/include
+        - /usr/lib
