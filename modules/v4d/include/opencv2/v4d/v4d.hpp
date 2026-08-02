@@ -211,13 +211,13 @@ public:
     static void init_keys() {
         create<true>(Keys::SIZE, instance_->fbCtx()->size());
         create<false>(Keys::VIEWPORT, cv::Rect(0,0,instance_->fbCtx()->size().width, instance_->fbCtx()->size().height));
-        create<false, cv::Size>(Keys::WINDOW_SIZE, instance_->fbCtx()->size(), [instance_](const cv::Size& sz){ instance_->fbCtx()->setWindowSize(sz); });
+        create<false, cv::Size>(Keys::WINDOW_SIZE, instance_->fbCtx()->size(), [](const cv::Size& sz){ V4D::instance()->fbCtx()->setWindowSize(sz); });
         create<true>(Keys::FRAMEBUFFER_SIZE, instance_->fbCtx()->size());
         create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
         create<false,string>(Keys::NAMESPACE, "default");
-        create<false, bool>(Keys::FULLSCREEN, false, [instance_](const bool& fs){ instance_->fbCtx()->setFullscreen(fs); });
+        create<false, bool>(Keys::FULLSCREEN, false, [](const bool& fs){ V4D::instance()->fbCtx()->setFullscreen(fs); });
         create<false>(Keys::DISABLE_INPUT_EVENTS, false);
-        create<false, bool>(Keys::VISIBLE, instance_->fbCtx()->isVisible(), [instance_](const bool& v){ instance_->fbCtx()->setVisible(v); });
+        create<false, bool>(Keys::VISIBLE, instance_->fbCtx()->isVisible(), [](const bool& v){ V4D::instance()->fbCtx()->setVisible(v); });
     }
 
     template<bool Tread, typename Tval>

@@ -716,27 +716,27 @@ private:
 	CV_EXPORTS static thread_local ThreadSafeAnyMap<Keys::Enum> map_;
 public:
 
-	static thread_local void init_keys(){
+	static void init_keys(){
 		create<false, size_t>(Keys::WORKER_INDEX, 0);
 	}
 
 	template <typename V>
-	static thread_local const V& get(Keys::Enum k) {
+	static const V& get(Keys::Enum k) {
 		return map_.get<V>(k);
 	}
 
 	template <typename V>
-	static thread_local void set(Keys::Enum k, V v) {
+	static void set(Keys::Enum k, V v) {
 		map_.set(k, v);
 	}
 
 	template <bool Tread, typename V>
-	static thread_local void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
+	static void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
 		map_.create<Tread>(k, v, cb);
 	}
 
 	template <typename V>
-	static thread_local V apply(Keys::Enum k, std::function<V(V&)> f) {
+	static V apply(Keys::Enum k, std::function<V(V&)> f) {
 	    return map_.apply(k, f);
 	}
 };
