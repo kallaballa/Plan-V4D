@@ -16,3 +16,6 @@ tegra/
 .settings/
 CMakeCache.txt
 CMakeFiles/
+samples
+video
+

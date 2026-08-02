@@ -9265,3 +9265,2213 @@ cmake -DOPENCV_V4D_ENABLE_ES3=ON -DCMAKE_CXX_FLAGS="-DCL_TARGET_OPENCL_VERSION=1
 ```bash
 make -j$(sysctl -n hw.ncpu)
 ```
+--- modules/v4d/tutorials/00-intro.markdown ---
+# Tutorial: An Introduction to Plan-V4D
+
+Welcome to the Plan-V4D tutorial series. Before we dive into the code, it's important to understand the core philosophy behind the framework, as it's different from traditional, sequential programming. This introduction will give you the mental model you need to get the most out of the examples that follow.
+
+## What is Plan-V4D?
+
+Plan-V4D is a C++20 framework for building high-performance, graphical applications. It consists of two main components:
+-   **Plan**: A task graph engine for creating highly parallel and concurrent applications.
+-   **V4D**: A versatile 2D/3D graphics runtime that provides the tools for your Plan.
+
+## The "Plan" Philosophy: A Compile-Time Task Graph
+
+When you write a class that inherits from `Plan`, you are not writing a typical, sequential program. Instead, you are **describing a task graph at compile time**.
+
+Through C++ template metaprogramming, the very structure of your code—the sequence of your context calls (`nvg`, `fb`, `gl`, etc.) inside your `infer()` method—is analyzed by the compiler and "baked" directly into your executable as a highly optimized, directed acyclic graph (DAG).
+
+There is no heavyweight runtime that builds this graph when your application starts. The graph *is* your program. This compile-time approach is the key to Plan-V4D's performance, as it allows for optimizations and scheduling decisions to be made before the program even runs.
+
+## Interacting with the Graph: Edges
+
+Because the graph is built by the compiler, the compiler needs to understand exactly how each task (each node in the graph) interacts with the application's data. You provide this crucial information using **edge-calls**.
+
+Edge-calls are small wrappers around your variables that declare your *intent*. They tell the graph whether you intend to read, write, or copy a piece of data. This declaration is what allows the Plan engine to automatically manage data, prevent race conditions, and schedule tasks for maximum parallelism.
+
+Here are the primary edge-calls you will encounter:
+
+| Edge-Call | Name | Purpose |
+| :--- | :--- | :--- |
+| `V(value)` | **V**alue | Passes a constant value or literal directly to a function. |
+| `R(variable)` | **R**ead | Provides safe, read-only access to a variable. |
+| `RW(variable)` | **R**ead-**W**rite | Provides read-write access to a variable. |
+| `C(variable)` | **C**opy | Passes the variable by copy. |
+| `RS(variable)` | **R**ead **S**hared | Provides thread-safe, read-only access to data shared between contexts (e.g., GUI and rendering). |
+| `RWS(variable)` | **R**ead-**W**rite **S**hared | Provides thread-safe, read-write access to shared data. |
+| `CS(variable)` | **C**opy **S**hared | Provides a thread-safe copy of shared data. |
+
+Using the most restrictive edge-call possible (e.g., using `R` instead of `RW` if you don't intend to modify the data) is a best practice that helps the Plan engine generate the most optimal graph.
+
+## The V4D Runtime: Your Toolkit
+
+If `Plan` is the blueprint, then `V4D` is the toolbox. The V4D runtime provides the set of tools—called **contexts**—that you can use as nodes in your graph. Each context is specialized for a certain task:
+
+-   **`nvg`**: For 2D vector graphics and text via NanoVG.
+-   **`fb`**: For direct access to the framebuffer as a `cv::UMat`.
+-   **`gl`**: For executing raw OpenGL commands.
+-   **`imgui`**: For creating user interfaces with Dear ImGui.
+-   **`plain`**: For running general-purpose code, like standard OpenCV functions.
+
+## Getting Started
+
+This series of tutorials will guide you from the basics to advanced applications. Each tutorial builds on the concepts of the last, so it's recommended to follow them in order.
+
+Ready to dive in? Let's start by displaying a simple image.
+--- modules/v4d/tutorials/01-dislay_image.markdown ---
+# Tutorial: Displaying an Image with NanoVG
+
+This tutorial demonstrates how to load and display an image using Plan-V4D's NanoVG context. We will create a simple `Plan` that loads an image during its setup phase and then renders it to the screen in a continuous loop.
+
+## The Code
+
+Here is the complete source code for this example. You can find it in `samples/display_image_nvg.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+#include <opencv2/imgcodecs.hpp>
+
+using namespace cv;
+using namespace cv::v4d;
+
+class DisplayImageNVG : public Plan {
+    Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+
+    // Struct to hold image metadata and NanoVG paint object
+    struct Image_t {
+        std::string filename_; // Image file name
+        nvg::Paint paint_;     // NanoVG paint object for the image
+        int w_;                // Image width
+        int h_;                // Image height
+    } image_;
+
+public:
+    // Constructor to initialize the image file name
+    DisplayImageNVG(const std::string& filename) {
+        image_.filename_ = filename;
+    }
+
+    // Setup phase: Create the NanoVG context and load the image
+    void setup() override {
+        nvg([](Image_t& img) {
+            using namespace cv::v4d::nvg;
+
+            // Load the image and get a NanoVG handle
+            int handle = createImage(img.filename_.c_str(), NVG_IMAGE_NEAREST);
+            CV_Assert(handle > 0); // Ensure the image was loaded successfully
+
+            // Retrieve the image dimensions
+            imageSize(handle, &img.w_, &img.h_);
+
+            // Create a NanoVG paint object using the loaded image
+            img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f / 180.0f * NVG_PI, handle, 1.0);
+        }, RW(image_)); // `RW` denotes read-write access to the shared image data
+    }
+
+    // Inference phase: Render the loaded image to the screen
+    void infer() override {
+        nvg([](const cv::Size& sz, const Image_t& img) {
+            using namespace cv::v4d::nvg;
+
+            beginPath();
+
+            // Scale further rendering calls to match the viewport size
+            scale(double(sz.width) / img.w_, double(sz.height) / img.h_);
+
+            // Create a rounded rectangle matching the scaled image dimensions
+            roundedRect(0, 0, img.w_, img.h_, 50);
+
+            // Fill the rectangle with the loaded image pattern
+            fillPaint(img.paint_);
+            fill();
+        }, size_, RW(image_)); // Pass viewport and image data to the graph node
+    }
+};
+
+int main() {
+    // Define the viewport dimensions
+    cv::Rect viewport(0, 0, 960, 960);
+
+    // Initialize the V4D runtime with NanoVG and IMGUI subsystems
+    Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+
+    // Run the Plan with the specified image file
+    Plan::run<DisplayImageNVG>(7, samples::findFile("lena.jpg"));
+}
+```
+
+## Code Breakdown
+
+### 1. The `DisplayImageNVG` Plan
+
+We define a class `DisplayImageNVG` that inherits from `cv::v4d::Plan`. This class will encapsulate the logic for our image display task.
+
+```cpp
+class DisplayImageNVG : public Plan {
+    // ...
+};
+```
+
+Inside the class, we define a `struct Image_t` to hold all the data related to our image: its filename, its dimensions, and a `nvg::Paint` object that NanoVG will use to render it.
+
+```cpp
+struct Image_t {
+    std::string filename_;
+    nvg::Paint paint_;
+    int w_;
+    int h_;
+} image_;
+```
+
+### 2. The `setup()` Phase
+
+The `setup()` method is called once when the `Plan` is initialized. This is the perfect place to load resources and perform one-time setup tasks.
+
+```cpp
+void setup() override {
+    nvg([](Image_t& img) {
+        using namespace cv::v4d::nvg;
+
+        int handle = createImage(img.filename_.c_str(), NVG_IMAGE_NEAREST);
+        CV_Assert(handle > 0);
+
+        imageSize(handle, &img.w_, &img.h_);
+
+        img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f, handle, 1.0);
+    }, RW(image_));
+}
+```
+
+- **`nvg([...], RW(image_))`**: This is a **NanoVG context**. The lambda function passed to it will be executed within a valid NanoVG rendering environment.
+- **`RW(image_)`**: This specifies that the lambda needs **read-write** access to our `image_` struct. Plan's task graph engine uses this information to manage data access and prevent race conditions.
+- **`createImage(...)`**: This NanoVG function loads the image from the specified file and returns a handle to it.
+- **`imagePattern(...)`**: We create a `paint` from the image. This paint can then be used to fill shapes, effectively drawing the image.
+
+### 3. The `infer()` Phase
+
+The `infer()` method is called repeatedly in a loop. This is where the main rendering logic goes.
+
+```cpp
+void infer() override {
+    nvg([](const cv::Size& sz, const Image_t& img) {
+        using namespace cv::v4d::nvg;
+
+        beginPath();
+        scale(double(sz.width) / img.w_, double(sz.height) / img.h_);
+        roundedRect(0, 0, img.w_, img.h_, 50);
+        fillPaint(img.paint_);
+        fill();
+    }, size_, RW(image_));
+}
+```
+
+- **`nvg([...], size_, RW(image_))`**: Again, we use a NanoVG context. This time, we also request access to `size_`, a `Property` that holds the current dimensions of the V4D window.
+- **`scale(...)`**: We scale the rendering context to make the image fit the window.
+- **`roundedRect(...)`**: We create a rounded rectangle shape with the same dimensions as our image.
+- **`fillPaint(img.paint_)`**: We set the fill style to our image pattern.
+- **`fill()`**: We fill the rectangle, which draws the image to the screen.
+
+### 4. The `main()` Function
+
+The `main` function sets up the V4D runtime and executes our `Plan`.
+
+```cpp
+int main() {
+    cv::Rect viewport(0, 0, 960, 960);
+    Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Plan::run<DisplayImageNVG>(7, samples::findFile("lena.jpg"));
+}
+```
+
+- **`V4D::init(...)`**: Initializes the V4D runtime with a specified window size and title. We also pass flags to enable the `NANOVG` and `IMGUI` subsystems.
+- **`Plan::run<DisplayImageNVG>(...)`**: This static method creates an instance of our `DisplayImageNVG` plan, passes the filename "lena.jpg" to its constructor, and starts the execution loop.
+
+## Summary
+
+In this tutorial, we've seen how to:
+- Create a `Plan` to structure a graphical application.
+- Use the `setup()` phase for one-time resource loading.
+- Use the `infer()` phase for continuous rendering.
+- Utilize the `nvg` context to perform 2D drawing operations with NanoVG.
+- Pass data to our rendering lambdas using Plan's property and data access system.
+
+Next, we will explore how to use a framebuffer for offscreen rendering.
+--- modules/v4d/tutorials/02-dislay_image_fb.markdown ---
+# Tutorial: Displaying an Image via Framebuffer
+
+This tutorial explains how to display an image by writing its data directly to the window's framebuffer. This method offers a more direct way to put pixels on the screen compared to using a graphics library like NanoVG. It's particularly useful when you are already manipulating image data in `cv::Mat` or `cv::UMat` and want a straightforward way to visualize it.
+
+## The Code
+
+Here is the complete source code for this example. You can find it in `samples/display_image_fb.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+#include <opencv2/imgcodecs.hpp>
+
+using namespace cv;
+using namespace cv::v4d;
+
+class DisplayImageFB : public Plan {
+    UMat image_;
+    UMat converted_;
+    Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    DisplayImageFB(const string& filename) {
+        //Loads an image as a UMat (just in case we have hardware acceleration available)
+        imread(filename).copyTo(image_);
+    }
+
+    void setup() override {
+        plain([](const cv::Size& sz, cv::UMat& image, cv::UMat& converted) {
+            //We have to manually resize and color convert the image when using direct frambuffer access.
+            resize(image, converted, sz);
+            cvtColor(converted, converted, COLOR_RGB2BGRA);
+        }, size_, RW(image_), RW(converted_));
+    }
+
+    void infer() override {
+        //Create a fb context and copies the prepared image to the framebuffer. The fb context
+        //takes care of retrieving and storing the data on the graphics card (using CL-GL
+        //interop if available), ready for other contexts to use
+        fb([](UMat& framebuffer, const cv::UMat& c){
+            c.copyTo(framebuffer);
+        }, R(converted_));
+    }
+};
+
+int main() {
+    cv::Rect viewport(0, 0, 960,960);
+    //Creates a V4D object
+    Ptr<V4D> runtime = V4D::init(viewport, "Display an Image through direct FB access", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+    Plan::run<DisplayImageFB>(0, samples::findFile("lena.jpg"));
+
+    return 0;
+}
+```
+
+## Code Breakdown
+
+### 1. The `DisplayImageFB` Plan
+
+We define a `Plan` named `DisplayImageFB`. It holds two `UMat` objects: `image_` for the original image and `converted_` for the version that's been resized and color-converted for display.
+
+```cpp
+class DisplayImageFB : public Plan {
+    UMat image_;
+    UMat converted_;
+    Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    DisplayImageFB(const string& filename) {
+        //Loads an image as a UMat
+        imread(filename).copyTo(image_);
+    }
+    //...
+};
+```
+In the constructor, we load the image from a file directly into `image_`. We use `UMat` to take advantage of GPU memory and hardware acceleration if available.
+
+### 2. The `setup()` Phase
+
+In the `setup()` phase, we prepare the image for display. The framebuffer expects image data to match the window's dimensions and to be in BGRA format.
+
+```cpp
+void setup() override {
+    plain([](const cv::Size& sz, cv::UMat& image, cv::UMat& converted) {
+        //We have to manually resize and color convert the image
+        resize(image, converted, sz);
+        cvtColor(converted, converted, COLOR_RGB2BGRA);
+    }, size_, RW(image_), RW(converted_));
+}
+```
+- **`plain([...])`**: This is a **plain context**. It's a general-purpose context for running standard CPU-side code, like OpenCV functions. It doesn't have any specific graphics state (like OpenGL or NanoVG).
+- **`resize(...)`**: We resize the original image to match the window's size (`sz`).
+- **`cvtColor(...)`**: We convert the image's color format from the default BGR (used by `imread`) to BGRA, which is what the framebuffer expects.
+
+### 3. The `infer()` Phase
+
+The `infer()` phase is where we copy our prepared image data to the framebuffer.
+
+```cpp
+void infer() override {
+    fb([](UMat& framebuffer, const cv::UMat& c){
+        c.copyTo(framebuffer);
+    }, R(converted_));
+}
+```
+- **`fb([...])`**: This is the **framebuffer context**. It provides direct write access to the window's back-buffer.
+- **`UMat& framebuffer`**: The context provides a `UMat` that acts as a handle to the framebuffer.
+- **`c.copyTo(framebuffer)`**: We simply copy our `converted_` image data into the framebuffer `UMat`. V4D handles the underlying details of uploading the data to the GPU.
+
+### 4. The `main()` Function
+
+The `main` function is slightly different from the previous tutorial.
+
+```cpp
+int main() {
+    cv::Rect viewport(0, 0, 960,960);
+    Ptr<V4D> runtime = V4D::init(viewport, "Display an Image through direct FB access", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+    Plan::run<DisplayImageFB>(0, samples::findFile("lena.jpg"));
+    return 0;
+}
+```
+- **`ConfigFlags::DISPLAY_MODE`**: This new flag is passed to `V4D::init`. It tells V4D that we intend to use it primarily for direct framebuffer rendering, which can enable certain optimizations.
+
+## Summary
+
+In this tutorial, we learned how to:
+- Use a **plain context** for general-purpose image processing.
+- Use a **framebuffer context** to copy pixel data directly to the screen.
+- Prepare a `UMat` by resizing and color-converting it for display.
+- Initialize V4D in `DISPLAY_MODE` for direct framebuffer access.
+
+Next, we will look at how to perform 2D vector drawing.
+--- modules/v4d/tutorials/03-vector_graphics.markdown ---
+# Tutorial: 2D Vector Graphics with NanoVG
+
+Plan-V4D provides a powerful 2D vector graphics API through its integration with NanoVG. This tutorial demonstrates how to use the `nvg` context to draw shapes, apply gradients, and create simple animations. We will walk through an example that draws a pair of animated googly eyes.
+
+## The Code
+
+Here is the complete source code for this example. You can find it in `samples/vector_graphics.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+
+using namespace cv;
+using namespace cv::v4d;
+
+class VectorGraphicsPlan: public Plan {
+Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    void infer() override {
+        //Creates a NanoVG context and draws googly eyes that occasionally blink.
+        nvg([](const Size &sz) {
+            //Calls from this namespace may only be used inside a nvg context.
+            //Nvg calls work exactly like their c-funtion counterparts.
+            //Please refer to the NanoVG documentation for details.
+            using namespace cv::v4d::nvg;
+            clearScreen();
+
+            static long start = cv::getTickCount() / cv::getTickFrequency();
+            float t = cv::getTickCount() / cv::getTickFrequency() - start;
+            float x = 0;
+            float y = 0;
+            float w = sz.width / 4;
+            float h = sz.height / 4;
+            translate((sz.width / 2.0f) - (w / 2.0f), (sz.height / 2.0f) - (h / 2.0f));
+            float mx = w / 2.0;
+            float my = h / 2.0;
+            Paint gloss, bg;
+            float ex = w * 0.23f;
+            float ey = h * 0.5f;
+            float lx = x + ex;
+            float ly = y + ey;
+            float rx = x + w - ex;
+            float ry = y + ey;
+            float dx, dy, d;
+            float br = (ex < ey ? ex : ey) * 0.5f;
+            float blink = 1 - pow(sinf(t * 0.5f), 200) * 0.8f;
+
+            bg = linearGradient(x, y + h * 0.5f, x + w * 0.1f, y + h,
+                    cv::Scalar(0, 0, 0, 32), cv::Scalar(0, 0, 0, 16));
+            beginPath();
+            ellipse(lx + 3.0f, ly + 16.0f, ex, ey);
+            ellipse(rx + 3.0f, ry + 16.0f, ex, ey);
+            fillPaint(bg);
+            fill();
+
+            bg = linearGradient(x, y + h * 0.25f, x + w * 0.1f, y + h,
+                    cv::Scalar(220, 220, 220, 255),
+                    cv::Scalar(128, 128, 128, 255));
+            beginPath();
+            ellipse(lx, ly, ex, ey);
+            ellipse(rx, ry, ex, ey);
+            fillPaint(bg);
+            fill();
+
+            dx = (mx - rx) / (ex * 10);
+            dy = (my - ry) / (ey * 10);
+            d = sqrtf(dx * dx + dy * dy);
+            if (d > 1.0f) {
+                dx /= d;
+                dy /= d;
+            }
+            dx *= ex * 0.4f;
+            dy *= ey * 0.5f;
+            beginPath();
+            ellipse(lx + dx, ly + dy + ey * 0.25f * (1 - blink), br,
+                    br * blink);
+            fillColor(cv::Scalar(32, 32, 32, 255));
+            fill();
+
+            dx = (mx - rx) / (ex * 10);
+            dy = (my - ry) / (ey * 10);
+            d = sqrtf(dx * dx + dy * dy);
+            if (d > 1.0f) {
+                dx /= d;
+                dy /= d;
+            }
+            dx *= ex * 0.4f;
+            dy *= ey * 0.5f;
+            beginPath();
+            ellipse(rx + dx, ry + dy + ey * 0.25f * (1 - blink), br,
+                    br * blink);
+            fillColor(cv::Scalar(32, 32, 32, 255));
+            fill();
+
+            gloss = radialGradient(lx - ex * 0.25f, ly - ey * 0.5f,
+                    ex * 0.1f, ex * 0.75f, cv::Scalar(255, 255, 255, 128),
+                    cv::Scalar(255, 255, 255, 0));
+            beginPath();
+            ellipse(lx, ly, ex, ey);
+            fillPaint(gloss);
+            fill();
+
+            gloss = radialGradient(rx - ex * 0.25f, ry - ey * 0.5f,
+                    ex * 0.1f, ex * 0.75f, cv::Scalar(255, 255, 255, 128),
+                    cv::Scalar(255, 255, 255, 0));
+            beginPath();
+            ellipse(rx, ry, ex, ey);
+            fillPaint(gloss);
+            fill();
+        }, sz_);
+    }
+};
+
+int main() {
+    cv::Rect viewport(0,0, 960, 960);
+    Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Plan::run<VectorGraphicsPlan>(0);
+}
+```
+
+## Code Breakdown
+
+### 1. The `VectorGraphicsPlan`
+
+The structure is simple: a `Plan` with all logic contained in the `infer()` method. Since there are no resources to load, the `setup()` method is not needed.
+
+```cpp
+class VectorGraphicsPlan: public Plan {
+    Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    void infer() override {
+        // ...
+    }
+};
+```
+
+### 2. The `infer()` Phase and the `nvg` Context
+
+All drawing happens inside the `infer()` method, which is executed on every frame.
+
+```cpp
+void infer() override {
+    nvg([](const Size &sz) {
+        using namespace cv::v4d::nvg;
+        clearScreen();
+        // ... drawing code ...
+    }, sz_);
+}
+```
+- **`nvg([...], sz_)`**: We open a **NanoVG context**. The lambda receives the window size (`sz`) and provides an environment where we can call NanoVG drawing functions.
+- **`using namespace cv::v4d::nvg;`**: This line is important. It brings all the V4D-wrapped NanoVG functions into the current scope, allowing us to call them directly (e.g., `beginPath()` instead of `cv::v4d::nvg::beginPath()`).
+- **`clearScreen()`**: A helper function to clear the screen at the beginning of each frame.
+
+### 3. Drawing with NanoVG
+
+The code inside the lambda uses a sequence of NanoVG calls to draw the eyes. The drawing process generally follows these steps:
+1.  **`beginPath()`**: Starts a new shape path.
+2.  **Define Geometry**: Create a shape using functions like `ellipse()`, `rect()`, `moveTo()`, `lineTo()`, etc.
+3.  **Set Paint**: Define the color or gradient to be used for filling or stroking. You can use `fillColor()` for solid colors or functions like `linearGradient()` and `radialGradient()` to create a `Paint` object, which is then applied with `fillPaint()`.
+4.  **Render**: Call `fill()` or `stroke()` to render the path to the screen.
+
+### 4. Animation
+
+A simple time-based animation is created to make the eyes blink.
+
+```cpp
+static long start = cv::getTickCount() / cv::getTickFrequency();
+float t = cv::getTickCount() / cv::getTickFrequency() - start;
+// ...
+float blink = 1 - pow(sinf(t * 0.5f), 200) * 0.8f;
+// ...
+ellipse(..., br * blink);
+```
+- A `static` variable `start` records the initial time.
+- On each frame, the elapsed time `t` is calculated.
+- A `blink` factor is computed using a `sin` function, which creates a periodic value. The `pow` function sharpens the curve, making the blink effect quick and snappy.
+- This `blink` factor is then used to scale the height of the pupil's ellipse, creating the animation.
+
+## Summary
+
+This tutorial covered the basics of vector drawing in Plan-V4D:
+- How to use the `nvg` context to access the NanoVG API.
+- The basic workflow of creating and rendering shapes.
+- How to use solid colors and gradients.
+- A simple technique for creating time-based animations.
+
+In the next tutorial, we will see how to combine vector graphics with framebuffer operations.
+--- modules/v4d/tutorials/04-vector_graphics_and_fb.markdown ---
+# Tutorial: Combining Vector Graphics and Framebuffer Processing
+
+A powerful feature of Plan-V4D is the ability to chain different contexts together to create sophisticated rendering and processing pipelines. In this tutorial, we will extend the previous vector graphics example by adding a framebuffer processing step.
+
+First, we will draw the animated googly eyes using the `nvg` context. Then, we will immediately access the resulting image in the framebuffer using the `fb` context and apply a blur effect to it using a standard OpenCV function.
+
+## The Code
+
+Here is the complete source code for this example. You can find it in `samples/vector_graphics_and_fb.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+#include <opencv2/v4d/util.hpp>
+
+using namespace cv;
+using namespace cv::v4d;
+
+class VectorGraphicsAndFBPlan : public Plan {
+    Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    void infer() override {
+        //Again creates a NanoVG context and draws googly eyes
+        nvg([](const Size& sz) {
+            // (Drawing code is the same as the previous tutorial)
+            // ...
+        });
+
+        //Provides the framebuffer as left-off by the nvg context.
+        fb([](UMat& framebuffer) {
+            //Heavily blurs the eyes using a cheap boxFilter
+            boxFilter(framebuffer, framebuffer, -1, Size(15, 15), Point(-1,-1), true, BORDER_REPLICATE);
+        });
+    }
+};
+
+int main() {
+    cv::Rect viewport(0, 0, 960, 960);
+    Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics and Framebuffer", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Plan::run<VectorGraphicsAndFBPlan>(0);
+}
+```
+*(For brevity, the NanoVG drawing code, which is identical to the previous tutorial, has been omitted here.)*
+
+## Code Breakdown
+
+### The `infer()` Phase: Chaining Contexts
+
+The magic happens within the `infer()` method. It contains two contexts called in sequence.
+
+```cpp
+void infer() override {
+    // 1. First, draw the vector graphics
+    nvg([](const Size& sz) {
+        // ... googly eyes drawing logic ...
+    }, sz_);
+
+    // 2. Then, process the result in the framebuffer
+    fb([](UMat& framebuffer) {
+        boxFilter(framebuffer, framebuffer, -1, Size(15, 15));
+    });
+}
+```
+
+### Step 1: The `nvg` Context
+
+The first part of the `infer` method is identical to our previous tutorial. The `nvg` context is used to draw the animated googly eyes. When this context finishes, the resulting image is present in the window's framebuffer.
+
+### Step 2: The `fb` Context
+
+This is the new addition. Immediately following the `nvg` context, we open an `fb` context.
+- **State Preservation**: The `fb` context picks up the framebuffer exactly where the `nvg` context left off. The pixels drawn by NanoVG are now available as a `UMat`.
+- **Image Processing on the GPU**: The lambda receives a `UMat` handle to the framebuffer. We can then use any `UMat`-compatible OpenCV function to process this image directly.
+- **`boxFilter(...)`**: We apply a simple `boxFilter` to blur the entire framebuffer image in-place. Because we are operating on a `UMat`, this processing can be hardware-accelerated on the GPU if OpenCL is available.
+
+The final result is that the vector-drawn googly eyes appear blurred on the screen.
+
+## Summary
+
+This tutorial demonstrated a key concept in V4D: **context chaining**.
+- You can execute different contexts sequentially within the same `infer()` call.
+- The output of one graphics context (like `nvg`) can serve as the input for a subsequent processing context (like `fb`).
+- This allows you to create powerful pipelines that combine rendering with GPU-accelerated image processing.
+
+In the next tutorial, we will explore how to perform custom OpenGL rendering.
+--- modules/v4d/tutorials/05-render_opengl.markdown ---
+# Tutorial: Direct OpenGL Rendering
+
+While V4D provides high-level contexts like `nvg` and `fb`, it also gives you direct access to the underlying OpenGL API for custom rendering. This is done through the `gl` context, which allows you to execute raw OpenGL commands within your `Plan`.
+
+This tutorial demonstrates the most basic use of the `gl` context: clearing the screen to a solid blue color.
+
+## The Code
+
+Here is the complete source code for this example. You can find it in `samples/render_opengl.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+
+using namespace cv;
+using namespace cv::v4d;
+
+// A Plan implementation that renders a blue screen using OpenGL
+class RenderOpenGLPlan : public Plan {
+public:
+    // Setup phase: set the OpenGL clear color
+    void setup() override {
+        // Use a 'gl' context to call the standard glClearColor function.
+        // The 'V' edge-call passes the following values as constants.
+        gl(glClearColor, V(0.0f), V(0.0f), V(1.0f), V(1.0f));
+    }
+
+    // Infer phase: clear the screen on every frame
+    void infer() override {
+        // Use a 'gl' context to call glClear.
+        // GL states (like the clear color) are preserved between context calls.
+        gl(glClear, V(GL_COLOR_BUFFER_BIT));
+    }
+};
+
+int main() {
+    cv::Rect viewport(0, 0, 960, 960);
+    // Initialize V4D. Note that we don't need to allocate NANOVG for this example.
+    Ptr<V4D> runtime = V4D::init(viewport, "GL Blue Screen", AllocateFlags::IMGUI);
+    // Build and run the graph
+    Plan::run<RenderOpenGLPlan>(0);
+}
+```
+
+## Code Breakdown
+
+### 1. The `gl` Context
+
+The `gl` context is the gateway to the OpenGL API. It's designed to be a lightweight wrapper that integrates standard OpenGL functions into the Plan task graph.
+
+Its usage is very straightforward:
+`gl(openGL_function_name, arg1, arg2, ...);`
+
+### 2. The `setup()` Phase: Setting State
+
+In the `setup()` method, we set the desired clear color. This only needs to be done once.
+
+```cpp
+void setup() override {
+    gl(glClearColor, V(0.0f), V(0.0f), V(1.0f), V(1.0f));
+}
+```
+- **`gl(glClearColor, ...)`**: We are telling the `Plan` to create a node in its task graph that will execute the `glClearColor` function.
+- **`V(...)`**: This is an **edge-call**. Edge-calls are how you pass data to functions inside a context. `V` stands for **Value** (or constant). It tells the graph that we are passing these literal values directly to the function.
+
+V4D preserves the OpenGL state between context calls. So, the clear color we set here will remain active for all subsequent `gl` contexts.
+
+### 3. The `infer()` Phase: Performing Actions
+
+In the `infer()` method, which runs on every frame, we perform the action of clearing the screen.
+
+```cpp
+void infer() override {
+    gl(glClear, V(GL_COLOR_BUFFER_BIT));
+}
+```
+This creates a graph node that calls `glClear` with the `GL_COLOR_BUFFER_BIT` flag, which clears the color buffer to the blue color we set in `setup()`.
+
+### A Note on Edge-Calls
+
+The `V` edge-call is the simplest one, used for constants. Plan provides others for more complex data handling:
+- **`R(variable)`**: Read-only access to a variable.
+- **`RW(variable)`**: Read-write access to a variable.
+- **`C(variable)`**: Access by copy.
+- **`RS`, `RWS`, `CS`**: Variants for data that is explicitly marked as `shared` between different threads or Plans.
+
+Using the most restrictive edge-call possible (e.g., `R` instead of `RW` if you don't modify the data) helps the Plan engine to build a more optimal and parallelized task graph.
+
+## Summary
+
+This tutorial introduced the `gl` context for direct OpenGL rendering:
+- You can call any standard OpenGL function by passing it to the `gl` context.
+- OpenGL state is preserved between `gl` context calls.
+- **Edge-calls** like `V()` are used to pass arguments to the OpenGL functions within the graph.
+
+In the next tutorial, we will look at font rendering.
+--- modules/v4d/tutorials/06-font_rendering.markdown ---
+# Tutorial: Font Rendering
+
+Text is a fundamental part of most graphical applications. Plan-V4D makes font rendering easy by leveraging the capabilities of NanoVG. This tutorial will show you how to load fonts and draw text to the screen.
+
+## The Code
+
+Here is the complete source code for this example. You can find it in `samples/font_rendering.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+
+using namespace cv;
+using namespace cv::v4d;
+
+class FontRenderingPlan: public Plan {
+    //The text to render
+    string text_ = "Hello World";
+    Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    void infer() override {
+        //Render the text at the center of the screen.
+        nvg([](const Size& sz, const string& str) {
+            using namespace cv::v4d::nvg;
+            clearScreen();
+            fontSize(40.0f);
+            fontFace("sans-bold");
+            fillColor(Scalar(255, 0, 0, 255));
+            textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
+            text(sz.width / 2.0, sz.height / 2.0, str.c_str(),
+                    str.c_str() + str.size());
+        }, size_, R(text_));
+    }
+};
+
+int main() {
+    cv::Rect viewport(0, 0, 960, 960);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Font Rendering", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Plan::run<FontRenderingPlan>(0);
+
+    return 0;
+}
+```
+
+## Code Breakdown
+
+### 1. The `FontRenderingPlan`
+
+The `Plan` for this example is very simple. It stores the string we want to render as a member variable.
+
+```cpp
+class FontRenderingPlan: public Plan {
+    string text_ = "Hello World";
+    Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    // ...
+};
+```
+
+### 2. The `infer()` Phase
+
+All the rendering logic is in the `infer()` method, inside an `nvg` context.
+
+```cpp
+void infer() override {
+    nvg([](const Size& sz, const string& str) {
+        using namespace cv::v4d::nvg;
+        clearScreen();
+        fontSize(40.0f);
+        fontFace("sans-bold");
+        fillColor(Scalar(255, 0, 0, 255));
+        textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
+        text(sz.width / 2.0, sz.height / 2.0, str.c_str(),
+                str.c_str() + str.size());
+    }, size_, R(text_));
+}
+```
+- **`nvg([...], size_, R(text_))`**: We open a NanoVG context, passing in the window size and our `text_` variable. We use the `R` (Read-only) edge-call since we are only reading the string, not modifying it.
+- **`fontSize(40.0f)`**: Sets the size of the font.
+- **`fontFace("sans-bold")`**: Selects the font to use. "sans-bold" is a default font provided by NanoVG.
+- **`fillColor(...)`**: Sets the color of the text.
+- **`textAlign(...)`**: Sets the alignment. Here, we align the text so that its top-center point is at the coordinates we specify.
+- **`text(...)`**: The function that actually draws the text to the screen at the given coordinates.
+
+### Loading Custom Fonts
+
+While this example uses a built-in font, you can easily load your own TrueType (`.ttf`) fonts. To do this, you would typically call `createFont` in your `setup()` phase.
+
+```cpp
+// In your Plan class
+int my_font_;
+
+// In your setup() method
+void setup() override {
+    nvg([&](...) {
+        // The first argument is a handle name, the second is the path to the file.
+        my_font_ = createFont("my-cool-font", samples::findFile("fonts/Roboto-Regular.ttf"));
+        CV_Assert(my_font_ >= 0); // Check that the font was loaded
+    });
+}
+
+// In your infer() method
+void infer() override {
+    nvg([&](...) {
+        // ...
+        fontFace("my-cool-font"); // Use the handle name you defined
+        // ...
+    });
+}
+```
+
+## Summary
+
+This tutorial demonstrated the basics of text rendering in Plan-V4D:
+- Using the `nvg` context to access font rendering functions.
+- Setting font properties like size, face, color, and alignment.
+- Drawing text to the screen.
+- The basic process for loading and using custom fonts.
+
+In the next tutorial, we will look at how to build a simple video editor.
+--- modules/v4d/tutorials/07-video_editing.markdown ---
+# Tutorial: Simple Video Editing
+
+Plan-V4D provides a simple yet powerful source/sink architecture for building video processing pipelines. This allows you to read from a video source (like a file or a camera), perform processing and rendering on each frame, and then write the result to a video sink (like an output file or a display window).
+
+This tutorial demonstrates how to build a simple video editor that reads from a video file, renders text on top of each frame, and saves the result to a new video file.
+
+## The Code
+
+Here is the complete source code for this example. You can find it in `samples/video_editing.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+
+using namespace cv;
+using namespace cv::v4d;
+
+class VideoEditingPlan : public Plan {
+    const string hv_ = "Hello Video!";
+    Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    void infer() override {
+        // 1. Capture a frame from the source and load it into the framebuffer
+        capture();
+
+        // 2. Render text on top of the captured frame
+        nvg([](const Size& sz, const string& str) {
+            using namespace cv::v4d::nvg;
+
+            fontSize(40.0f);
+            fontFace("sans-bold");
+            fillColor(Scalar(255, 0, 0, 255));
+            textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
+            text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
+        }, sz_, R(hv_));
+
+        // 3. Write the modified framebuffer to the sink
+        write();
+    }
+};
+
+int main(int argc, char** argv) {
+    if (argc != 3) {
+        std::cerr << "Usage: video_editing <input-video-file> <output-video-file>" << std::endl;
+        exit(1);
+    }
+    cv::Rect viewport(0, 0, 960, 960);
+    Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+
+    // Make the video source from the first command-line argument
+    auto src = Source::make(runtime, argv[1]);
+
+    // Make the video sink for the second command-line argument
+    auto sink = Sink::make(runtime, argv[2], src->fps(), viewport.size());
+
+    // Attach the source and sink to the runtime
+    runtime->setSource(src);
+    runtime->setSink(sink);
+
+    Plan::run<VideoEditingPlan>(0);
+}
+```
+
+## Code Breakdown
+
+### 1. The `main()` Function: Setting up the Pipeline
+
+The `main` function is responsible for setting up the I/O for our pipeline.
+
+```cpp
+int main(int argc, char** argv) {
+    // ... argument checking ...
+    Ptr<V4D> runtime = V4D::init(...);
+
+    // Create a Source from the input file
+    auto src = Source::make(runtime, argv[1]);
+
+    // Create a Sink for the output file
+    auto sink = Sink::make(runtime, argv[2], src->fps(), viewport.size());
+
+    // Attach them to the runtime
+    runtime->setSource(src);
+    runtime->setSink(sink);
+
+    Plan::run<VideoEditingPlan>(0);
+}
+```
+- **`Source::make(...)`**: We create a `Source` object, passing it the V4D runtime and the path to the input video file (`argv[1]`). V4D handles the complexities of video decoding.
+- **`Sink::make(...)`**: We create a `Sink` object, providing the runtime, the output file path (`argv[2]`), the desired frames-per-second (which we get from the source), and the frame size. V4D handles the video encoding.
+- **`runtime->setSource(src)`** and **`runtime->setSink(sink)`**: We attach these objects to the runtime. This makes them available to be used by special commands within a `Plan`.
+
+### 2. The `infer()` Method: The Processing Pipeline
+
+The `infer()` method now defines the steps to be performed on each frame of the video.
+
+```cpp
+void infer() override {
+    // Step 1: Get a frame
+    capture();
+
+    // Step 2: Process/render on the frame
+    nvg(...);
+
+    // Step 3: Save the frame
+    write();
+}
+```
+- **`capture()`**: This special function, available within a `Plan`, interacts with the `Source` attached to the runtime. It decodes one frame from the input video and places it into the main framebuffer, making it ready for processing or rendering.
+- **`nvg(...)`**: This is the same NanoVG context from our previous tutorials. However, because `capture()` was just called, the framebuffer is not empty. The text is now rendered *on top of* the video frame.
+- **`write()`**: This function interacts with the `Sink`. It takes the current state of the framebuffer (which now contains the video frame with text rendered on it) and sends it to the video encoder to be written to the output file.
+
+This simple, three-step process forms a complete video editing pipeline.
+
+## Summary
+
+This tutorial introduced the powerful source and sink system in Plan-V4D.
+- **`Source`** and **`Sink`** objects handle video decoding and encoding.
+- They are attached to the V4D runtime to be used by a `Plan`.
+- The **`capture()`** function reads a frame from the source into the framebuffer.
+- The **`write()`** function writes the framebuffer's content to the sink.
+- By sequencing `capture()`, rendering contexts, and `write()`, you can create elegant and efficient video processing pipelines.
+
+In the next tutorial, we will explore how to create your own custom source and sink objects.
+--- modules/v4d/tutorials/08-custom_source_and_sink.markdown ---
+# Tutorial: Custom Source and Sink
+
+While Plan-V4D provides convenient `Source` and `Sink` objects for file I/O, you can also create your own from scratch. This gives you complete control over where your video data comes from (e.g., a procedural generator, a network stream) and where it goes (e.g., a custom analysis pipeline, multiple outputs).
+
+This tutorial will demonstrate how to:
+1.  Create a custom `Source` that procedurally generates frames of solid color, cycling through a rainbow.
+2.  Create a custom `Sink` that passes frames along to a standard video file sink.
+3.  Use conditional branching within a `Plan` to selectively write frames to the sink.
+
+## The Code
+
+Here is the complete source code for this example. You can find it in `samples/custom_source_and_sink.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+#include <string>
+
+using namespace cv;
+using namespace cv::v4d;
+
+// Helper class to find pure colors and draw their names
+class PureColor {
+    // ... implementation ...
+};
+
+class CustomSourceAndSinkPlan : public Plan {
+    PureColor finder_;
+    Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    void infer() override {
+        capture();
+
+        // Analyze the frame to see if it's a pure color
+        fb<1>(&PureColor::find, RW(finder_));
+        // Draw the name of the last found color
+        nvg(&PureColor::draw, R(finder_), size_);
+
+        // Only write the frame to the sink if a pure color was found
+        branch(&PureColor::found, R(finder_))
+            ->write()
+        ->endBranch();
+    }
+};
+
+int main() {
+    cv::Rect viewport(0, 0, 960, 960);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Custom Source/Sink", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    cv::Ptr<Sink> videoSink = Sink::make(runtime, "custom_source_and_sink.mkv", 10, viewport.size());
+
+    // Make a source that generates a rainbow frames series.
+    cv::Ptr<Source> src = new Source([](cv::UMat& frame){
+        if(frame.empty()) {
+            frame.create(Size(960, 960), CV_8UC3);
+        }
+        uchar hue = (int64_t(seconds() * 15) % 255);
+        frame = convert_pix<cv::COLOR_HLS2RGB_FULL>(cv::Vec3b(hue, 128, 255));
+        return true; // false signals end of stream
+    }, 60.f);
+
+    // Make a sink that passes the frame to the video sink
+    cv::Ptr<Sink> sink = new Sink([videoSink](const uint64_t& seq, const cv::UMat& frame){
+        videoSink->operator()(seq, frame);
+        return  videoSink->isOpen(); // false signals a temporary error
+    });
+
+    runtime->setSource(src);
+    runtime->setSink(sink);
+
+    Plan::run<CustomSourceAndSinkPlan>(0);
+}
+```
+*(For brevity, the implementation of the `PureColor` helper class is omitted here.)*
+
+## Code Breakdown
+
+### 1. Creating a Custom `Source`
+
+You can create a `Source` by passing a lambda function to its constructor. This lambda is responsible for generating a single frame.
+
+```cpp
+cv::Ptr<Source> src = new Source([](cv::UMat& frame){
+    // Initialize the frame if it's empty
+    if(frame.empty()) {
+        frame.create(Size(960, 960), CV_8UC3);
+    }
+    // Generate a color that changes over time
+    uchar hue = (int64_t(seconds() * 15) % 255);
+    frame = convert_pix<cv::COLOR_HLS2RGB_FULL>(cv::Vec3b(hue, 128, 255));
+    // Return true to continue, false to end the stream
+    return true;
+}, 60.f); // The second argument is the desired FPS
+```
+This source generates a new solid color frame for every `capture()` call, creating an animated rainbow effect.
+
+### 2. Creating a Custom `Sink`
+
+A custom `Sink` is also created from a lambda. It receives the frame sequence number and the final `UMat` from the framebuffer.
+
+```cpp
+cv::Ptr<Sink> sink = new Sink([videoSink](const uint64_t& seq, const cv::UMat& frame){
+    // Pass the frame on to the video file sink
+    videoSink->operator()(seq, frame);
+    // Return true to continue, false to signal an error
+    return videoSink->isOpen();
+});
+```
+This sink acts as a simple pass-through, forwarding any frame it receives to the `videoSink` that writes to a file. This demonstrates how you can chain sinks to create complex output behaviors.
+
+### 3. Conditional Branching in a `Plan`
+
+The most interesting part of the `Plan` is the conditional `write`.
+
+```cpp
+void infer() override {
+    capture();
+
+    // Analyze the frame using a helper object
+    fb<1>(&PureColor::find, RW(finder_));
+    // Draw info to the screen
+    nvg(&PureColor::draw, R(finder_), size_);
+
+    // Create a conditional branch in the task graph
+    branch(&PureColor::found, R(finder_))
+        ->write()
+    ->endBranch();
+}
+```
+- **`branch(&PureColor::found, R(finder_))`**: This is the branch condition. It calls the `found()` method of our `finder_` object. The nodes inside the branch will only execute if this method returns `true`.
+- **`->write()`**: The `write()` operation is now *inside* the branch. This means it will only be called for frames where `finder_.found()` is true.
+- **`->endBranch()`**: This closes the conditional block.
+
+The result is that only frames identified as pure primary or secondary colors are written to our custom sink, and subsequently to the output video file.
+
+## Summary
+
+This tutorial introduced several advanced Plan-V4D concepts:
+- Creating a procedural video **`Source`** from a lambda function.
+- Creating a custom **`Sink`** from a lambda to define custom output behavior.
+- Using **`branch()`** to create conditional logic within a `Plan`'s task graph.
+
+In the next tutorial, we will see how to combine font rendering with a GUI.
+--- modules/v4d/tutorials/09-font_with_gui.markdown ---
+# Tutorial: Font Rendering with a GUI
+
+A key feature of a graphical application is user interaction. Plan-V4D integrates the popular [Dear ImGui](https://github.com/ocornut/imgui) library to make creating user interfaces simple and efficient.
+
+This tutorial demonstrates how to add a GUI to our font rendering example, allowing the user to change the font size and color in real-time.
+
+## The Code
+
+Here is the complete source code for this example. You can find it in `samples/font_with_gui.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+
+using namespace cv;
+using namespace cv::v4d;
+
+class FontWithGuiPlan: public Plan {
+    // A static struct to hold parameters shared between the GUI and rendering
+    static struct Params {
+        float fontSize_ = 40.0f;
+        cv::Scalar_<float> color_ = {1.0f, 0.0f, 0.0f, 1.0f};
+    } params_;
+
+    string hw_ = "hello world";
+    Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    // The gui() method is called every frame to draw the UI
+    void gui() override {
+        imgui([](Params& params) {
+            using namespace ImGui;
+            Begin("Settings");
+            SliderFloat("Font Size", &params.fontSize_, 1.0f, 100.0f);
+            ColorPicker4("Text Color", params.color_.val);
+            End();
+        }, params_);
+    }
+
+    // The infer() method renders the scene
+    void infer() override {
+        nvg([](const cv::Size& sz, const string& str, const Params& params) {
+            using namespace cv::v4d::nvg;
+            clearScreen();
+            fontSize(params.fontSize_);
+            fontFace("sans-bold");
+            fillColor(params.color_ * 255.0);
+            textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
+            text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
+        }, size_, R(hw_), CS(params_));
+    }
+};
+
+// Define the static member variable
+FontWithGuiPlan::Params FontWithGuiPlan::params_;
+
+int main() {
+    cv::Rect viewport(0, 0, 960, 960);
+    Ptr<V4D> runtime = V4D::init(viewport, "Font Rendering with GUI", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Plan::run<FontWithGuiPlan>(0);
+}
+```
+
+## Code Breakdown
+
+### 1. The `gui()` Method
+
+This is a new `Plan` method dedicated to building and rendering the user interface. It is called on every frame, just like `infer()`.
+
+```cpp
+void gui() override {
+    imgui([](Params& params) {
+        using namespace ImGui;
+        Begin("Settings");
+        SliderFloat("Font Size", &params.fontSize_, 1.0f, 100.0f);
+        ColorPicker4("Text Color", params.color_.val);
+        End();
+    }, params_);
+}
+```
+- **`imgui([...])`**: This is the **ImGui context**. It provides an environment where you can call standard ImGui functions.
+- **`using namespace ImGui;`**: This brings the ImGui functions into the current scope for convenience.
+- **`Begin("Settings")` / `End()`**: These functions create a new ImGui window.
+- **`SliderFloat(...)`** and **`ColorPicker4(...)`**: These are standard ImGui widgets that create a slider and a color picker, respectively. They directly modify the fields of the `params` struct that is passed into the context.
+
+### 2. Shared Parameters
+
+To share data between the `gui()` and `infer()` methods, we define a `static struct`.
+
+```cpp
+static struct Params {
+    float fontSize_ = 40.0f;
+    cv::Scalar_<float> color_ = {1.0f, 0.0f, 0.0f, 1.0f};
+} params_;
+```
+It's declared `static` so that there is only one instance of it, which can be accessed from both the GUI and rendering logic. The `gui()` method writes to this struct, and the `infer()` method reads from it.
+
+### 3. The `infer()` Method
+
+The `infer()` method is similar to the previous font rendering example, but now it uses the shared `params_` to style the text.
+
+```cpp
+void infer() override {
+    nvg([](..., const Params& params) {
+        // ...
+        fontSize(params.fontSize_);
+        // ...
+        fillColor(params.color_ * 255.0);
+        // ...
+    }, ..., CS(params_));
+}
+```
+- **`CS(params_)`**: This is a new edge-call: **Copy Shared**. It's used because `params_` is a shared resource, modified in the GUI context and read in this rendering context. Using `CS` provides the rendering thread with a consistent copy of the parameters for the duration of the frame, preventing visual artifacts that could happen if the GUI changed the values mid-render.
+
+## Summary
+
+This tutorial introduced the basics of creating user interfaces with ImGui in Plan-V4D:
+- The **`gui()`** method in a `Plan` is used to define the UI.
+- The **`imgui`** context allows you to use standard ImGui functions.
+- You can share data between the `gui()` and `infer()` methods using a `static` struct.
+- The **`CS`** (Copy Shared) edge-call is used to safely read shared data in the rendering context.
+
+The remaining tutorials are more advanced demos. You are encouraged to explore their source code to see more complex examples of what Plan-V4D can do.
+--- modules/v4d/tutorials/10-cube.markdown ---
+# Tutorial: Rendering a 3D Cube
+
+This tutorial demonstrates how to structure a more complex rendering application by separating the low-level OpenGL logic from the main application `Plan`. We will create a `Plan` that renders a rotating 3D cube, showcasing a clean way to organize your code and introducing the `teardown` phase of a `Plan`'s lifecycle.
+
+## The Code
+
+This example is split into two files:
+1.  `samples/cubescene.hpp`: Contains a `CubeScene` class that encapsulates all the low-level OpenGL code for creating and drawing the cube.
+2.  `samples/cube-demo.cpp`: Contains the `CubeDemoPlan` and the `main` function.
+
+### `cubescene.hpp` (Abridged)
+
+This file handles the nitty-gritty of OpenGL. It defines the cube's vertices, colors, and indices. It also has methods to initialize shaders and buffers, render the cube, and clean up resources.
+
+```cpp
+// samples/cubescene.hpp
+class CubeScene {
+    // ... private members for vertices, colors, shaders, GL handles ...
+public:
+    // Initializes objects, buffers, shaders and uniforms
+    void init() {
+        // Standard OpenGL setup: glGenVertexArrays, glGenBuffers, glBufferData, etc.
+        // Compiles vertex and fragment shaders.
+    }
+
+    // Renders a rotating rainbow-colored cube
+    void render(const double xpos = 0.0, const double ypos = 0.0) const {
+        // Calculates rotation matrices based on time.
+        // Sets the uniform transform matrix in the shader.
+        // Binds the VAO and calls glDrawElements.
+    }
+
+    // Cleans up OpenGL resources
+    void destroy() const {
+        // Calls glDeleteProgram, glDeleteBuffers, glDeleteVertexArrays.
+    }
+};
+```
+
+### `cube-demo.cpp`
+
+This file uses the `CubeScene` class within a `Plan` to manage the application's lifecycle.
+
+```cpp
+// samples/cube-demo.cpp
+#include <opencv2/v4d/v4d.hpp>
+#include "cubescene.hpp"
+
+using namespace cv::v4d;
+
+class CubeDemoPlan : public Plan {
+    CubeScene scene_;
+public:
+    void setup() override {
+        // Initialize the scene's OpenGL resources
+        gl(&CubeScene::init, RW(scene_));
+    }
+
+    void infer() override {
+        // Set a V4D property to change the clear color
+        set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255)));
+        // Use the high-level clear function
+        clear();
+        // Render the scene
+        gl(&CubeScene::render, R(scene_), V(0.0), V(0.0));
+    }
+
+    void teardown() override {
+        // Clean up the scene's OpenGL resources
+        gl(&CubeScene::destroy, R(scene_));
+    }
+};
+
+int main() {
+    cv::Rect viewport(0, 0, 1920, 1080);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Cube Demo", AllocateFlags::IMGUI);
+    Plan::run<CubeDemoPlan>(2);
+    return 0;
+}
+```
+
+## Code Breakdown
+
+### 1. Separation of Concerns
+
+The key design pattern here is the separation of OpenGL logic (`CubeScene`) from the application flow (`CubeDemoPlan`). This makes the code much cleaner:
+-   `CubeDemoPlan` doesn't need to know *how* the cube is drawn; it only needs to know that it should call `init`, `render`, and `destroy` at the appropriate times.
+-   `CubeScene` is a self-contained, reusable component that could be used in other `Plan`s.
+
+### 2. The `Plan` Lifecycle: `setup`, `infer`, `teardown`
+
+This example introduces the `teardown()` method, completing the picture of a `Plan`'s lifecycle.
+
+-   **`setup()`**: Called once at the beginning. We use it to initialize our `CubeScene`'s OpenGL resources.
+-   **`infer()`**: Called repeatedly in a loop. We use it to clear the screen and render a frame of our scene.
+-   **`teardown()`**: Called once at the very end, after the main loop has finished. This is the perfect place to do cleanup, so we use it to destroy the `CubeScene`'s OpenGL resources.
+
+### 3. High-Level V4D Functions
+
+This example also shows a more abstract way to clear the screen.
+
+```cpp
+void infer() override {
+    set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255)));
+    clear();
+    //...
+}
+```
+-   **`set(V4D::Keys::CLEAR_COLOR, ...)`**: This is a V4D function that sets an internal property. Here, we set the clear color.
+-   **`clear()`**: This function clears the screen using the color we just set. It's a higher-level alternative to calling `glClearColor` and `glClear` in `gl` contexts.
+
+## Summary
+
+This tutorial demonstrated a clean and scalable way to structure a 3D application in Plan-V4D.
+-   Encapsulate complex rendering logic in a separate helper class.
+-   Use the `Plan`'s `setup()`, `infer()`, and `teardown()` methods to manage the lifecycle of your rendering objects.
+-   The `teardown()` method is the ideal place for resource cleanup.
+-   V4D provides high-level functions like `set` and `clear` for common operations.
+
+Next, we will look at a more complex video processing demo.
+--- modules/v4d/tutorials/11-video.markdown ---
+# Tutorial: Compositing 3D Graphics on Video
+
+This tutorial demonstrates a powerful capability of Plan-V4D: compositing. We will combine the concepts from the video processing and 3D rendering tutorials to create a pipeline that reads a video, renders a rotating 3D cube on top of it, and saves the result to a new file.
+
+## The Code
+
+This example uses the same `cubescene.hpp` from the previous tutorial to manage the low-level OpenGL rendering. The main application logic is in `samples/video-demo.cpp`.
+
+```cpp
+// samples/video-demo.cpp
+#include <opencv2/v4d/v4d.hpp>
+#include "cubescene.hpp"
+
+using namespace cv::v4d;
+
+class VideoDemoPlan: public Plan {
+private:
+    CubeScene scene_;
+public:
+    void setup() override {
+        gl(&CubeScene::init, RW(scene_));
+    }
+
+    void infer() override {
+        // 1. Load video frame into the framebuffer
+        capture();
+        // 2. Render the 3D cube on top of the video frame
+        gl(&CubeScene::render, R(scene_), V(false), V(0.0));
+        // 3. Write the composited frame to the sink
+        write();
+    }
+
+    void teardown() override {
+        gl(&CubeScene::destroy, RW(scene_));
+    }
+};
+
+int main(int argc, char** argv) {
+    if (argc != 2) {
+        std::cerr << "Usage: video-demo <video-file>" << std::endl;
+        exit(1);
+    }
+
+    cv::Rect viewport(0,0,1280,720);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Video Demo", AllocateFlags::IMGUI);
+    auto src = Source::make(runtime, argv[1]);
+    auto sink = Sink::make(runtime, "video-demo.mkv", src->fps(), viewport.size());
+    runtime->setSource(src);
+    runtime->setSink(sink);
+    Plan::run<VideoDemoPlan>(0);
+
+    return 0;
+}
+```
+
+## Code Breakdown
+
+### 1. Setup and Teardown
+
+The `main` function and the `Plan`'s `setup()` and `teardown()` methods are very similar to our previous examples.
+-   `main()`: Initializes the V4D runtime and sets up a video `Source` (from a command-line argument) and a video `Sink` (to a file named `video-demo.mkv`).
+-   `setup()`: Calls the `init()` method of our `CubeScene` object to prepare the OpenGL resources for the cube.
+-   `teardown()`: Calls the `destroy()` method of our `CubeScene` object to clean up the resources.
+
+### 2. The `infer()` Method: The Compositing Pipeline
+
+The `infer()` method clearly shows the compositing pipeline. The operations are executed in order on each frame.
+
+```cpp
+void infer() override {
+    // Step 1: Set the background
+    capture();
+    // Step 2: Render the foreground
+    gl(&CubeScene::render, R(scene_), V(false), V(0.0));
+    // Step 3: Output the result
+    write();
+}
+```
+-   **`capture()`**: This function reads a frame from the source video file and places it in the framebuffer. At this point, the framebuffer contains the video image, which will serve as our background.
+-   **`gl(&CubeScene::render, ...)`**: This renders the 3D cube. Crucially, we did *not* clear the screen beforehand. Therefore, the cube is drawn directly on top of the video frame that is already in the framebuffer.
+-   **`write()`**: This function takes the final state of the framebuffer—which now contains the video frame composited with the 3D cube—and sends it to the sink to be encoded into the output video file.
+
+This sequential execution of contexts and commands is the foundation of building complex effects and pipelines in Plan-V4D.
+
+## Summary
+
+This tutorial demonstrated how to composite 3D graphics on top of a video stream.
+-   The order of operations in the `infer()` method defines the rendering and processing pipeline.
+-   `capture()` can be used to load a video frame as a background.
+-   Subsequent rendering calls (using `gl`, `nvg`, etc.) will draw on top of the existing framebuffer content, allowing for easy compositing.
+
+Next, we will look at a more advanced NanoVG demo.
+--- modules/v4d/tutorials/12-nanovg.markdown ---
+# Tutorial: Advanced NanoVG and Processing Pipelines
+
+This tutorial dives into a more advanced example, showcasing how to build a complex, multi-stage image processing pipeline using Plan-V4D. We will create an application that reads a video, applies a real-time, color-shifting effect to it, and then overlays a custom NanoVG widget on top.
+
+This example highlights several advanced features:
+-   Chaining multiple processing steps together in a single `infer` call.
+-   Manipulating individual color channels of an image.
+-   Wrapping standard C++ functions and class methods to be used within the `Plan` graph.
+-   Drawing complex, custom UI elements with NanoVG.
+
+## The Code
+
+The source code for this demo can be found in `samples/nanovg-demo.cpp`. It is more complex than previous examples, so we will focus on the structure of the `Plan` and its `infer` method. A helper function `draw_color_wheel` contains the detailed NanoVG drawing code and is omitted here for brevity.
+
+```cpp
+// Abridged for clarity
+class NanoVGDemoPlan : public Plan {
+    //... Member variables for image data and hue value ...
+
+public:
+    void infer() override {
+        // Capture a frame from the video source
+        capture(RW(bgra_));
+
+        // Calculate a new hue value for the color-shifting effect
+        assign(RW(hue_), (F(&sinf,(F(&cv::getTickCount) / F(&cv::getTickFrequency)) * V(0.12) + V(1))) * V(255.0));
+        
+        // Convert the captured frame from BGRA to RGB
+        plain(cv::cvtColor, R(bgra_), RW(frame_), V(cv::COLOR_BGRA2RGB));
+
+        // Start a processing chain to manipulate the video's hue
+        plain(cv::cvtColor, R(frame_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL))
+        ->plain(SPLIT_, R(hsv_), RW(hsvChannels_))
+        ->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), F(&fmod, F(&fabs,R(hue_) - V(255)) - V(81), V(255)))
+        ->plain(MERGE_, R(hsvChannels_), RW(hsv_))
+        ->plain(cv::cvtColor, R(hsv_), RW(frame_), V(cv::COLOR_HSV2RGB_FULL));
+
+        // Copy the final processed RGB frame back to the framebuffer for display
+        fb<1>(cv::cvtColor, R(frame_), V(cv::COLOR_RGB2BGRA));
+
+        // Render the color wheel widget on top of the video
+        nvg(draw_color_wheel, size_, R(hue_));
+    }
+};
+```
+
+## Code Breakdown
+
+### 1. The `infer()` Pipeline
+
+The `infer()` method in this `Plan` is a long chain of operations that execute sequentially on each frame. This forms our processing pipeline.
+
+-   **`capture(RW(bgra_))`**: Reads a frame from the video source into the `bgra_` `UMat`.
+-   **`assign(...)`**: This is a new `Plan` function. It evaluates the expression on the right and assigns the result to the variable on the left (`hue_`). The `F(...)` wrapper is used to treat standard functions like `sinf` and `getTickCount` as nodes in the task graph.
+-   **`plain(cv::cvtColor, ...)`**: The first `plain` context converts the captured frame to RGB format to prepare it for HSV conversion.
+
+### 2. The Hue-Shifting Chain
+
+The core of the effect is a chain of `plain` context calls that manipulate the hue of the video.
+```cpp
+plain(cv::cvtColor, R(frame_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL))
+    ->plain(SPLIT_, R(hsv_), RW(hsvChannels_))
+    ->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), ... )
+    ->plain(MERGE_, R(hsvChannels_), RW(hsv_))
+    ->plain(cv::cvtColor, R(hsv_), RW(frame_), V(cv::COLOR_HSV2RGB_FULL));
+```
+1.  **RGB to HSV**: The first call converts the RGB frame to the HSV (Hue, Saturation, Value) color space.
+2.  **Split Channels**: The `SPLIT_` operation (a pre-wrapped version of `cv::split`) separates the HSV image into three individual `UMat`s for H, S, and V.
+3.  **Modify Hue**: The `&cv::UMat::setTo` call is the key. It modifies the first channel (`hsvChannels_[0]`), which is the Hue channel, setting all its pixels to a new value derived from our animated `hue_` variable.
+4.  **Merge Channels**: The `MERGE_` operation combines the modified Hue channel with the original Saturation and Value channels back into a single HSV image.
+5.  **HSV to RGB**: The final call converts the color-shifted HSV image back to RGB.
+
+### 3. Final Rendering
+
+After the processing chain is complete, two final steps render the output.
+```cpp
+// Copy the final processed frame to the display framebuffer
+fb<1>(cv::cvtColor, R(frame_), V(cv::COLOR_RGB2BGRA));
+
+// Render the UI widget on top
+nvg(draw_color_wheel, size_, R(hue_));
+```
+-   **`fb<1>(...)`**: The `fb` context is used to copy the final processed `frame_` to the display. It's converted back to BGRA format, which the display expects.
+-   **`nvg(...)`**: The `nvg` context then draws the `draw_color_wheel` widget on top of the processed video frame.
+
+## Summary
+
+This advanced demo illustrates the power and expressiveness of the Plan-V4D task graph.
+-   Complex image processing pipelines can be constructed by chaining `plain` contexts.
+-   The `assign` function allows for simple variable manipulation within the graph.
+-   Function wrappers (`F()`, `_OL_`, etc.) allow you to integrate almost any standard function or class method into the pipeline.
+-   You can easily composite the results of a processing pipeline with UI elements drawn using NanoVG.
+
+Next, we will look at a demo that uses custom shaders.
+--- modules/v4d/tutorials/13-shader.markdown ---
+# Tutorial: Interactive Custom Shaders
+
+This tutorial showcases a complete, interactive application built with Plan-V4D. We will create a Mandelbrot fractal explorer that renders the fractal using a custom GLSL shader, composites it over a video background, and allows for full user control via a GUI and direct mouse interaction (clicking to center, scrolling to zoom).
+
+This example brings together nearly all the concepts covered so far:
+-   Separation of low-level rendering logic into a helper class.
+-   A complex `infer()` pipeline for compositing.
+-   A `gui()` method for user-configurable settings.
+-   Event handling for mouse clicks and scrolling.
+-   A shared state object to communicate between the GUI, event handlers, and the renderer.
+
+## The Code
+
+The source code for this demo is in `samples/shader-demo.cpp`. It is quite large, so we will focus on the structure of the `Plan` and how it orchestrates the different components. The low-level OpenGL and shader code is encapsulated in a `MandelbrotScene` class, and camera logic is in a `Camera2D` struct, both of which are omitted here for brevity.
+
+```cpp
+// Abridged for clarity
+class ShaderDemoPlan : public Plan {
+    // Shared state for camera and fractal settings
+    static struct Params {
+        Camera2D camera_;
+        MandelbrotScene::Settings settings_;
+    } params_;
+
+    MandelbrotScene scene_;
+
+    // Event properties to capture mouse input
+    Event<Mouse> release_ = E<Mouse>(Mouse::Type::RELEASE);
+    Event<Mouse> scroll_ = E<Mouse>(Mouse::Type::SCROLL);
+
+    // Static function to process mouse events
+    static bool process_events(...) {
+        // ... logic to update camera zoom/pan based on scroll/click events ...
+        // ... disables auto-zoom on user interaction ...
+        return params.settings_.autoZoom_; // Return true if auto-zoom should run
+    }
+public:
+    // The gui() method provides ImGui controls for all fractal parameters
+    void gui() override {
+        imgui([](Params& params) {
+            // ... ImGui::SliderFloat, DragFloat, ColorPicker4, Checkbox ...
+        }, params_);
+    }
+
+    // The setup() method initializes the scene
+    void setup() override {
+        gl(&MandelbrotScene::init, RW(scene_));
+    }
+
+    // The infer() method orchestrates the main application logic
+    void infer() override {
+        capture();
+
+        // A branch that processes events and conditionally updates the auto-zoom
+        branch(process_events, ..., RWS(params_))
+            ->plain(&Camera2D::updateAutoZoom, RWS(params_.camera_), ...)
+        ->endBranch();
+
+        // Render the fractal using the current settings and camera
+        gl(&MandelbrotScene::render, R(scene_), ..., CS(params_.settings_), CS(params_.camera_));
+
+        write();
+    }
+    // ... teardown() method to clean up resources ...
+};
+```
+
+## Code Breakdown
+
+### 1. The `MandelbrotScene` and `Camera2D` Helpers
+
+-   **`MandelbrotScene`**: Just like `CubeScene` before, this class handles all the direct OpenGL calls: creating a quad to draw on, compiling the complex Mandelbrot fragment shader, and providing a `render()` method that sets the shader's `uniform` variables before drawing.
+-   **`Camera2D`**: This struct holds the state for our view into the fractal (center coordinates and zoom level) and contains the logic for the smooth auto-zoom animation.
+
+### 2. Event Handling
+
+This `Plan` listens for mouse events to enable direct interaction.
+
+```cpp
+// Event properties to capture mouse input
+Event<Mouse> release_ = E<Mouse>(Mouse::Type::RELEASE);
+Event<Mouse> scroll_ = E<Mouse>(Mouse::Type::SCROLL);
+
+// Static function to process mouse events
+static bool process_events(..., const Mouse::List& scrollEvents, const Mouse::List& releaseEvents, ...) {
+    if(!scrollEvents.empty() || !releaseEvents.empty()) {
+        // ... logic to update camera zoom/pan based on scroll/click events ...
+        params.settings_.autoZoom_ = false;
+    }
+    return params.settings_.autoZoom_;
+}
+```
+-   **`E<Mouse>(...)`**: This creates an `Event` property. It's similar to `P<T>` but specifically for capturing event data. We create two: one for scroll events and one for mouse button release events.
+-   **`process_events(...)`**: This function is used as the condition for a `branch`. It receives lists of any scroll or release events that occurred in the last frame. If the lists are not empty, it updates the camera position/zoom and disables the `autoZoom_` flag. The function's return value determines if the branch's body will execute.
+
+### 3. The `infer()` Pipeline
+
+The `infer` method ties everything together.
+
+```cpp
+void infer() override {
+    capture();
+
+    branch(process_events, ..., RWS(params_))
+        ->plain(&Camera2D::updateAutoZoom, RWS(params_.camera_), ...)
+    ->endBranch();
+
+    gl(&MandelbrotScene::render, R(scene_), ..., CS(params_.settings_), CS(params_.camera_));
+
+    write();
+}
+```
+1.  **`capture()`**: Loads a video frame to use as a background.
+2.  **`branch(process_events, ...)`**: This is the core of the interaction logic. The `process_events` function runs. If the user has interacted with the mouse, it updates the camera and returns `false`. If there's no interaction, it returns the current state of the `autoZoom_` flag.
+3.  **`->plain(&Camera2D::updateAutoZoom, ...)`**: The body of the branch only executes if `process_events` returns `true`. This means the automatic zoom animation only runs when the user is not interacting via the mouse *and* the "Auto Zoom" checkbox in the GUI is checked.
+4.  **`gl(&MandelbrotScene::render, ...)`**: Renders the fractal using the current state of the shared `params_` (which may have been updated by the GUI, mouse events, or the auto-zoom logic).
+5.  **`write()`**: Writes the final composited frame to the sink.
+
+## Summary
+
+This tutorial demonstrated how to build a complex, fully-featured interactive application.
+-   **Event Properties** (`E<T>`) are used to capture user input like mouse clicks and scrolls.
+-   A `branch` can be used with a function as its condition to create sophisticated, stateful control flow.
+-   The `gui()`, event handlers, and `infer()` methods can all work together on a shared data structure to create a responsive application.
+
+This concludes the main tutorial series. The remaining demos (`font`, `pedestrian`, `optflow`, `beauty`, `many-cubes`) use the concepts you have learned here in various combinations to create more complex applications. You are encouraged to explore their source code to see more examples of Plan-V4D in action.
+--- modules/v4d/tutorials/14-font.markdown ---
+# Tutorial: Advanced Font Effects Demo
+
+This tutorial breaks down a complex, "Star Wars"-style opening crawl effect. It's an excellent example of how to structure a high-performance application in Plan-V4D by separating logic into reusable components and using conditional execution to avoid unnecessary work.
+
+This demo showcases:
+-   Organizing rendering logic into distinct helper classes.
+-   A "render-to-texture" pattern, where components are rendered into `UMat`s first and then composited later.
+-   Using `branch` to conditionally run parts of the pipeline only when needed.
+-   Combining `nvg` rendering with `plain` context OpenCV processing to create a final effect.
+
+## The Code
+
+The source code in `samples/font-demo.cpp` is broken into three main helper structs (`TextRenderer`, `StarsRenderer`, `Warp`) and the `FontDemoPlan` itself. We will focus on the structure and the `Plan`.
+
+```cpp
+// Abridged for clarity
+
+// Renders scrolling text into a UMat
+struct TextRenderer { /* ... */ };
+// Renders a starfield into a UMat
+struct StarsRenderer { /* ... */ };
+// Warps the text rendering and composites it with the stars
+struct Warp { /* ... */ };
+
+class FontDemoPlan : public Plan {
+    static TextRenderer text_;
+    static StarsRenderer stars_;
+    static Warp warp_;
+    // ... other state variables ...
+
+public:
+    void gui() override {
+        // ... ImGui controls for all text, stars, and warp parameters ...
+    }
+
+    void setup() override {
+        // ... One-time setup for animation timer and text object ...
+    }
+
+    void infer() override {
+        // Only recalculate the perspective transform if a parameter changed
+        branch(CS(warp_.update_) || ... )
+            ->plain(&Warp::calculate, RWS(warp_), size_)
+        ->endBranch();
+
+        // Only redraw the starfield if a parameter changed
+        branch(CS(stars_.update_) || ... )
+            ->nvg(&StarsRenderer::draw, RWS(stars_), size_)
+            ->fb(UMAT_COPY_, RWS(stars_.rendering_)) // Copy result to UMat
+        ->endBranch();
+
+        // Always draw the scrolling text (as it's always moving)
+        nvg(&TextRenderer::draw, RWS(text_), ...);
+        fb(UMAT_COPY_, RWS(text_.rendering_)); // Copy result to UMat
+
+        // Clear the main display
+        clear();
+
+        // Composite the final image in a plain context
+        fb<3>(&Warp::perform, RWS(warp_), RS(text_.rendering_), RS(stars_.rendering_));
+
+        // Reset the animation when the text scrolls off-screen
+        branch(-CS(text_.textOffsetY_) > CS(text_.height_))
+            ->assign(RWS(timeOffset_), F(seconds))
+        ->endBranch();
+    }
+};
+```
+
+## Code Breakdown
+
+### 1. Logic Separation and Render-to-Texture
+
+The key to this demo's organization is that each major visual component is a separate class that renders its output to a `UMat` member variable, not directly to the screen.
+
+-   **`StarsRenderer`**: The `infer` pipeline calls `StarsRenderer::draw` inside an `nvg` context. The next call, `fb(UMAT_COPY_, RWS(stars_.rendering_))`, copies the result from the framebuffer into the `stars_.rendering_` `UMat`.
+-   **`TextRenderer`**: The same pattern is used. `TextRenderer::draw` renders the text, and `fb(UMAT_COPY_, ...)` saves the result to `text_.rendering_`.
+
+This "render-to-texture" approach gives us two `UMat`s—one with stars, one with text—that we can now use as inputs for a final compositing step.
+
+### 2. Conditional Execution for Performance
+
+This demo would be inefficient if it redrew the starfield and recalculated the perspective warp on every frame. The `Plan` uses `branch` to avoid this.
+
+```cpp
+// Only run this block if the warp parameters changed in the GUI
+branch(CS(warp_.update_) || ... )
+    ->plain(&Warp::calculate, ...)
+->endBranch();
+
+// Only run this block if the star parameters changed in the GUI
+branch(CS(stars_.update_) || ... )
+    ->nvg(&StarsRenderer::draw, ...)
+    ->fb(UMAT_COPY_, ...)
+->endBranch();
+```
+-   Each renderer (`Warp`, `StarsRenderer`) has an `update_` flag that is set to `true` in the `gui()` method whenever one of its sliders is moved.
+-   The `branch` condition checks this flag. The code inside the branch—the expensive part—only runs if the flag is true. This ensures we are not doing unnecessary work on static frames.
+
+The scrolling text, however, is always moving, so it is drawn on every frame outside of a branch.
+
+### 3. Final Compositing
+
+The final effect is created in a `plain` context by the `Warp::perform` method.
+
+```cpp
+fb<3>(&Warp::perform, RWS(warp_), RS(text_.rendering_), RS(stars_.rendering_));
+```
+This single node in the task graph takes the two pre-rendered `UMat`s as input. Inside the `perform` method, it uses standard OpenCV functions (`warpPerspective`, `add`, etc.) to apply the 3D effect to the text and combine it with the starfield, writing the final result to the display framebuffer.
+
+## Summary
+
+This demo is a culmination of many Plan-V4D concepts.
+-   **Code Organization**: Breaking down complex effects into logical, reusable classes is a clean and scalable approach.
+-   **Render-to-Texture**: Rendering components into intermediate `UMat`s allows for complex post-processing and compositing.
+-   **Stateful Optimization**: Using flags and `branch` to skip unnecessary work on static frames is critical for building high-performance applications.
+
+Next, we will look at a pedestrian detection demo.
+--- modules/v4d/tutorials/15-pedestrian.markdown ---
+# Tutorial: Pedestrian Detection and Tracking Demo
+
+This tutorial breaks down a classic computer vision application: detecting an object in a video and then tracking it frame-by-frame. We will implement a "detect-then-track" strategy for finding pedestrians, a common and efficient pattern for real-time object tracking.
+
+This demo showcases how to structure a complex computer vision pipeline in Plan-V4D:
+-   Integrating standard OpenCV algorithms like HOG person detection and KCF tracking.
+-   Using a `branch` to switch between an expensive detection phase and a lightweight tracking phase.
+-   Organizing state and logic into multiple helper classes.
+-   Compositing the final tracking visualization onto the video stream.
+
+## The Code
+
+The source code in `samples/pedestrian-demo.cpp` is a complete application. For clarity, we will focus on the overall structure and the `Plan`'s `infer()` method, which orchestrates the pipeline. The low-level logic is encapsulated in helper classes (`HOG`, `Tracking`, `ObjectMarker`, `NonMaxSupression`).
+
+```cpp
+// Abridged for clarity
+class PedestrianDemoPlan : public Plan {
+private:
+    // Structs to hold parameters, frames, and detection/tracking state
+    struct Params { /* ... */ };
+    struct Frames { /* ... */ };
+    struct Detection { /* ... */ };
+
+    // Helper classes for different logic units
+    class NonMaxSupression { /* ... */ };
+    class HOG { /* ... */ };
+    class Tracking { /* ... */ };
+    class ObjectMarker { /* ... */ };
+
+public:
+    void setup() override {
+        // Initializes the HOG detector and KCF tracker
+        plain([](Detection& detection, ...){
+            detection.tracker_ = cv::TrackerKCF::create(...);
+            detection.hog_.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
+            // ...
+        }, ...);
+    }
+
+    void infer() override {
+        capture(RW(frames_.videoFrame_));
+
+        // Prepare frames (convert color, downsize)
+        plain(cv::cvtColor,...)
+        ->plain(prepare_frames, ...);
+
+        // Branch: either detect or track
+        branch(doRedect_, R(detection_))
+            // If not tracking, run HOG detector
+            ->plain(&HOG::detect, ...)
+        ->elseBranch()
+            // If tracking, update the tracker
+            ->plain(&Tracking::perform, ...)
+        ->endBranch();
+
+        // Smooth the tracked box and draw it
+        plain(&Tracking::save, ...)
+        ->nvg(&ObjectMarker::draw, ...)
+        ->fb(present, R(frames_.background_));
+
+        write();
+    }
+};
+```
+
+## Code Breakdown
+
+### 1. The "Detect-then-Track" Strategy
+
+Running an object detector like HOG on every single frame can be computationally expensive. A more efficient strategy is:
+1.  **Detect**: Run the expensive detector once to find the object of interest.
+2.  **Track**: Once found, initialize a lightweight tracker (like KCF) with the object's location.
+3.  **Update**: On subsequent frames, just run the fast tracker to update the object's position.
+4.  **Re-detect**: If the tracker loses the object, go back to step 1 and run the full detector again.
+
+### 2. Implementing the Strategy in a `Plan`
+
+The `infer()` method implements this logic perfectly using a `branch`.
+
+```cpp
+// Branch condition functions
+constexpr static auto dontRedect_ = [](const Detection& d){ return d.trackerInit_ && !d.redetect_; };
+constexpr static auto doRedect_ = [](const Detection& d){ return !d.trackerInit_ || d.redetect_; };
+
+// ... inside infer() ...
+branch(doRedect_, R(detection_))
+    ->plain(&HOG::detect, ...)
+->elseBranch()
+    ->plain(&Tracking::perform, ...)
+->endBranch();
+```
+-   **State Flags**: The `Detection` struct holds two key boolean flags: `trackerInit_` (has the tracker been initialized?) and `redetect_` (has the tracker lost the object?).
+-   **Branch Condition**: The `branch` uses the `doRedect_` lambda as its condition. This function returns `true` if we need to run the detector (either because the tracker was never initialized or because it has failed).
+-   **The `if` Block**: If `doRedect_` is true, the first `plain` context is executed, which calls our `HOG::detect` method to find a pedestrian.
+-   **The `else` Block**: If `doRedect_` is false (meaning we have a successfully initialized and running tracker), the `elseBranch()` is taken. This executes a different `plain` context that calls our `Tracking::perform` method, which is much faster.
+
+### 3. Visualization
+
+After the detection/tracking logic, a final chain of contexts is used to visualize the result.
+
+```cpp
+plain(&Tracking::save, ...)
+->nvg(&ObjectMarker::draw, ...)
+->fb(present, R(frames_.background_));
+```
+1.  **`Tracking::save`**: A `plain` context that applies some smoothing to the tracked bounding box to prevent jitter.
+2.  **`ObjectMarker::draw`**: An `nvg` context that draws a simple ellipse around the smoothed bounding box.
+3.  **`present`**: An `fb` context that composites the drawing with the original video frame for display.
+
+## Summary
+
+This demo is a powerful example of how to structure a real-world CV application in Plan-V4D.
+-   Complex logic can be cleanly organized into helper classes.
+-   The `branch` statement is perfect for implementing state-based control flow, like the "detect-then-track" pattern.
+-   You can seamlessly integrate standard OpenCV algorithms (`HOGDescriptor`, `TrackerKCF`) into a high-performance pipeline.
+
+Next, we will look at an optical flow demo.
+--- modules/v4d/tutorials/16-optflow.markdown ---
+# Tutorial: Sparse Optical Flow Demo
+
+This tutorial explores a highly advanced computer vision and visualization demo that creates a stylized representation of sparse optical flow in a video. It is a masterclass in structuring a complex, real-time application with Plan-V4D.
+
+This demo brings together numerous advanced concepts:
+-   Extreme separation of concerns, with almost every logical unit in its own class.
+-   A multi-layer rendering pipeline using several intermediate `UMat`s.
+-   Integration of OpenCV's FAST feature detector and Lucas-Kanade optical flow.
+-   Heuristic-based scene change detection to reset the effect.
+-   A modular post-processing system for effects like bloom and glow.
+-   A comprehensive GUI to control dozens of effect parameters.
+
+## The Code
+
+The source code in `samples/optflow-demo.cpp` is extensive. We will focus on the high-level structure of the `Plan` and the `infer()` pipeline that orchestrates the various components.
+
+The application is broken down into these key helper classes:
+-   **`FeaturePoints`**: Detects keypoints in a frame using `cv::FastFeatureDetector`.
+-   **`SceneChange`**: Determines if a drastic scene change has occurred.
+-   **`SparseOpticalFlow`**: Calculates optical flow between frames and uses NanoVG to render the flow vectors.
+-   **`BackgroundStyle`**: Applies different visual styles to the background video.
+-   **`PostProcessor`**: A container for post-processing effects like `GlowEffect` and `BloomEffect`.
+-   **`Compositor`**: The final stage that combines the background, foreground (flow vectors), and post-processing into the final image.
+
+```cpp
+// Abridged for clarity
+class OptflowDemoPlan : public Plan {
+private:
+    // Structs for parameters and frame UMat objects
+    static struct Params { /* ... */ };
+    struct Frames { /* ... */ };
+
+    // Instances of all the helper classes
+    FeaturePoints featurePoints_;
+    SceneChange sceneChange_;
+    SparseOpticalFlow sparseOptflow_;
+    Compositor compositor_;
+    // ...
+public:
+    void gui() override {
+        // ... A comprehensive ImGui interface for all parameters ...
+    }
+
+    void setup() override {
+        // ... Initializes FAST detector and UMat objects ...
+    }
+
+    void infer() override {
+        // 1. Capture video and prepare grayscale frames
+        capture(RW(frames_.background_));
+        plain(cv::cvtColor, R(frames_.background_), RW(frames_.nextGrey_), ...);
+        plain(UMAT_COPY_TO_, R(frames_.foreground_), RW(frames_.oldForeground_));
+
+        // 2. Detect features in the current frame
+        plain(&FeaturePoints::detect, RW(featurePoints_), R(frames_.nextGrey_), RWS(detectedPoints_));
+
+        // 3. If no scene change, render the optical flow to the foreground UMat
+        branch(BranchType::SINGLE, !F(&SceneChange::detect, ...))
+            ->clear() // Clear a temporary buffer
+            ->nvg(&SparseOpticalFlow::visualize, ...) // Draw flow vectors
+            ->fb(UMAT_COPY_TO_, RW(frames_.foreground_)) // Copy result to foreground_
+        ->endBranch();
+
+        // 4. Composite everything together
+        fb<4>(&Compositor::perform, RW(compositor_), R(frames_.background_),
+            RW(frames_.oldForeground_), RW(frames_.foreground_), RW(frames_.composed_), ...);
+
+        // 5. Prepare for the next frame
+        plain(UMAT_COPY_TO_, R(frames_.nextGrey_), RW(frames_.prevGrey_));
+        write(R(frames_.composed_));
+    }
+};
+```
+
+## Code Breakdown
+
+### 1. A Multi-Layer Pipeline
+
+This demo builds the final image in distinct layers, stored in `UMat` objects:
+-   `frames_.background_`: The raw video frame from `capture()`.
+-   `frames_.foreground_`: The visualization of the optical flow vectors, rendered by `SparseOpticalFlow::visualize`.
+-   `frames_.oldForeground_`: A copy of the previous frame's foreground, used by the `Compositor` to create a motion blur / trailing effect.
+-   `frames_.composed_`: The final output image after all layers and effects are combined.
+
+### 2. The `infer()` Pipeline Explained
+
+The `infer()` method is a sequence of carefully ordered steps:
+
+1.  **Preparation**: It captures a new frame and creates a grayscale version of it (`nextGrey_`). It also saves the previous frame's foreground visualization into `oldForeground_`.
+2.  **Feature Detection**: It runs the FAST feature detector on the new grayscale frame to get a set of points to track.
+3.  **Optical Flow Branch**: A `branch` checks for a major scene change. If the scene is stable, it proceeds to:
+    a.  Clear a drawing surface.
+    b.  Call `SparseOpticalFlow::visualize`, which calculates the optical flow between `prevGrey_` and `nextGrey_` and uses NanoVG to draw the results.
+    c.  Copy the NanoVG rendering from the framebuffer into the `frames_.foreground_` `UMat`. This is the "render-to-texture" pattern.
+4.  **Compositing**: The `Compositor::perform` method is called. This is the final stage. It takes the background, the new foreground, and the old foreground, applies the user-selected styles and post-processing effects, and blends them all together into the final display framebuffer.
+5.  **State Update**: Finally, it copies `nextGrey_` to `prevGrey_` to prepare for the next frame's optical flow calculation.
+
+## Summary
+
+This demo is a powerful example of how to architect a complex, real-time CV application.
+-   **Modularity**: Breaking the problem down into many small, single-responsibility classes makes the code manageable and reusable.
+-   **Layer-Based Compositing**: Using intermediate `UMat`s as layers that are combined in a final step is a flexible way to build up complex visuals.
+-   **Performance**: The `branch` is used to skip the main visualization work if a scene change is detected, preventing visual artifacts and resetting the effect.
+
+Next, we will look at a real-time "beauty filter" demo.
+--- modules/v4d/tutorials/17-beauty.markdown ---
+# Tutorial: Real-Time "Beauty Filter" Demo
+
+This final tutorial explores the most architecturally complex demo: a real-time "beauty filter." This application detects facial landmarks in a video and applies different image adjustments to the skin, eyes, and lips independently, seamlessly blending them back together.
+
+This demo introduces a powerful new concept: **sub-plans**. It showcases how to build a hierarchical application by creating a main `Plan` that orchestrates other, more specialized `Plan`s.
+
+This demo highlights:
+-   Using **sub-plans** to encapsulate and reuse complex graph logic.
+-   Integrating deep learning models (for face and landmark detection) into a pipeline.
+-   A multi-stage pipeline that generates masks, filters image regions, and composites a final result.
+-   Using OpenCV's `MultiBandBlender` for seamless image stitching.
+
+## The Code
+
+The source code in `samples/beauty-demo.cpp` is extensive. It is structured into a main `BeautyDemoPlan` and two sub-plans: `FaceFeatureMasksPlan` and `BeautyFilterPlan`. We will focus on this high-level architecture.
+
+```cpp
+// Abridged for clarity
+
+// Main plan that orchestrates everything
+class BeautyDemoPlan : public Plan {
+    // ... state, frames, parameters ...
+    cv::Ptr<FaceFeatureMasksPlan> prepareFeatureMasksPlan_;
+    cv::Ptr<BeautyFilterPlan> beautyFilterPlan_;
+public:
+    BeautyDemoPlan() {
+        // Construct the sub-plans
+        prepareFeatureMasksPlan_ = _sub<FaceFeatureMasksPlan>(this, ...);
+        beautyFilterPlan_ = _sub<BeautyFilterPlan>(this, ...);
+    }
+
+    void infer() override {
+        // ... capture, prepare frames ...
+
+        // Complex branch to control logic
+        branch(...)
+            // If a face is detected...
+            ->branch(...)
+                // Execute the sub-plans in order
+                ->subInfer(prepareFeatureMasksPlan_)
+                ->subInfer(beautyFilterPlan_)
+                // Composite the final result for display
+                ->plain(compose_result, ...)
+            ->endBranch()
+        ->endBranch();
+
+        // ... copy to display framebuffer and write to sink ...
+    }
+};
+
+// Sub-plan to create masks from facial landmarks
+class FaceFeatureMasksPlan : public Plan {
+public:
+    void infer() override {
+        // Uses nvg and fb to render masks for the face oval, eyes, and lips
+        // into UMat objects.
+        // Uses plain contexts with OpenCV functions to derive a skin-only mask.
+    }
+};
+
+// Sub-plan to apply the filter effects
+class BeautyFilterPlan : public Plan {
+public:
+    void infer() override {
+        // Uses plain contexts to:
+        // 1. Adjust saturation/contrast of different regions.
+        // 2. Use a MultiBandBlender to seamlessly stitch the modified
+        //    regions back into the original image.
+    }
+};
+```
+
+## Code Breakdown
+
+### 1. Sub-Plans: Hierarchical Task Graphs
+
+The key architectural pattern here is the use of sub-plans.
+-   The `BeautyDemoPlan` acts as a high-level orchestrator. Its `infer()` method defines the main application flow: capture video, detect a face, and then delegate the complex work to its children.
+-   **`_sub<T>(...)`**: This function, called in the main plan's constructor, creates an instance of a sub-plan.
+-   **`subInfer(...)`**: This function, called within the main plan's `infer()` method, executes the entire `infer()` graph of the specified sub-plan as if it were a single node in the main graph.
+
+This creates a clean hierarchy. The main plan doesn't need to know the details of mask generation or image blending; it just needs to know when to execute those logical blocks of work.
+
+### 2. The Pipeline Data Flow
+
+The application works in a clear, multi-stage pipeline that passes data between the plans.
+
+1.  **`BeautyDemoPlan` (Detection)**: The main plan captures a frame and runs a `FaceFeatureExtractor` (which uses a DNN model) to find facial landmarks. The result is stored in a shared `FaceFeatures` object.
+2.  **`FaceFeatureMasksPlan` (Masking)**: The first sub-plan is executed. It reads the `FaceFeatures` object and uses its NanoVG drawing functions to render a series of black-and-white masks into different `UMat`s (e.g., `faceOval_`, `eyesAndLipsMaskGrey_`). This is another example of the "render-to-texture" pattern.
+3.  **`BeautyFilterPlan` (Filtering & Blending)**: The second sub-plan is executed. It takes the original image and the masks as input. It uses the masks to isolate different regions of the face, applies user-configurable adjustments (e.g., boosts saturation on the lips, adjusts contrast on the skin), and then uses `cv::detail::MultiBandBlender` to seamlessly combine the modified regions back into the original image.
+4.  **`BeautyDemoPlan` (Compositing)**: Control returns to the main plan, which takes the final, blended image and prepares it for display, optionally creating a side-by-side view with the original.
+
+## Summary
+
+This demo illustrates the pinnacle of application design in Plan-V-D.
+-   **Sub-plans** allow you to break down a massive problem into a manageable hierarchy of smaller, reusable task graphs.
+-   Data can be passed between plans using shared objects and `UMat`s.
+-   This architecture allows for a clean separation of high-level application logic from the low-level implementation details of each processing stage.
+
+This concludes the tutorial series. You are encouraged to explore the remaining demos to see these concepts applied in different ways.
+--- modules/v4d/tutorials/18-many-cubes.markdown ---
+# Tutorial: Parallel Rendering with Multiple OpenGL Contexts
+
+This tutorial demonstrates one of Plan-V4D's most powerful features for high-performance graphics: the ability to use multiple OpenGL contexts in parallel. By default, all `gl` calls operate on a single context. However, you can instruct V4D to create and manage a pool of contexts, allowing you to execute independent OpenGL commands simultaneously on different worker threads.
+
+We will modify the 3D cube demo to render ten cubes at once, arranged in a circle, with each cube being rendered in its own parallel context.
+
+## The Code
+
+This example uses the same `cubescene.hpp` from the previous 3D cube tutorials. The main application logic is in `samples/many_cubes-demo.cpp`.
+
+```cpp
+#include <opencv2/v4d/v4d.hpp>
+#include "cubescene.hpp"
+
+using namespace cv::v4d;
+
+class ManyCubesDemoPlan : public Plan {
+    constexpr static size_t NUMBER_OF_CONTEXTS_ = 10;
+
+    CubeScene scene_;
+public:
+    void setup() override {
+        // Initialize the scene in each context
+        for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
+            gl<-1>(V(i), &CubeScene::init, RW(scene_));
+        }
+    }
+
+    void infer() override {
+        set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255)));
+        clear();
+        // Render one cube in each context, arranged in a circle
+        for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
+            gl<-1>(V(i),
+                &CubeScene::render, R(scene_),
+                    V(sin((double(i) / NUMBER_OF_CONTEXTS_) * 2.0 * CV_PI) / 1.5),
+                    V(cos((double(i) / NUMBER_OF_CONTEXTS_) * 2.0 * CV_PI) / 1.5));
+        }
+    }
+
+    void teardown() override {
+        // Destroy the scene's resources in each context
+        for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
+            gl<-1>(V(i), &CubeScene::destroy, R(scene_));
+        }
+    }
+};
+
+int main() {
+    cv::Rect viewport(0, 0, 1920, 1080);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Many Cubes Demo", AllocateFlags::IMGUI);
+    Plan::run<ManyCubesDemoPlan>(2);
+    return 0;
+}
+```
+
+## Code Breakdown
+
+### 1. The Multi-Context `gl` Call
+
+The key to this demo is a new syntax for the `gl` context call.
+
+```cpp
+gl<-1>(V(i), ...);
+```
+-   **`gl<-1>`**: The template argument `-1` tells V4D that we want to use one of its worker OpenGL contexts, rather than the main one.
+-   **`V(i)`**: The first argument is now an integer that specifies the **index** of the worker context to use.
+
+By looping from `i = 0` to `9` and using `V(i)` as the context index, we are creating ten separate nodes in our task graph, each targeting a different, independent OpenGL context.
+
+### 2. Parallel Execution
+
+-   **`setup()`**: The `for` loop in `setup` creates ten graph nodes. Each node calls `CubeScene::init` in a different context. Because these contexts are independent, the Plan engine can schedule these calls to run in parallel on multiple CPU cores, potentially speeding up initialization.
+-   **`infer()`**: The loop in `infer` creates ten nodes that call `CubeScene::render`. Again, these can be executed in parallel. Each call is given a different X and Y position, calculated with `sin` and `cos`, which arranges the cubes in a circle.
+-   **`teardown()`**: The cleanup calls are also parallelized.
+
+### 3. Shared Resources
+
+It's important to note that all ten parallel contexts are operating on the *same* `CubeScene` object.
+-   In `setup`, we use `RW(scene_)` because `init()` modifies the `scene_` object by populating its OpenGL handles.
+-   In `infer` and `teardown`, we use `R(scene_)` because `render()` and `destroy()` only need to read the handles that were created during setup.
+
+The Plan engine uses these edge-calls to correctly manage access to the shared `scene_` object, ensuring that the parallel operations are thread-safe.
+
+## Summary
+
+This demo revealed how to unlock the parallel rendering capabilities of Plan-V4D.
+-   The `gl<-1>(V(index), ...)` syntax allows you to target specific worker OpenGL contexts.
+-   By creating graph nodes in different contexts, you can perform OpenGL operations in parallel, which can significantly improve performance for complex scenes.
+-   The Plan engine manages access to shared resources (like our `CubeScene` object) across these parallel contexts.
+
+Next, we will look at the final demo, which displays an image using an alternative NanoVG technique.
