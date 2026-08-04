@@ -250,17 +250,17 @@ private:
         default_type<base_t*>
     >::type;
     using holder_t = typename std::disjunction<
-        values_equal<issmart_t::value, true, Ptr<base_t>>,
+        values_equal<issmart_t::value, true, std::shared_ptr<base_t>>,
         values_equal<func_t::value, true, base_t>,
-        default_type<nullptr_t>
+        default_type<std::nullptr_t>
     >::type;
 
-    Ptr<Plan> plan_;
+    std::shared_ptr<Plan> plan_;
     internal_base_ptr_t ptr_ = nullptr;
     internal_copy_ptr_t copyPtr_ = nullptr;
     holder_t holder_ = nullptr;
 
-    Edge(Ptr<Plan> plan) : plan_(plan) {}
+    Edge(std::shared_ptr<Plan> plan) : plan_(plan) {}
 
 public:
     virtual ~Edge() {}
@@ -282,9 +282,9 @@ public:
         default_type<internal_base_t&>
     >::type;
 
-    static Edge make(Ptr<Plan> plan, pass_t t) { Edge e(plan); e.set(t); return e; }
+    static Edge make(std::shared_ptr<Plan> plan, pass_t t) { Edge e(plan); e.set(t); return e; }
 
-    virtual Ptr<Plan> plan() const { return plan_; }
+    virtual std::shared_ptr<Plan> plan() const { return plan_; }
 
     Edge clone() const { return *this; }
 
@@ -404,7 +404,7 @@ struct BranchType {
 
 class PLAN_EXPORTS Transaction {
 private:
-    std::function<Ptr<Context>()> ctxCallback_;
+    std::function<std::shared_ptr<Context>()> ctxCallback_;
     BranchType::Enum btype_;
 
 public:
@@ -419,8 +419,8 @@ public:
     PLAN_EXPORTS bool isBranch();
     PLAN_EXPORTS void setBranchType(BranchType::Enum btype);
     PLAN_EXPORTS BranchType::Enum getBranchType();
-    PLAN_EXPORTS void setContextCallback(std::function<Ptr<Context>()> ctx);
-    PLAN_EXPORTS std::function<Ptr<Context>()> getContextCallback();
+    PLAN_EXPORTS void setContextCallback(std::function<std::shared_ptr<Context>()> ctx);
+    PLAN_EXPORTS std::function<std::shared_ptr<Context>()> getContextCallback();
 };
 
 namespace detail {
@@ -541,12 +541,12 @@ struct Node {
     string name_;
     std::set<long> read_deps_;
     std::set<long> write_deps_;
-    Ptr<Transaction> tx_ = nullptr;
-    bool initialized() { return tx_; }
+    std::shared_ptr<Transaction> tx_ = nullptr;
+    bool initialized() { return tx_ != nullptr; }
 };
 
 template <bool TcountContention = false, typename F, typename... Args>
-Ptr<Transaction> make_transaction(F f, Args... args) {
+std::shared_ptr<Transaction> make_transaction(F f, Args... args) {
     return std::make_shared<detail::TransactionImpl<TcountContention,
         std::decay_t<F>, std::remove_cv_t<Args>...>>(f, args...);
 }

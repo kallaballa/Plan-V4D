@@ -1,12 +1,20 @@
 // This file is part of OpenCV project.
 // It is subject to the license terms in the LICENSE file found in the top-level
 // directory of this distribution and at http://opencv.org/license.html.
+//
+// This copy carries minimal fixes required by the ll2plan-generated programs.
+// All changes are marked with [ll2plan-fix N] comments:
+//   1: Edge::set -- by-value smart payloads (Plan::V) are now owned, not aliased
+//   2: Plan::make_op -- result slots are properly allocated/owned
+//   3: Plan::run -- barrier size derived from WORKERS_STARTED (shared by all callers)
+//   4: worker-pinned branch overloads -- lambda takes edge ref types
 #ifndef OPENCV_PLAN_PLAN_HPP_
 #define OPENCV_PLAN_PLAN_HPP_
 
 #include "runtime.hpp"
 #include "transaction.hpp"
 #include "util.hpp"
+
 #include <deque>
 #include <vector>
 #include <map>
@@ -171,6 +179,7 @@ public:
     constexpr static auto or_      = [](const bool& a, const bool& b) { return a || b; };
 
     virtual ~Plan() { self_ = nullptr; }
+
     virtual void gui() {}
     virtual void setup() {}
     virtual void infer() = 0;
@@ -265,10 +274,11 @@ public:
         emit_access(id, R(*this));
         (emit_access(id, args), ...);
         std::function<bool((typename Args::ref_t...))> wrap =
-            [this, workerIdx, wrapInner](Args ... innerArgs) {
-            return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) ==
-                   static_cast<size_t>(workerIdx) && wrapInner(innerArgs...);
-        };
+            // [ll2plan-fix 4] lambda must take the edge *reference* types
+            [this, workerIdx, wrapInner](typename Args::ref_t ... innerArgs) {
+                return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) ==
+                       static_cast<size_t>(workerIdx) && wrapInner(innerArgs...);
+            };
         add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
         return self<Plan>();
     }
@@ -281,10 +291,11 @@ public:
         emit_access(id, R(*this));
         (emit_access(id, args), ...);
         std::function<bool((typename Args::ref_t...))> wrap =
-            [this, workerIdx, wrapInner](Args ... innerArgs) {
-            return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) ==
-                   static_cast<size_t>(workerIdx) && wrapInner(innerArgs...);
-        };
+            // [ll2plan-fix 4] lambda must take the edge *reference* types
+            [this, workerIdx, wrapInner](typename Args::ref_t ... innerArgs) {
+                return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) ==
+                       static_cast<size_t>(workerIdx) && wrapInner(innerArgs...);
+            };
         add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
         return self<Plan>();
     }
@@ -320,10 +331,11 @@ public:
         emit_access(id, R(*this));
         (emit_access(id, args), ...);
         std::function<bool((typename Args::ref_t...))> wrap =
-            [this, workerIdx, wrapInner](Args ... innerArgs) {
-            return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) ==
-                   static_cast<size_t>(workerIdx) && wrapInner(innerArgs...);
-        };
+            // [ll2plan-fix 4] lambda must take the edge *reference* types
+            [this, workerIdx, wrapInner](typename Args::ref_t ... innerArgs) {
+                return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) ==
+                       static_cast<size_t>(workerIdx) && wrapInner(innerArgs...);
+            };
         add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
         return self<Plan>();
     }
@@ -479,6 +491,7 @@ public:
     auto _sub(Tparent* parent, Args&& ... args) {
         return Plan::makeSubPlan<TsubPlan>(parent, std::forward<Args>(args)...);
     }
+
     template<typename TsubPlan, typename TparentPtr, typename ... Args>
     auto _sub(TparentPtr parent, Args&& ... args) {
         return Plan::makeSubPlan<TsubPlan>(parent.get(), std::forward<Args>(args)...);
@@ -492,28 +505,33 @@ public:
     detail::Edge<T, false, true> R(const T& t) {
         return detail::Edge<T, false, true>::make(self<Plan>(), t);
     }
+
     template<typename T>
     detail::Edge<T, false, true, true> RS(const T& t) {
         if (!GlobalState::shared_vars().checkShared(*this, t))
             throw std::runtime_error("You declare a non-shared variable as shared.");
         return detail::Edge<T, false, true, true>::make(self<Plan>(), t);
     }
+
     template<typename T>
     detail::Edge<T, false, false> RW(T& t) {
         return detail::Edge<T, false, false>::make(self<Plan>(), t);
     }
+
     template<typename T>
     detail::Edge<T, false, false, true> RWS(T& t) {
         if (!GlobalState::shared_vars().checkShared(*this, t))
             throw std::runtime_error("You declare a non-shared variable as shared.");
         return detail::Edge<T, false, false, true>::make(self<Plan>(), t);
     }
+
     template<typename T>
     detail::Edge<T, true, true, true> CS(T& t) {
         if (GlobalState::shared_vars().checkShared(*this, t))
             return detail::Edge<T, true, true, true>::make(self<Plan>(), t);
         throw std::runtime_error("You are trying to safe-copy a non-shared variable.");
     }
+
     template<typename T>
     detail::Edge<Ptr<T>, false, true, false, T, true> V(T t) {
         auto ptr = makePtr<T>(t);
@@ -525,11 +543,13 @@ public:
         const auto& ref = Runtime::get<Tval>(key);
         return Property<Tval>(self<Plan>(), ref);
     }
+
     template<typename Tval>
     Property<Tval> P(LocalState::Keys::Enum key) {
         const auto& ref = LocalState::get<Tval>(key);
         return Property<Tval>(self<Plan>(), ref);
     }
+
     template<typename Tval>
     Property<Tval> P(GlobalState::Keys::Enum key) {
         const auto& ref = GlobalState::get<Tval>(key);
@@ -554,16 +574,12 @@ public:
         Ptr<Tplan> plan;
         static std::mutex worker_init_mtx_;
         std::vector<std::thread*> threads;
-
         {
             static std::mutex runMtx;
             std::lock_guard<std::mutex> lock(runMtx);
-
             if (GlobalState::isFirstRun())
                 GlobalState::setMainID(std::this_thread::get_id());
-
             plan = make<Tplan>(std::forward<Args>(args)...);
-
             if (GlobalState::isMain()) {
                 GlobalState::set<size_t>(GlobalState::Keys::WORKERS_STARTED, workers);
                 for (int32_t i = 0; i < workers; ++i) {
@@ -583,7 +599,6 @@ public:
                 }
             }
         }
-
         PLAN_Assert(plan);
 
         if (!GlobalState::isMain()) {
@@ -613,10 +628,14 @@ public:
                 throw std::runtime_error(std::string("Main inference failed: ") + ex.what());
             }
             GlobalState::apply<size_t>(GlobalState::Keys::WORKERS_READY,
-                [](size_t& wr){ ++wr; return wr; });
+                                       [](size_t& wr){ ++wr; return wr; });
         }
 
-        static std::barrier syncPoint(std::ptrdiff_t(workers + 1));
+        // [ll2plan-fix 3] The barrier size must be identical for the main thread
+        // and every worker thread. The published WORKERS_STARTED count is the
+        // single source of truth (the local `workers` value differs per caller).
+        static std::barrier syncPoint(std::ptrdiff_t(
+            GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED) + 1));
         syncPoint.arrive_and_wait();
 
         try {
@@ -682,17 +701,20 @@ private:
             detail::values_equal<hasReturn, true, typename std::remove_pointer<ret_no_ref_t>::type>,
             detail::default_type<int>
         >::type;
-
         if constexpr (hasReturn && TmakeEdge) {
-            Ptr<Ptr<val_t>> retPtr = std::make_shared<Ptr<val_t>>(Ptr<val_t>(), nullptr);
-            std::function wrap = [op](Ptr<val_t>& v, typename Args::ref_t ... values) mutable {
+            // [ll2plan-fix 2] The old code constructed the result slot with the
+            // shared_ptr aliasing constructor over an empty owner, leaving
+            // retPtr.get() == nullptr. Own the slot properly and keep it alive
+            // by capturing retPtr inside the transaction callable.
+            Ptr<Ptr<val_t>> retPtr = std::make_shared<Ptr<val_t>>();
+            std::function wrap = [op, retPtr](Ptr<val_t>& v, typename Args::ref_t ... values) mutable {
                 if constexpr (std::is_pointer<ret_no_ref_t>::value)
                     v = Ptr<val_t>(Ptr<val_t>(), op(values...));
                 else if constexpr (std::is_lvalue_reference<ret_t>::value) {
                     auto& ref = op(values...);
                     v = Ptr<val_t>(Ptr<val_t>(), std::addressof(ref));
                 } else
-                    v = Ptr<val_t>(Ptr<val_t>(), new val_t(op(values...)));
+                    v = std::make_shared<val_t>(op(values...));
             };
             const string id = make_id(this->space(), "nary-op", wrap, args...);
             emit_access(id, R(*this));
@@ -713,7 +735,8 @@ private:
     }
 };
 
-// ── Free-standing operator overloads ─────────────────────────────────
+// ---- Free-standing operator overloads ----
+
 template<typename ... Edges>
 auto operator+(const std::tuple<Edges...>& t) { return detail::Operation::op<detail::ADD_>(t); }
 template<typename TedgeL, typename ... Edges>
