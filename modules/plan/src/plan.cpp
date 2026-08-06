@@ -1,181 +1,137 @@
-// This file is part of OpenCV project.
-// It is subject to the license terms in the LICENSE file found in the top-level
-// directory of this distribution and at http://opencv.org/license.html.
+// This file is part of OpenCV project. It is subject to the license terms
+// in the LICENSE file found in the top-level directory of this distribution.
 #include "opencv2/plan/plan.hpp"
-#include <algorithm>
-#include <iostream>
 
+#include <chrono>
+#include <thread>
+
+namespace cv {
 namespace plan {
 
-void Plan::makeGraph() {
-    for (const auto& t : accesses_) {
-        const string& name = std::get<0>(t);
-        const bool& read   = std::get<1>(t);
-        const size_t& dep  = std::get<2>(t);
-        Ptr<Node> n;
-        findNode(name, n);
-        if (!n) {
-            n = makePtr<Node>();
-            n->name_ = name;
-            n->tx_ = transactions_[name];
-            PLAN_Assert(!n->name_.empty());
-            PLAN_Assert(n->tx_);
-            currentNodes_.push_back(n);
-        }
-        if (read) n->read_deps_.insert(dep);
-        else      n->write_deps_.insert(dep);
+CV_EXPORTS std::mutex Runtime::instance_mtx_;
+CV_EXPORTS thread_local cv::Ptr<Runtime> Runtime::instance_;
+CV_EXPORTS thread_local ThreadSafeAnyMap<Runtime::Keys::Enum> Runtime::properties_;
+
+Runtime::Runtime(const cv::Size& size, const string& title) : size_(size), title_(title) {
+    fbContext_ = cv::makePtr<detail::FrameBufferContext>(size_);
+    sourceContext_ = cv::makePtr<detail::SourceContext>();
+    sinkContext_ = cv::makePtr<detail::SinkContext>();
+    plainContext_ = cv::makePtr<detail::PlainContext>();
+    sourceContext_->setRuntime(this);
+    sinkContext_->setRuntime(this);
+}
+
+Runtime::Runtime(const Runtime& other, const string& title) : size_(other.size_), title_(title) {
+    fbContext_ = cv::makePtr<detail::FrameBufferContext>(size_);
+    sourceContext_ = cv::makePtr<detail::SourceContext>();
+    sinkContext_ = cv::makePtr<detail::SinkContext>();
+    plainContext_ = cv::makePtr<detail::PlainContext>();
+    sourceContext_->setRuntime(this);
+    sinkContext_->setRuntime(this);
+}
+
+Runtime::~Runtime() {}
+
+cv::Ptr<Runtime> Runtime::init(const cv::Size& size, const string& title) {
+    GlobalState::init_keys();
+    LocalState::init_keys();
+    {
+        std::lock_guard guard(instance_mtx_);
+        if (instance_ == nullptr)
+            instance_ = new Runtime(size, title);
     }
+    Runtime::init_keys();
+    return instance_;
 }
 
-void Plan::pf(const size_t& depth, const BranchState& current, const Ptr<Node> n) {
-    PLAN_UNUSED(depth);
-    PLAN_UNUSED(current);
-    PLAN_UNUSED(n);
+cv::Ptr<Runtime> Runtime::init(const Runtime& other, const string& title) {
+    GlobalState::init_keys();
+    LocalState::init_keys();
+    {
+        std::lock_guard guard(instance_mtx_);
+        if (instance_ == nullptr)
+            instance_ = new Runtime(other, title);
+    }
+    Runtime::init_keys();
+    return instance_;
 }
 
-void Plan::runGraph() {
-    BranchType::Enum btype;
-    BranchState currentState;
+std::string Runtime::title() const { return title_; }
+const cv::Size& Runtime::size() { return size_; }
 
+cv::Ptr<detail::FrameBufferContext> Runtime::fbCtx() { return fbContext_; }
+cv::Ptr<detail::SourceContext> Runtime::sourceCtx() { return sourceContext_; }
+cv::Ptr<detail::SinkContext> Runtime::sinkCtx() { return sinkContext_; }
+cv::Ptr<detail::PlainContext> Runtime::plainCtx() { return plainContext_; }
+
+cv::Ptr<detail::PlanContext> Runtime::context(const string& name, int32_t idx) {
+    std::lock_guard lock(ctxMtx_);
+    auto key = std::make_pair(name, idx);
+    auto it = contexts_.find(key);
+    if (it != contexts_.end())
+        return it->second;
+    auto ctx = cv::makePtr<detail::PlainContext>();
+    contexts_[key] = ctx;
+    return ctx;
+}
+
+void Runtime::registerContext(const string& name, cv::Ptr<detail::PlanContext> ctx, int32_t idx) {
+    std::lock_guard lock(ctxMtx_);
+    contexts_[std::make_pair(name, idx)] = ctx;
+}
+
+void Runtime::setSource(cv::Ptr<Source> src) { source_ = src; }
+cv::Ptr<Source> Runtime::getSource() { return source_; }
+bool Runtime::hasSource() const { return source_ != nullptr; }
+void Runtime::setSink(cv::Ptr<Sink> sink) { sink_ = sink; }
+cv::Ptr<Sink> Runtime::getSink() { return sink_; }
+bool Runtime::hasSink() const { return sink_ != nullptr; }
+
+void Runtime::setDisplayCallback(std::function<bool()> cb) { displayCallback_ = cb; }
+
+bool Runtime::display() {
+    if (displayCallback_)
+        return displayCallback_();
+    return keep_running();
+}
+
+void Runtime::run(cv::Ptr<Runtime> runtime, std::function<void()> runGraph) {
+    static Resequence reseq(1);
     try {
-        for (auto& n : currentNodes_) {
-            btype = n->tx_->getBranchType();
-            bool isBranch = n->name_.substr(0, 6) == "branch";
-            bool isElse   = n->name_.substr(0, 6) == "[else]";
-            bool isEnd    = n->name_.substr(0, 5) == "[end]";
-
-            if (btype != BranchType::NONE) {
-                PLAN_Assert(((isBranch != isElse) != isEnd));
-
-                if (isBranch) {
-                    if (!branchStateStack_.empty())
-                        currentState = branchStateStack_.front();
-                    else
-                        currentState = BranchState();
-                    currentState.branchID_ = n->name_;
-                    if (currentState.isEnabled_) {
-                        currentState.isOnce_ =
-                            (btype == BranchType::ONCE) || (btype == BranchType::PARALLEL_ONCE);
-                        currentState.isSingle_ =
-                            (btype == BranchType::ONCE) || (btype == BranchType::SINGLE);
-                    } else {
-                        currentState.isOnce_ = false;
-                        currentState.isSingle_ = false;
-                        currentState.isEnabled_ = false;
-                    }
-                    if (currentState.isEnabled_) {
-                        if (currentState.isOnce_) {
-                            if (btype == BranchType::ONCE)
-                                currentState.condition_ =
-                                    GlobalState::once(n->name_) && n->tx_->performPredicate();
-                            else if (btype == BranchType::PARALLEL_ONCE)
-                                currentState.condition_ =
-                                    !n->tx_->ran() && n->tx_->performPredicate();
-                            else
-                                PLAN_Assert(false);
-                        } else {
-                            currentState.condition_ = n->tx_->performPredicate();
-                        }
-                        currentState.isEnabled_ = currentState.isEnabled_ && currentState.condition_;
-                        if (currentState.isEnabled_ && currentState.isSingle_) {
-                            PLAN_Assert(btype != BranchType::PARALLEL);
-                            GlobalState::lockNode(currentState.branchID_);
-                            currentState.isLocked_ = true;
-                        }
-                    }
-                    branchStateStack_.push_front(currentState);
-                } else if (isElse) {
-                    if (branchStateStack_.empty()) continue;
-                    currentState = branchStateStack_.front();
-                    currentState.isEnabled_ = !currentState.condition_;
-                    currentState.isOnce_ = false;
-                    currentState.condition_ = !currentState.condition_;
-                    currentState.isSingle_ = false;
-                    if (currentState.isLocked_)
-                        GlobalState::tryUnlockNode(currentState.branchID_);
-                    currentState.isLocked_ = false;
-                    branchStateStack_.pop_front();
-                    branchStateStack_.push_front(currentState);
-                } else if (isEnd) {
-                    if (branchStateStack_.empty()) continue;
-                    currentState = branchStateStack_.front();
-                    GlobalState::tryUnlockNode(currentState.branchID_);
-                    branchStateStack_.pop_front();
-                } else {
-                    PLAN_Assert(false);
-                }
-            } else {
-                PLAN_Assert(!n->tx_->isPredicate());
-                currentState = !branchStateStack_.empty()
-                    ? branchStateStack_.front() : BranchState();
-
-                if (currentState.isEnabled_) {
-                    auto lock = GlobalState::tryGetNodeLock(currentState.branchID_);
-                    auto plan = self<Plan>();
-                    auto ctx = n->tx_->getContextCallback()();
-                    auto viewport = runtime_->viewport();
-
-                    if (lock) {
-                        std::lock_guard<std::mutex> guard(*lock.get());
-                        int res = ctx->execute(viewport, [plan, n, currentState]() {
-                            n->tx_->perform();
-                        });
-                        if (res <= 0)
-                            std::cerr << "[WARN] Context failed while: " << n->name_ << std::endl;
-                    } else {
-                        int res = ctx->execute(viewport, [plan, n, currentState]() {
-                            n->tx_->perform();
-                        });
-                        if (res <= 0)
-                            std::cerr << "[WARN] Context failed while: " << n->name_ << std::endl;
-                    }
-                }
-                currentState = BranchState();
+        if (GlobalState::isMain()) {
+            // Main thread keeps the process alive; workers drive the frames.
+            while (keep_running()) {
+                event::poll();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        } else {
+            while (keep_running()) {
+                bool result = true;
+                TimeTracker::getInstance()->execute("worker", [&result, runtime, runGraph]() {
+                    event::poll();
+                    GlobalState::apply<size_t>(GlobalState::Keys::RUN_CNT, [](size_t& s) { ++s; return s; });
+                    size_t seq = GlobalState::apply<size_t>(GlobalState::Keys::FRAME_CNT, [](size_t& s) { ++s; return s; });
+                    runGraph();
+                    reseq.waitFor(seq, [&result, runtime](uint64_t s) {
+                        CV_UNUSED(s);
+                        result = runtime->display();
+                    });
+                });
+                if (!result)
+                    break;
             }
         }
-
-        size_t lockCnt = GlobalState::countNodeLocks();
-        PLAN_Assert(branchStateStack_.empty());
-        PLAN_Assert(lockCnt == 0);
-
+    } catch (std::runtime_error& ex) {
+        CV_LOG_WARNING(nullptr, "Pipeline terminated: " << ex.what());
     } catch (std::exception& ex) {
-        if (!branchStateStack_.empty() && branchStateStack_.front().isLocked_)
-            GlobalState::tryUnlockNode(currentState.branchID_);
-        throw;
+        CV_LOG_WARNING(nullptr, "Pipeline terminated: " << ex.what());
     } catch (...) {
-        if (!branchStateStack_.empty() && branchStateStack_.front().isLocked_)
-            GlobalState::tryUnlockNode(currentState.branchID_);
-        throw std::runtime_error("Unknown error.");
+        CV_LOG_WARNING(nullptr, "Pipeline terminated with unknown error.");
     }
-}
-
-void Plan::clearGraph() {
-    std::copy(currentNodes_.begin(), currentNodes_.end(), std::back_inserter(allNodes_));
-    accesses_.clear();
-    branchStateStack_.clear();
-    branchStack_.clear();
-    transactions_.clear();
-    currentNodes_.clear();
-}
-
-Ptr<Plan> Plan::endBranch() {
-    auto current = branchStack_.front();
-    branchStack_.pop_front();
-    string id = "[end]" + current.first;
-    emit_access(id, R(*this));
-    std::function functor = [](){ return true; };
-    add_transaction(current.second, runtime_->plainCtx(), id, functor);
-    return self<Plan>();
-}
-
-Ptr<Plan> Plan::elseBranch() {
-    auto current = branchStack_.front();
-    string id = "[else]" + current.first;
-    emit_access(id, R(*this));
-    std::function functor = [](){ return true; };
-    add_transaction(current.second, runtime_->plainCtx(), id, functor);
-    return self<Plan>();
+    request_finish();
+    reseq.finish();
 }
 
 } // namespace plan
+} // namespace cv
 
