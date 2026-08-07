@@ -14,7 +14,6 @@ namespace plan {
 
 CV_EXPORTS std::mutex Runtime::instance_mtx_;
 CV_EXPORTS thread_local cv::Ptr<Runtime> Runtime::instance_;
-CV_EXPORTS thread_local ThreadSafeAnyMap<Runtime::Keys::Enum> Runtime::properties_;
 
 Runtime::Runtime(const cv::Size& size, const string& title, DebugFlags::Enum debFlags) :
     debugFlags_(debFlags), title_(title) {
@@ -49,37 +48,30 @@ cv::Ptr<Runtime> Runtime::init(const cv::Size& size, const string& title, DebugF
         if(instance_ == nullptr)
             instance_ = new Runtime(size, title, debugFlags);
     }
-    Runtime::init_keys(size);
     return instance_;
 }
 
 cv::Ptr<Runtime> Runtime::init(const Runtime& other, const string& title) {
     GlobalState::init_keys();
     LocalState::init_keys();
-    cv::Size sz = other.size();
     {
         std::lock_guard guard(instance_mtx_);
         if(instance_ == nullptr)
             instance_ = new Runtime(other, title);
     }
-    Runtime::init_keys(sz);
     return instance_;
-}
-
-void Runtime::init_keys(const cv::Size& sz) {
-    if(properties_.empty()) {
-        create<true>(Keys::SIZE, sz);
-        create<false>(Keys::VIEWPORT, cv::Rect(0, 0, sz.width, sz.height));
-        create<false, string>(Keys::NAMESPACE, "default");
-    }
 }
 
 std::string Runtime::title() const {
     return title_;
 }
 
-const cv::Size& Runtime::size() const {
-    return get<cv::Size>(Keys::SIZE);
+void Runtime::setNamespace(const std::string& ns) {
+  namespace_ = ns;
+}
+
+std::string Runtime::getNamespace() {
+  return namespace_;
 }
 
 DebugFlags::Enum Runtime::debugFlags() {

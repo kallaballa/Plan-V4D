@@ -130,9 +130,9 @@ public:
 private:
     CV_EXPORTS static std::mutex instance_mtx_;
     CV_EXPORTS static thread_local cv::Ptr<Runtime> instance_;
-    CV_EXPORTS static thread_local ThreadSafeAnyMap<Keys::Enum> properties_;
     DebugFlags::Enum debugFlags_;
     std::string title_;
+    std::string namespace_;
     cv::Ptr<detail::PlainContext> plainContext_;
 
     Runtime(const cv::Size& size, const string& title, DebugFlags::Enum debFlags);
@@ -142,33 +142,6 @@ private:
 public:
     CV_EXPORTS static cv::Ptr<Runtime> instance();
 
-    CV_EXPORTS static void init_keys(const cv::Size& sz);
-
-    template<bool Tread, typename Tval>
-    static void create(Keys::Enum key, const Tval& val, const std::function<void(const Tval& val)>& cb = std::function<void(const Tval& val)>()) {
-        properties_.create<Tread>(key, val, cb);
-    }
-
-    template<typename Tval>
-    static void set(Keys::Enum key, const Tval& val, bool fire = true) {
-        if(instance()->debugFlags() & DebugFlags::MONITOR_RUNTIME_PROPERTIES) {
-            std::stringstream ss;
-            ss << detail::demangle(typeid(decltype(key)).name()) << " = " << size_t(&val) << " (fire: " << fire << ")";
-            CV_LOG_INFO(&mon_tag, ss.str());
-        }
-        properties_.set(key, val, fire);
-    }
-
-    template<typename Tval>
-    static const auto& get(Keys::Enum key) {
-        return properties_.get<Tval>(key);
-    }
-
-    template <typename V>
-    static V apply(Keys::Enum k, std::function<V(V&)> f) {
-        return properties_.apply(k, f);
-    }
-
     CV_EXPORTS static cv::Ptr<Runtime> init(const string& title, DebugFlags::Enum debugFlags = DebugFlags::DEFAULT);
     CV_EXPORTS static cv::Ptr<Runtime> init(const cv::Size& size, const string& title, DebugFlags::Enum debugFlags = DebugFlags::DEFAULT);
     CV_EXPORTS static cv::Ptr<Runtime> init(const Runtime& other, const string& title);
@@ -176,7 +149,8 @@ public:
     CV_EXPORTS virtual ~Runtime();
 
     CV_EXPORTS std::string title() const;
-    CV_EXPORTS const cv::Size& size() const;
+    CV_EXPORTS void setNamespace(const string& ns);
+    CV_EXPORTS std::string getNamespace();
     CV_EXPORTS DebugFlags::Enum debugFlags();
 
     cv::Ptr<detail::PlainContext> plainCtx() {
@@ -464,8 +438,7 @@ class CV_EXPORTS Plan {
                         {
                             std::lock_guard<std::mutex> guard(*lock.get());
                             auto ctx = n->tx_->getContextCallback()();
-                            auto viewport = Runtime::get<cv::Rect>(Runtime::Keys::VIEWPORT);
-                            int res = ctx->execute(viewport, [plan, countLockContention, n,currentState]() {
+                            int res = ctx->execute(cv::Rect(), [plan, countLockContention, n,currentState]() {
                                 TimeTracker::getInstance()->execute(n->name_, [plan, countLockContention, n,currentState](){
                                     n->tx_->perform();
                                 });
@@ -475,8 +448,7 @@ class CV_EXPORTS Plan {
                             }
                         } else {
                             auto ctx = n->tx_->getContextCallback()();
-                            auto viewport = Runtime::get<cv::Rect>(Runtime::Keys::VIEWPORT);
-                            int res = ctx->execute(viewport, [plan, countLockContention, n,currentState]() {
+                            int res = ctx->execute(cv::Rect(), [plan, countLockContention, n,currentState]() {
                                 TimeTracker::getInstance()->execute(n->name_, [plan, countLockContention, n,currentState](){
                                     n->tx_->perform();
                                 });
@@ -539,7 +511,7 @@ class CV_EXPORTS Plan {
         plan->setParentOffset(reinterpret_cast<size_t>(parent));
         plan->template setParentActualTypeSize<Tparent>();
         plan->template setActualTypeSize<Tplan>();
-        Runtime::set(Runtime::Keys::NAMESPACE, plan->space());
+        Runtime::setNamespace(plan->space());
         return plan->template self<Tplan>();
     }
 
@@ -773,36 +745,6 @@ public:
         std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
         subPlan->clearGraph();
         return self<Plan>();
-    }
-
-    template <typename Tkey, typename Tfn, typename Ttuple, size_t ... idx>
-    auto make_setter_function(Tkey key, Tfn fn, Ttuple&& args, std::index_sequence<idx...>) {
-        auto plan = self<Plan>();
-        return std::function([plan, key, fn](decltype(std::get<idx>(args).ref()) ... values){
-            Runtime::set(key, fn(values...));
-        });
-    }
-
-    template <typename Ttuple>
-    auto make_setter_function(Ttuple&& values) {
-        using tuple_t = typename std::remove_reference<Ttuple>::type;
-        constexpr size_t sz = std::tuple_size<tuple_t>::value;
-        static_assert(std::is_enum<typename std::tuple_element<0, tuple_t>::type>::value, "Can not set a property without a key as first argument");
-        static_assert(sz > 1, "Can not set a property without value");
-        auto key = std::get<0>(values);
-        auto val = std::get<1>(values);
-        if constexpr(!is_callable<decltype(val)>::value) {
-            static_assert(sz == 2, "Can not set a Property from multiple Edges");
-            auto plan = self<Plan>();
-            return std::function([plan, key](decltype(val.ref()) v){
-                Runtime::set(key, v);
-            });
-        } else {
-            auto fn = std::get<1>(values);
-            auto args = sub_tuple<1, sz - 1>(values);
-            auto plan = self<Plan>();
-            return make_setter_function(key, fn, args, std::make_index_sequence<sz - 2>());
-        }
     }
 
     template <typename TwrapFn, typename Ttuple, size_t ... idx>
@@ -1097,12 +1039,6 @@ public:
     }
 
     template<typename Tval>
-    Property<Tval> P(Runtime::Keys::Enum key) {
-        const auto& ref = Runtime::get<Tval>(key);
-        return Property<Tval>(self<Plan>(), ref);
-    }
-
-    template<typename Tval>
     Property<Tval> P(LocalState::Keys::Enum key) {
         const auto& ref = LocalState::get<Tval>(key);
         return Property<Tval>(self<Plan>(), ref);
@@ -1118,7 +1054,7 @@ public:
     static cv::Ptr<Tplan> make(Args&& ... args) {
         Tplan* plan = new Tplan(std::forward<Args>(args)...);
         plan->template setActualTypeSize<Tplan>();
-        Runtime::set(Runtime::Keys::NAMESPACE, plan->space());
+        Runtime::instance()->setNamespace(plan->space());
         return plan->template self<Tplan>();
     }
 
