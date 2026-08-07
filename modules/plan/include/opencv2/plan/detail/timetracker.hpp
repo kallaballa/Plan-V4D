@@ -1,5 +1,11 @@
-#ifndef PLAN_TIME_TRACKER_HPP_
-#define PLAN_TIME_TRACKER_HPP_
+// This file is part of OpenCV project.
+// It is subject to the license terms in the LICENSE file found in the top-level directory
+// of this distribution and at http://opencv.org/license.html.
+#ifndef OPENCV_PLAN_DETAIL_TIMETRACKER_HPP_
+#define OPENCV_PLAN_DETAIL_TIMETRACKER_HPP_
+
+#include <opencv2/core/cvdef.h>
+
 #include <chrono>
 #include <map>
 #include <string>
@@ -8,19 +14,24 @@
 #include <iomanip>
 #include <limits>
 #include <mutex>
-#include "../base.hpp"
+
+namespace cv {
+namespace plan {
+
 using std::ostream;
 using std::stringstream;
 using std::string;
 using std::map;
 using std::chrono::microseconds;
 using std::mutex;
-struct PLAN_EXPORTS TimeInfo {
+
+struct CV_EXPORTS TimeInfo {
     long totalCnt_ = 0;
     long totalTime_ = 0;
     long iterCnt_ = 0;
     long iterTime_ = 0;
     long last_ = 0;
+
     void add(size_t t) {
         last_ = t;
         totalTime_ += t;
@@ -36,10 +47,12 @@ struct PLAN_EXPORTS TimeInfo {
             iterTime_ = 0;
         }
     }
+
     void newCount() {
         iterTime_ = iterTime_ / iterCnt_;
         iterCnt_ = 1;
     }
+
     string str() const {
         stringstream ss;
         ss << (totalTime_ / 1000.0) / totalCnt_ << "ms / ";
@@ -47,28 +60,34 @@ struct PLAN_EXPORTS TimeInfo {
         return ss.str();
     }
 };
+
 inline std::ostream& operator<<(ostream &os, const TimeInfo &ti) {
     os << std::fixed << std::setprecision(8) << std::setfill(' ') << std::setw(13) << (ti.totalTime_ / 1000.0) / ti.totalCnt_ << "ms / ";
     os << std::setfill(' ') << std::setw(13) << (ti.iterTime_ / 1000.0) / ti.iterCnt_ << "ms" << std::scientific;
     return os;
 }
+
 struct TimeSortCompare {
     inline bool operator()(const TimeInfo &lhs, const TimeInfo &rhs) const {
         return (lhs.totalTime_ / lhs.totalCnt_) > (rhs.totalTime_ / rhs.totalCnt_);
     }
 };
-class PLAN_EXPORTS TimeTracker {
+
+class CV_EXPORTS TimeTracker {
 private:
     static TimeTracker *instance_;
     mutex mapMtx_;
     map<string, TimeInfo> tiMap_;
     bool enabled_;
     TimeTracker();
+
 public:
     virtual ~TimeTracker();
+
     map<string, TimeInfo>& getMap() {
         return tiMap_;
     }
+
     template<typename F> void execute(const string &name, F const &func) {
         auto start = std::chrono::system_clock::now();
         func();
@@ -76,18 +95,22 @@ public:
         std::unique_lock lock(mapMtx_);
         tiMap_[name].add(duration.count());
     }
+
     template<typename F> size_t measure(F const &func) {
         auto start = std::chrono::system_clock::now();
         func();
         auto duration = std::chrono::duration_cast<microseconds>(std::chrono::system_clock::now() - start);
         return duration.count();
     }
+
     bool isEnabled() {
         return enabled_;
     }
+
     void setEnabled(bool e) {
         enabled_ = e;
     }
+
     void print(ostream &os) {
         if(!enabled_)
             return;
@@ -103,22 +126,26 @@ public:
         }
         os << ss.str();
     }
+
     void reset() {
         if(!enabled_)
             return;
         std::unique_lock lock(mapMtx_);
         tiMap_.clear();
     }
+
     static TimeTracker* getInstance() {
         if (instance_ == NULL)
             instance_ = new TimeTracker();
         return instance_;
     }
+
     static void destroy() {
         if (instance_)
             delete instance_;
         instance_ = NULL;
     }
+
     void newCount() {
         if(!enabled_)
             return;
@@ -128,4 +155,7 @@ public:
         }
     }
 };
-#endif /* PLAN_TIME_TRACKER_HPP_ */
+
+} /* namespace plan */
+} /* namespace cv */
+#endif /* OPENCV_PLAN_DETAIL_TIMETRACKER_HPP_ */
