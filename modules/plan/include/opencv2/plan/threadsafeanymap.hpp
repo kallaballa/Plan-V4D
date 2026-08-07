@@ -119,7 +119,7 @@ public:
         check_write(key);
         V* p = std::any_cast<V>(&properties_[key]);
         if(!p)
-            CV_Error(cv::Error::StsBadArg, string("Type mismatch for key: ") + std::to_string(int(key)) + ". Expected: " + detail::demangle(properties_[key].type().name()) + ", Got: " + detail::type_name<V>() + ".");
+            CV_Error(cv::Error::StsBadArg, std::string("Type mismatch for key: ") + std::to_string(int(key)) + ". Expected: " + detail::demangle(properties_[key].type().name()) + ", Got: " + detail::type_name<V>() + ".");
         V oldVal = *p;
         *p = value;
         if(fire && memcmp(&oldVal, p, sizeof(V)) != 0)

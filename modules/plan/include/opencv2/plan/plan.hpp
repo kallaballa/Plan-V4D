@@ -176,7 +176,7 @@ public:
     CV_EXPORTS virtual ~Runtime();
 
     CV_EXPORTS std::string title() const;
-    CV_EXPORTS const cv::Size& size();
+    CV_EXPORTS const cv::Size& size() const;
     CV_EXPORTS DebugFlags::Enum debugFlags();
 
     cv::Ptr<detail::PlainContext> plainCtx() {

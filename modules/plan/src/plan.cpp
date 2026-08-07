@@ -78,7 +78,7 @@ std::string Runtime::title() const {
     return title_;
 }
 
-const cv::Size& Runtime::size() {
+const cv::Size& Runtime::size() const {
     return get<cv::Size>(Keys::SIZE);
 }
 
