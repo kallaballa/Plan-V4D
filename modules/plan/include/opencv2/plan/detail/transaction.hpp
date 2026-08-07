@@ -1,6 +1,5 @@
 #ifndef MODULES_PLAN_INCLUDE_OPENCV2_PLAN_DETAIL_TRANSACTION_HPP_
 #define MODULES_PLAN_INCLUDE_OPENCV2_PLAN_DETAIL_TRANSACTION_HPP_
-
 #include "context.hpp"
 #include "../util.hpp"
 #include <tuple>
@@ -9,15 +8,10 @@
 #include <string>
 #include <utility>
 #include <type_traits>
-#include <opencv2/core/types.hpp>
-
 namespace cv {
 namespace plan {
-
 class Plan;
-
 namespace detail {
-
 enum Operators {
     CONSTRUCT_,
     ASSIGN_,
@@ -47,13 +41,11 @@ enum Operators {
     IF_,
     IDX_,
 };
-
 template<Operators Top, typename ... Edges>
 struct check_op {
     static_assert(sizeof...(Edges) > 0);
     static constexpr Operators value = Top;
 };
-
 template<Operators Top, typename Tfirst, typename ... Args>
 static auto make_operator_func(Tfirst, Args ...) {
     constexpr size_t numOperands = sizeof...(Args) + 1;
@@ -61,7 +53,6 @@ static auto make_operator_func(Tfirst, Args ...) {
     constexpr bool binary = numOperands == 2;
     constexpr bool ternary = numOperands == 3;
     constexpr bool nary = numOperands >= 2;
-
     if constexpr(Top == Operators::CONSTRUCT_) {
         constexpr bool isSmart = (!Tfirst::func_t::value && !Tfirst::byvalue_t::value && Tfirst::issmart_t::value);
         constexpr bool isPointer = Tfirst::ispointer_t::value;
@@ -210,45 +201,35 @@ static auto make_operator_func(Tfirst, Args ...) {
         return [](){};
     }
 }
-
 struct Operation {
     template<Operators TopEnum, typename Ttuple, size_t ... idx>
     static auto op(Ttuple operands, std::index_sequence<idx...>){
         static_assert(std::tuple_size<Ttuple>::value > 0);
         return std::get<0>(operands).plan()->template OP<TopEnum>(std::get<idx>(operands)...);
     }
-
     template<Operators TopEnum, typename Ttuple>
     static auto op(Ttuple operands){
         return op<TopEnum>(operands, std::make_index_sequence<std::tuple_size<Ttuple>::value>());
     }
 };
-
 class EdgeBase {};
-
 template<typename T, bool Tcopy, bool Tread, bool Tshared = false, typename Tbase = std::false_type, bool TbyValue = false>
 class Edge : public EdgeBase {
     template <typename, typename = void>
     struct has_deref_t : std::false_type {};
-
     template <typename Tval>
     struct has_deref_t<Tval, std::void_t<decltype(&Tval::operator*)>> : std::is_same<std::true_type, std::true_type>
     {};
-
     template <typename, typename = void>
     struct has_arrow_t : std::false_type {};
-
     template <typename Tval>
     struct has_arrow_t<Tval, std::void_t<decltype(&Tval::operator->)>> : std::is_same<std::true_type, std::true_type>
     {};
-
     template <typename, typename = void>
     struct has_get_t : std::false_type {};
-
     template <typename Tval>
     struct has_get_t<Tval, std::void_t<decltype(&Tval::get)>> : std::is_same<std::true_type, std::true_type>
     {};
-
 public:
     using copy_t = std::integral_constant<bool, Tcopy>;
     using read_t = std::integral_constant<bool, Tread>;
@@ -278,51 +259,41 @@ public:
         values_equal<func_t::value, false, std::true_type>
     >::type;
     using iselem_pointer_t = values_equal<std::is_pointer<element_type_t>::value || std::is_array<element_type_t>::value, true, std::true_type>;
-
 private:
     using iswriteable_func_t = typename std::conjunction<
         values_equal<std::is_reference<func_ret_t>::value, true, std::true_type>,
         values_equal<std::is_const<func_ret_t>::value, false, std::true_type>
     >::type;
-
     static_assert(shared_t::value || !(copy_t::value && !read_t::value), "Internal error: Trying to form copy-write edge on a non-shared variable.");
     static_assert(!lockie_t::value || !copy_t::value, "Internal error: Trying to form a copy edge on a to be locked variable.");
-
     using internal_base_t = typename std::disjunction<
         values_equal<func_t::value, true, func_ret_t>,
         values_equal<issmart_t::value, true, base_maybe_const_t>,
         values_equal<ispointer_t::value, true, base_t>,
         default_type<value_type_t>
     >::type;
-
     using internal_base_ptr_t = typename std::disjunction<
         default_type<internal_base_t*>
     >::type;
-
     using internal_copy_ptr_t = typename std::disjunction<
         values_equal<func_t::value, true, func_ret_t*>,
         values_equal<issmart_t::value || deref_t::value, true, element_type_t*>,
         default_type<base_t*>
     >::type;
-
     using holder_t = typename std::disjunction<
-        values_equal<issmart_t::value, true, cv::Ptr<base_t>>,
+        values_equal<issmart_t::value, true, Ptr<base_t>>,
         values_equal<func_t::value, true, base_t>,
         default_type<nullptr_t>
     >::type;
-
-    cv::Ptr<Plan> plan_;
+    Ptr<Plan> plan_;
     internal_base_ptr_t ptr_ = nullptr;
     internal_copy_ptr_t copyPtr_ = nullptr;
     holder_t holder_ = nullptr;
-
-    Edge(cv::Ptr<Plan> plan) : plan_(plan) {
+    Edge(Ptr<Plan> plan) : plan_(plan) {
     }
-
 public:
     virtual ~Edge() {
     }
-
     using pass_t = typename std::disjunction<
         values_equal<func_t::value, true, base_t>,
         values_equal<byvalue_t::value, true, base_t>,
@@ -331,7 +302,6 @@ public:
         values_equal<ispointer_t::value, true, internal_base_ptr_t>,
         default_type<value_type_t&>
     >::type;
-
     using ref_t = typename std::disjunction<
         values_equal<deref_t::value && iselem_pointer_t::value, true, Tbase>,
         values_equal<deref_t::value, true, Tbase&>,
@@ -339,30 +309,27 @@ public:
         values_equal<ispointer_t::value, true, internal_base_ptr_t>,
         default_type<internal_base_t&>
     >::type;
-
-    static Edge make(cv::Ptr<Plan> plan, pass_t t) {
+    static Edge make(Ptr<Plan> plan, pass_t t) {
         Edge e(plan);
         e.set(t);
         return e;
     }
-
-    virtual cv::Ptr<Plan> plan() const {
+    virtual Ptr<Plan> plan() const {
         return plan_;
     }
-
     Edge clone() const {
         return *this;
     }
-
     void set(pass_t t) {
         if constexpr(issmart_t::value && byvalue_t::value) {
             holder_ = new base_t(t);
         } else if constexpr(issmart_t::value) {
-            holder_ = &t;
+            /* Form a non-owning alias of the referenced smart pointer: the
+             * referenced object keeps its original owner. */
+            holder_ = holder_t(holder_t(), &t);
         } else if constexpr(deref_t::value || func_t::value) {
             holder_ = t;
         }
-
         if constexpr(func_t::value && read_t::value) {
             ptr_ = new internal_base_t();
         } else if constexpr(ispointer_t::value) {
@@ -376,12 +343,10 @@ public:
         } else {
             ptr_ = &t;
         }
-
         if constexpr(copy_t::value) {
             copyPtr_ = new typename std::remove_pointer<internal_copy_ptr_t>::type();
         }
     }
-
     internal_base_ptr_t ptr() {
         if constexpr(func_t::value) {
             if constexpr(!read_t::value) {
@@ -390,10 +355,9 @@ public:
                 *ptr_ = holder_.operator()();
             }
         }
-        CV_Assert(ptr_ != nullptr);
+        PLAN_Assert(ptr_ != nullptr);
         return ptr_;
     }
-
     size_t id() {
         if constexpr(deref_t::value) {
             return reinterpret_cast<size_t>(&holder_);
@@ -401,7 +365,6 @@ public:
             return reinterpret_cast<size_t>(ptr());
         }
     }
-
     ref_t ref() {
         if constexpr(!copy_t::value) {
             if constexpr(ispointer_t::value) {
@@ -431,7 +394,6 @@ public:
             }
         }
     }
-
     void copyBack() {
         if constexpr(!read_t::value && (copy_t::value || iswriteable_func_t::value)) {
             if constexpr(shared_t::value) {
@@ -441,44 +403,35 @@ public:
             }
         }
     }
-
     std::mutex& getMutex() {
         static_assert(lockie_t::value, "Internal Error: Trying to get mutex from a non-lockie edge");
         return *GlobalState::shared_vars().getMutexPtr(*ptr(), true);
     }
-
     bool tryLock() {
         return getMutex().try_lock();
     }
-
     bool unlock() {
         getMutex().unlock();
         return true;
     }
-
     template<typename ... Edges>
     auto operator=(const std::tuple<Edges...>& tuple){
         return Operation::op<ASSIGN_>(tuple);
     }
-
     template<typename Tedge>
     auto operator=(const Tedge& rhs){
         return operator=(std::make_tuple(*this,rhs));
     }
-
     template<typename ... Edges>
     auto operator[](const std::tuple<Edges...>& tuple){
         return Operation::op<IDX_>(tuple);
     }
-
     template<typename Tedge>
     auto operator[](const Tedge& rhs){
         return operator[](std::make_tuple(*this,rhs));
     }
 };
-
 } // namespace detail
-
 struct BranchType {
     enum Enum {
         NONE = 0,
@@ -488,30 +441,26 @@ struct BranchType {
         PARALLEL_ONCE = 8
     };
 };
-
-class CV_EXPORTS Transaction {
+class PLAN_EXPORTS Transaction {
 private:
-    std::function<cv::Ptr<cv::plan::detail::PlanContext>()> ctxCallback_;
+    std::function<Ptr<detail::PlanContext>()> ctxCallback_;
     BranchType::Enum btype_;
-
 public:
-    CV_EXPORTS Transaction();
-    CV_EXPORTS virtual ~Transaction() {}
-    CV_EXPORTS virtual constexpr bool isPredicate() = 0;
-    CV_EXPORTS virtual bool hasLockies() = 0;
-    CV_EXPORTS virtual bool hasCopyBacks()  = 0;
-    CV_EXPORTS virtual void perform() = 0;
-    CV_EXPORTS virtual bool performPredicate() = 0;
-    CV_EXPORTS virtual bool ran() = 0;
-    CV_EXPORTS bool isBranch();
-    CV_EXPORTS void setBranchType(BranchType::Enum btype);
-    CV_EXPORTS BranchType::Enum getBranchType();
-    CV_EXPORTS void setContextCallback(std::function<cv::Ptr<cv::plan::detail::PlanContext>()> ctx);
-    CV_EXPORTS std::function<cv::Ptr<cv::plan::detail::PlanContext>()> getContextCallback();
+    PLAN_EXPORTS Transaction();
+    PLAN_EXPORTS virtual ~Transaction() {}
+    PLAN_EXPORTS virtual constexpr bool isPredicate() = 0;
+    PLAN_EXPORTS virtual bool hasLockies() = 0;
+    PLAN_EXPORTS virtual bool hasCopyBacks()  = 0;
+    PLAN_EXPORTS virtual void perform() = 0;
+    PLAN_EXPORTS virtual bool performPredicate() = 0;
+    PLAN_EXPORTS virtual bool ran() = 0;
+    PLAN_EXPORTS bool isBranch();
+    PLAN_EXPORTS void setBranchType(BranchType::Enum btype);
+    PLAN_EXPORTS BranchType::Enum getBranchType();
+    PLAN_EXPORTS void setContextCallback(std::function<Ptr<detail::PlanContext>()> ctx);
+    PLAN_EXPORTS std::function<Ptr<detail::PlanContext>()> getContextCallback();
 };
-
 namespace detail {
-
 template <typename T>
 auto filter_lockie(T& t) {
     if constexpr(T::lockie_t::value) {
@@ -520,17 +469,14 @@ auto filter_lockie(T& t) {
         return std::tuple<>();
     }
 }
-
 template<typename Tuple, size_t... _Idx>
 auto filter_lockies(Tuple t, std::index_sequence<_Idx...>) {
     return std::tuple_cat(filter_lockie(std::get<_Idx>(t))...);
 }
-
 template<bool TcountContention = false, typename Ttuple, size_t ... Tidx>
 auto make_unique_lock_ptr_tuple(Ttuple& t,  std::index_sequence<Tidx...>) {
     return std::make_tuple(std::unique_lock<std::mutex>(std::get<Tidx>(t).getMutex(), std::defer_lock)...);
 }
-
 template<typename Ttuple, size_t ... Tidx>
 auto perform_lock_from_tuple(Ttuple& t,  std::index_sequence<Tidx...>) {
     constexpr size_t lksz = std::tuple_size<Ttuple>::value;
@@ -540,12 +486,10 @@ auto perform_lock_from_tuple(Ttuple& t,  std::index_sequence<Tidx...>) {
         std::lock(std::get<Tidx>(t)...);
     }
 }
-
 template <bool TcountContention, typename F, typename... Ts>
 class TransactionImpl : public Transaction
 {
     static_assert(sizeof...(Ts) == 0 || (!(std::is_rvalue_reference_v<Ts> && ...)));
-
 private:
     F f;
     std::tuple<Ts...> args_;
@@ -557,7 +501,6 @@ private:
             std::remove_reference_t<Ts>::copy_t::value
             && !std::remove_reference_t<Ts>::read_t::value
         ) && ...);
-
 public:
     template <typename FwdF, typename... FwdTs,
               typename = std::enable_if_t<sizeof...(Ts) == 0 || ((std::is_convertible_v<FwdTs&&, Ts> && ...))>>
@@ -566,14 +509,11 @@ public:
           args_{std::make_tuple(fwdArgs...)},
           ran_(false)
     {}
-
     virtual ~TransactionImpl() override
     {}
-
     virtual bool ran() override {
         return ran_;
     }
-
     template <typename _Fn, typename _Tuple, size_t... _Idx>
     void performImpl(_Fn&& __f, _Tuple&& __t, std::index_sequence<_Idx...> seq) {
         if constexpr(hasLockies_) {
@@ -594,7 +534,6 @@ public:
             }
         }
     }
-
     template <typename _Fn, typename _Tuple, size_t... _Idx>
     constexpr decltype(auto) performImplRet(_Fn&& __f, _Tuple&& __t, std::index_sequence<_Idx...> seq) {
         bool res = false;
@@ -617,7 +556,6 @@ public:
         }
         return res;
     }
-
     virtual void perform() override {
         if constexpr(!predicate_t::value) {
             using _Indices= std::make_index_sequence<std::tuple_size<decltype(args_)>::value>;
@@ -629,7 +567,6 @@ public:
             static_assert(true, "Internal error: Trying to execute a predicate");
         }
     }
-
     virtual bool performPredicate() override {
         if constexpr(predicate_t::value) {
             using _Indices= std::make_index_sequence<std::tuple_size<decltype(args_)>::value>;
@@ -644,41 +581,31 @@ public:
             return false;
         }
     }
-
     virtual bool isPredicate() override {
         return predicate_t::value;
     }
-
     virtual bool hasLockies() override {
         return hasLockies_;
     }
-
     virtual bool hasCopyBacks() override {
         return hasCopyBacks_;
     }
 };
-
 } // namespace detail
-
 struct Node {
     string name_;
     std::set<long> read_deps_;
     std::set<long> write_deps_;
-    cv::Ptr<Transaction> tx_  = nullptr;
-
+    Ptr<Transaction> tx_  = nullptr;
     bool initialized() {
         return tx_;
     }
 };
-
 template <bool TcountContention = false, typename F, typename... Args>
-cv::Ptr<Transaction> make_transaction(F f, Args... args) {
-    return cv::Ptr<Transaction>(new detail::TransactionImpl<TcountContention, std::decay_t<F>, std::remove_cv_t<Args>...>
-                                (f, args...));
+Ptr<Transaction> make_transaction(F f, Args... args) {
+    return Ptr<Transaction>(new detail::TransactionImpl<TcountContention, std::decay_t<F>, std::remove_cv_t<Args>...>
+        (f, args...));
 }
-
 } // namespace plan
 } // namespace cv
-
 #endif /* MODULES_PLAN_INCLUDE_OPENCV2_PLAN_DETAIL_TRANSACTION_HPP_ */
-
