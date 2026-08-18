@@ -13,7 +13,7 @@
 
 #include "framebuffercontext.hpp"
 #include "opencv2/v4d/detail/transaction.hpp"
-#include "../../../third/imgui/imgui.h"
+#include "imgui.h"
 
 struct ImGuiContext;
 namespace cv {

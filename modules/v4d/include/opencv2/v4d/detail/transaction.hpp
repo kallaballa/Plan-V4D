@@ -46,6 +46,8 @@ enum Operators {
 	SHR_,
 	IF_,
 	IDX_,
+	DEREF_,
+	NEG_,
 };
 
 template<Operators Top, typename ... Edges>
@@ -206,6 +208,18 @@ static auto make_operator_func(Tfirst, Args ...) {
 		static_assert(binary, "Invalid number of arguments to IDX");
 		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f[std::get<0>(std::forward_as_tuple(values...))]) {
 			return f[std::get<0>(std::forward_as_tuple(values...))];
+		};
+	} else if constexpr(Top == Operators::DEREF_) {
+		static_assert(binary, "Invalid number of arguments to DEREF");
+		return [](typename Tfirst::ref_t d, typename Args::ref_t ... values) -> decltype(d = (*std::get<0>(std::forward_as_tuple(values...)))) {
+			d = *std::get<0>(std::forward_as_tuple(values...));
+			return d;
+		};
+	} else if constexpr(Top == Operators::NEG_) {
+		static_assert(binary, "Invalid number of arguments to NEG");
+		return [](typename Tfirst::ref_t d, typename Args::ref_t ... values) -> decltype(d = (-std::get<0>(std::forward_as_tuple(values...)))) {
+			d = -std::get<0>(std::forward_as_tuple(values...));
+			return d;
 		};
 	} else {
 		static_assert(true, "Internal Error. Unkown operator value");

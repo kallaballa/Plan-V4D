@@ -1850,6 +1850,16 @@ public:
 		return OP<Operators::SHR_>(edges...);
 	}
 
+	template<typename ... Edges>
+	auto DEREF(Edges&& ... edges){
+		return OP<Operators::DEREF_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto NEG(Edges&& ... edges){
+		return OP<Operators::NEG_>(edges...);
+	}
+
 	template<typename Tfn, typename ... Args>
 	auto F(Tfn src, Args&& ... args) {
 		return make_op(src, args...);

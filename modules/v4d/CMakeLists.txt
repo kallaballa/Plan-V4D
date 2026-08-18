@@ -89,8 +89,9 @@ macro(add_binary_sample sample source)
     target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
     if(OPENCV_V4D_ENABLE_BGFX)
       set(BGFX_INC_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
+
     endif()
-    ocv_target_include_directories(${sample} PRIVATE "${CMAKE_HOME_DIRECTORY}/modules/core/include" "${CMAKE_HOME_DIRECTORY}/modules/imgproc/include" "${CMAKE_HOME_DIRECTORY}/modules/video/include" "${CMAKE_HOME_DIRECTORY}/modules/videoio/include" "${CMAKE_HOME_DIRECTORY}/modules/dnn/include" "${V4D_MODULES_DIR}/plot/include"  "${V4D_MODULES_DIR}/tracking/include"  "${CMAKE_HOME_DIRECTORY}/modules/objdetect/include" "${CMAKE_HOME_DIRECTORY}/modules/stitching/include" "${CMAKE_HOME_DIRECTORY}/modules/imgcodecs/include" "${CMAKE_HOME_DIRECTORY}/modules/highgui/include" "${CMAKE_CURRENT_SOURCE_DIR}/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/" "${V4D_MODULES_DIR}/face/include" "${CMAKE_HOME_DIRECTORY}/modules/features2d/include" "${CMAKE_HOME_DIRECTORY}/modules/flann/include" "${V4D_MODULES_DIR}/optflow/include" ${BGFX_INC_DIRS})
+    ocv_target_include_directories(${sample} PRIVATE "${CMAKE_HOME_DIRECTORY}/modules/core/include" "${CMAKE_HOME_DIRECTORY}/modules/imgproc/include" "${CMAKE_HOME_DIRECTORY}/modules/video/include" "${CMAKE_HOME_DIRECTORY}/modules/videoio/include" "${CMAKE_HOME_DIRECTORY}/modules/dnn/include" "${V4D_MODULES_DIR}/plot/include"  "${V4D_MODULES_DIR}/tracking/include"  "${CMAKE_HOME_DIRECTORY}/modules/objdetect/include" "${CMAKE_HOME_DIRECTORY}/modules/stitching/include" "${CMAKE_HOME_DIRECTORY}/modules/imgcodecs/include" "${CMAKE_HOME_DIRECTORY}/modules/highgui/include" "${CMAKE_CURRENT_SOURCE_DIR}/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/" "${V4D_MODULES_DIR}/face/include" "${CMAKE_HOME_DIRECTORY}/modules/features2d/include" "${CMAKE_HOME_DIRECTORY}/modules/flann/include" "${V4D_MODULES_DIR}/optflow/include" ${BGFX_INC_DIRS} "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/")
     #  endif()
 endmacro()
   
@@ -221,10 +222,6 @@ if(NOT (TARGET ${the_module}))
 
   #Add sample targets
   if(BUILD_EXAMPLES)
-      add_binary_sample(example_v4d_fibonacci samples/fibonacci.cpp)
-      add_binary_sample(example_v4d_conway samples/conway.cpp)
-      add_binary_sample(example_v4d_mandelbrot samples/mandelbrot.cpp)
-      add_binary_sample(example_v4d_input samples/input.cpp)
       add_binary_sample(example_v4d_display_image_fb samples/display_image_fb.cpp)
       add_binary_sample(example_v4d_display_image_nvg samples/display_image_nvg.cpp)
       add_binary_sample(example_v4d_vector_graphics samples/vector_graphics.cpp)
