@@ -1740,6 +1740,11 @@ public:
 	}
 
 	template<typename ... Edges>
+	auto ADD(Edges&& ... edges){
+		return OP<Operators::ADD_>(edges...);
+	}
+
+	template<typename ... Edges>
 	auto SUB(Edges&& ... edges){
 		return OP<Operators::SUB_>(edges...);
 	}
@@ -1853,6 +1858,11 @@ public:
 	template<typename ... Edges>
 	auto DEREF(Edges&& ... edges){
 		return OP<Operators::DEREF_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto IDX(Edges&& ... edges){
+		return OP<Operators::IDX_>(edges...);
 	}
 
 	template<typename ... Edges>
@@ -2580,7 +2590,7 @@ auto operator&(const TedgeL& lhs, const Plan::Event<T>& rhs){
 
 template<typename TedgeL, typename ... Edges>
 auto operator|(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
-	return Operation::op<BAND_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+	return Operation::op<BOR_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
 }
 
 template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
