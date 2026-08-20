@@ -9,8 +9,6 @@ OCV_OPTION(OPENCV_V4D_ENABLE_BGFX "Enable bgfx for V4D" OFF
 OCV_OPTION(OPENCV_V4D_ENABLE_MALI "Enable mali gpu support for V4D" OFF
   VERIFY HAVE_OPENGL)
 
-set(V4D_MODULES_DIR ${opencv_v4d_SOURCE_DIR}/../)
-
 if(OPENCV_V4D_ENABLE_BGFX)
     add_definitions(-DOPENCV_V4D_ENABLE_BGFX=1)
 endif()
@@ -52,6 +50,8 @@ endif()
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/")
     message(FATAL_ERROR "The submodules were not downloaded! GIT_SUBMODULE was turned off or failed. Please update submodules and try again.")
 endif()
+
+set(V4D_MODULES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../")
 
 # Macro to download a file
 macro(fetch_file download_name url hash)
@@ -146,9 +146,9 @@ if (NOT (TARGET nanovg))
 # Add the opencv module
 if(NOT (TARGET ${the_module}))
   if(BUILD_EXAMPLES)
-     ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs glfw nanovg)
+     ocv_add_module(plan-v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs glfw nanovg)
   else()
-     ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video)
+     ocv_add_module(plan-v4d opencv_core opencv_imgproc opencv_videoio opencv_video)
   endif()
 
   file(GLOB imgui_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/imguicontext.cpp")
