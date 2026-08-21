@@ -7,13 +7,13 @@ intermediate representations — most notably LLVM IR — onto Plan-DSL.
 
 The DSL is not a text language. It is a set of C++ *functions, operators and macros*
 invoked from inside the `infer()` / `setup()` / `teardown()` methods of a class that
-inherits from `cv::v4d::Plan`. Every call records a **task node** and its **data
+inherits from `cv::plan::Plan`. Every call records a **task node** and its **data
 dependencies** at (compile-time-typed) runtime; the recorded accesses are then compiled
 into a *directed acyclic graph* (DAG) that is executed every frame/iteration by a pool of
 worker threads.
 
-All API entities live in namespace `cv::v4d` (aliased to `using namespace cv::v4d;` in
-samples). Header: `<opencv2/v4d/v4d.hpp>`.
+All API entities live in namespace `cv::plan` (aliased to `using namespace cv::plan;` in
+samples). Headers: `<opencv2/plan/plan.hpp>` (DSL) and `<opencv2/v4d/v4d.hpp>` (graphics engine).
 
 ---
 
@@ -233,7 +233,7 @@ that lives inside its address range) in the global shared-variable table, attach
 ## 3. Operator Instructions (ALU / memory ops)
 
 Operators are dispatched via the `Operators` enum
-(`cv::v4d::detail::Operators`, in `transaction.hpp`) and are applied in four ways:
+(`cv::plan::detail::Operators`, in `transaction.hpp`) and are applied in four ways:
 
 1. **Symbol form** — C++ operator overloads: `a + b`, `a % b`, `!b`, `b[i]`, `x = y`, ...
 2. **Named form** — member functions on `Plan`: `ADD(a, b)`, `MOD(a, b)`, `NEG(dst, x)`, ...
@@ -570,6 +570,6 @@ callable setters (`set(key, fn, args...)` computing the value from edges).
 | NEG | `NEG_` | 2 | — | `NEG` | `op<NEG_>` |
 
 Source locations: opcode enum `detail::Operators` in
-`modules/v4d/include/opencv2/v4d/detail/transaction.hpp`; operator implementations in
+`modules/plan/include/opencv2/plan/detail/transaction.hpp`; operator implementations in
 `make_operator_func` (same file); symbol/named forms in
-`modules/v4d/include/opencv2/v4d/v4d.hpp`.
+`modules/v4d/include/opencv2/v4d/v4d.hpp` and `modules/plan/include/opencv2/plan/detail/transaction.hpp`.

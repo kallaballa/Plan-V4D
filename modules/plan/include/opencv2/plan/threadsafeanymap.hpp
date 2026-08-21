@@ -1,10 +1,16 @@
 #ifndef OPENCV_PLAN_THREADSAFEANYMAP_HPP_
 #define OPENCV_PLAN_THREADSAFEANYMAP_HPP_
 
+#include <opencv2/core.hpp>
 #include <any>
 #include <vector>
 #include <mutex>
 #include <shared_mutex>
+#include <string>
+#include <functional>
+#include <typeinfo>
+#include <memory>
+#include <cstring>
 #ifdef __GNUG__
 #include <cxxabi.h>
 #endif
