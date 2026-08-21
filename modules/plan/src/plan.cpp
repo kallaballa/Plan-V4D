@@ -31,11 +31,11 @@ BranchType::Enum Transaction::getBranchType() {
 	return btype_;
 }
 
-void Transaction::setContextCallback(std::function<cv::Ptr<cv::plan::detail::V4DContext>()> cb) {
+void Transaction::setContextCallback(std::function<cv::Ptr<cv::plan::detail::PlanContext>()> cb) {
 	ctxCallback_ = cb;
 }
 
-std::function<cv::Ptr<cv::plan::detail::V4DContext>()> Transaction::getContextCallback() {
+std::function<cv::Ptr<cv::plan::detail::PlanContext>()> Transaction::getContextCallback() {
 	return ctxCallback_;
 }
 

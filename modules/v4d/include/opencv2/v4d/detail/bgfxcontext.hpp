@@ -83,7 +83,7 @@ bgfx::ProgramHandle load_program(const char* _vsName, const char* _fsName);
 }
 namespace detail {
 
-class CV_EXPORTS BgfxContext : public cv::plan::detail::V4DContext {
+class CV_EXPORTS BgfxContext : public cv::plan::detail::PlanContext {
 	cv::Ptr<FrameBufferContext> mainFbContext_;
 	cv::Ptr<FrameBufferContext> bgfxContext_;
 public:

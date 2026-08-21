@@ -85,14 +85,14 @@ public:
 
 	// Context accessors - implemented by V4D
 	virtual cv::Ptr<detail::PlainContext> plainCtx() = 0;
-	virtual cv::Ptr<detail::V4DContext> glCtx(int32_t idx = 0) = 0;
-	virtual cv::Ptr<detail::V4DContext> fbCtx() = 0;
-	virtual cv::Ptr<detail::V4DContext> nvgCtx() = 0;
-	virtual cv::Ptr<detail::V4DContext> bgfxCtx() = 0;
-	virtual cv::Ptr<detail::V4DContext> extCtx(int32_t idx = 0) = 0;
-	virtual cv::Ptr<detail::V4DContext> sourceCtx() = 0;
-	virtual cv::Ptr<detail::V4DContext> sinkCtx() = 0;
-	virtual cv::Ptr<detail::V4DContext> imguiCtx() = 0;
+	virtual cv::Ptr<detail::PlanContext> glCtx(int32_t idx = 0) = 0;
+	virtual cv::Ptr<detail::PlanContext> fbCtx() = 0;
+	virtual cv::Ptr<detail::PlanContext> nvgCtx() = 0;
+	virtual cv::Ptr<detail::PlanContext> bgfxCtx() = 0;
+	virtual cv::Ptr<detail::PlanContext> extCtx(int32_t idx = 0) = 0;
+	virtual cv::Ptr<detail::PlanContext> sourceCtx() = 0;
+	virtual cv::Ptr<detail::PlanContext> sinkCtx() = 0;
+	virtual cv::Ptr<detail::PlanContext> imguiCtx() = 0;
 
 	virtual bool hasPlainCtx() = 0;
 	virtual bool hasGlCtx(uint32_t idx = 0) = 0;
@@ -145,7 +145,7 @@ protected:
     }
 
     template<typename Tfn, typename ...Args>
-    void add_transaction(std::function<cv::Ptr<V4DContext>()> ctxCb, string txID, Tfn fn, Args ...args) {
+    void add_transaction(std::function<cv::Ptr<PlanContext>()> ctxCb, string txID, Tfn fn, Args ...args) {
 		auto tx = make_transaction(fn, args...);
 		tx->setContextCallback(ctxCb);
 		tx->setBranchType(BranchType::NONE);
@@ -153,7 +153,7 @@ protected:
     }
 
     template<typename Tfn, typename ...Args>
-    void add_transaction(BranchType::Enum btype, std::function<cv::Ptr<V4DContext>()> ctxCb, string txID, Tfn fn, Args ...args) {
+    void add_transaction(BranchType::Enum btype, std::function<cv::Ptr<PlanContext>()> ctxCb, string txID, Tfn fn, Args ...args) {
 		auto tx = make_transaction(fn, args...);
 		tx->setContextCallback(ctxCb);
 		tx->setBranchType(btype);
@@ -161,12 +161,12 @@ protected:
     }
 
     template<typename Tfn, typename ...Args>
-    void add_transaction(cv::Ptr<V4DContext> ctx, const string& txID, Tfn fn, Args ...args) {
+    void add_transaction(cv::Ptr<PlanContext> ctx, const string& txID, Tfn fn, Args ...args) {
     	this->add_transaction([ctx](){ return ctx; }, txID, fn, args...);
     }
 
     template<typename Tfn, typename ...Args>
-    void add_transaction(BranchType::Enum btype, cv::Ptr<V4DContext> ctx, const string& txID, Tfn fn, Args ...args) {
+    void add_transaction(BranchType::Enum btype, cv::Ptr<PlanContext> ctx, const string& txID, Tfn fn, Args ...args) {
     	this->add_transaction(btype, [ctx](){ return ctx; }, txID, fn, args...);
     }
 

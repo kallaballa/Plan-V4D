@@ -111,27 +111,27 @@ std::string V4D::title() const {
     return mainFbContext_->title_;
 }
 
-cv::Ptr<cv::plan::detail::V4DContext> V4D::fbCtx() {
+cv::Ptr<cv::plan::detail::PlanContext> V4D::fbCtx() {
     assert(mainFbContext_ != nullptr);
     return mainFbContext_;
 }
 
-cv::Ptr<cv::plan::detail::V4DContext> V4D::sourceCtx() {
+cv::Ptr<cv::plan::detail::PlanContext> V4D::sourceCtx() {
     assert(sourceContext_ != nullptr);
     return sourceContext_;
 }
 
-cv::Ptr<cv::plan::detail::V4DContext> V4D::sinkCtx() {
+cv::Ptr<cv::plan::detail::PlanContext> V4D::sinkCtx() {
     assert(sinkContext_ != nullptr);
     return sinkContext_;
 }
 
-cv::Ptr<cv::plan::detail::V4DContext> V4D::nvgCtx() {
+cv::Ptr<cv::plan::detail::PlanContext> V4D::nvgCtx() {
     assert(nvgContext_ != nullptr);
     return nvgContext_;
 }
 
-cv::Ptr<cv::plan::detail::V4DContext> V4D::bgfxCtx() {
+cv::Ptr<cv::plan::detail::PlanContext> V4D::bgfxCtx() {
     assert(bgfxContext_ != nullptr);
     return bgfxContext_;
 }
@@ -141,12 +141,12 @@ cv::Ptr<cv::plan::detail::PlainContext> V4D::plainCtx() {
     return plainContext_;
 }
 
-cv::Ptr<cv::plan::detail::V4DContext> V4D::imguiCtx() {
+cv::Ptr<cv::plan::detail::PlanContext> V4D::imguiCtx() {
     assert(imguiContext_ != nullptr);
     return imguiContext_;
 }
 
-cv::Ptr<cv::plan::detail::V4DContext> V4D::glCtx(int32_t idx) {
+cv::Ptr<cv::plan::detail::PlanContext> V4D::glCtx(int32_t idx) {
     auto it = glContexts_.find(idx);
     if(it != glContexts_.end())
         return (*it).second;
@@ -157,7 +157,7 @@ cv::Ptr<cv::plan::detail::V4DContext> V4D::glCtx(int32_t idx) {
     }
 }
 
-cv::Ptr<cv::plan::detail::V4DContext> V4D::extCtx(int32_t idx) {
+cv::Ptr<cv::plan::detail::PlanContext> V4D::extCtx(int32_t idx) {
     auto it = extContexts_.find(idx);
     if(it != extContexts_.end())
         return (*it).second;

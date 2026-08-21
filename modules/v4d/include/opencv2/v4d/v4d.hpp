@@ -233,14 +233,14 @@ public:
 
     // PlanRuntime implementation (defined in v4d.cpp)
     cv::Ptr<cv::plan::detail::PlainContext> plainCtx() override;
-    cv::Ptr<cv::plan::detail::V4DContext> glCtx(int32_t idx = 0) override;
-    cv::Ptr<cv::plan::detail::V4DContext> fbCtx() override;
-    cv::Ptr<cv::plan::detail::V4DContext> nvgCtx() override;
-    cv::Ptr<cv::plan::detail::V4DContext> bgfxCtx() override;
-    cv::Ptr<cv::plan::detail::V4DContext> extCtx(int32_t idx = 0) override;
-    cv::Ptr<cv::plan::detail::V4DContext> sourceCtx() override;
-    cv::Ptr<cv::plan::detail::V4DContext> sinkCtx() override;
-    cv::Ptr<cv::plan::detail::V4DContext> imguiCtx() override;
+    cv::Ptr<cv::plan::detail::PlanContext> glCtx(int32_t idx = 0) override;
+    cv::Ptr<cv::plan::detail::PlanContext> fbCtx() override;
+    cv::Ptr<cv::plan::detail::PlanContext> nvgCtx() override;
+    cv::Ptr<cv::plan::detail::PlanContext> bgfxCtx() override;
+    cv::Ptr<cv::plan::detail::PlanContext> extCtx(int32_t idx = 0) override;
+    cv::Ptr<cv::plan::detail::PlanContext> sourceCtx() override;
+    cv::Ptr<cv::plan::detail::PlanContext> sinkCtx() override;
+    cv::Ptr<cv::plan::detail::PlanContext> imguiCtx() override;
 
     bool hasPlainCtx() override;
     bool hasGlCtx(uint32_t idx = 0) override;

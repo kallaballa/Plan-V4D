@@ -16,7 +16,7 @@ namespace detail {
 /*!
  * Provides a context for writing to a Sink
  */
-class CV_EXPORTS SinkContext : public cv::plan::detail::V4DContext {
+class CV_EXPORTS SinkContext : public cv::plan::detail::PlanContext {
     friend class cv::v4d::V4D;
     CLExecContext_t context_;
     cv::UMat sinkBuffer_;

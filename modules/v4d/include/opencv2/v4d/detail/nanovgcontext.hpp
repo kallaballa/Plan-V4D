@@ -15,7 +15,7 @@ namespace detail {
 /*!
  * Used to setup a nanovg context
  */
-class CV_EXPORTS NanoVGContext : public cv::plan::detail::V4DContext {
+class CV_EXPORTS NanoVGContext : public cv::plan::detail::PlanContext {
 	cv::Ptr<FrameBufferContext> mainFbContext_;
 	cv::Ptr<FrameBufferContext> nvgFbContext_;
     NVGcontext* context_;

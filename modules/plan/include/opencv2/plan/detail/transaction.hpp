@@ -513,7 +513,7 @@ struct BranchType {
 
 class CV_EXPORTS Transaction {
 private:
-	std::function<cv::Ptr<cv::plan::detail::V4DContext>()> ctxCallback_;
+	std::function<cv::Ptr<cv::plan::detail::PlanContext>()> ctxCallback_;
 	BranchType::Enum btype_;
 public:
 	CV_EXPORTS Transaction();
@@ -529,8 +529,8 @@ public:
 	CV_EXPORTS bool isBranch();
 	CV_EXPORTS void setBranchType(BranchType::Enum btype);
 	CV_EXPORTS BranchType::Enum getBranchType();
-	CV_EXPORTS void setContextCallback(std::function<cv::Ptr<cv::plan::detail::V4DContext>()> ctx);
-	CV_EXPORTS std::function<cv::Ptr<cv::plan::detail::V4DContext>()> getContextCallback();
+	CV_EXPORTS void setContextCallback(std::function<cv::Ptr<cv::plan::detail::PlanContext>()> ctx);
+	CV_EXPORTS std::function<cv::Ptr<cv::plan::detail::PlanContext>()> getContextCallback();
 };
 
 namespace detail {

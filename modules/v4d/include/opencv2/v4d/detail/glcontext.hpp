@@ -14,7 +14,7 @@ namespace detail {
 /*!
  * Used to setup an OpengLG context
  */
-class CV_EXPORTS GLContext : public cv::plan::detail::V4DContext {
+class CV_EXPORTS GLContext : public cv::plan::detail::PlanContext {
 	const int32_t idx_;
     cv::Ptr<FrameBufferContext> mainFbContext_;
     cv::Ptr<FrameBufferContext> glFbContext_;

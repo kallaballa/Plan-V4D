@@ -13,7 +13,11 @@ into a *directed acyclic graph* (DAG) that is executed every frame/iteration by 
 worker threads.
 
 All API entities live in namespace `cv::plan` (aliased to `using namespace cv::plan;` in
-samples). Headers: `<opencv2/plan/plan.hpp>` (DSL) and `<opencv2/v4d/v4d.hpp>` (graphics engine).
+samples). Header: `<opencv2/plan/plan.hpp>`.
+
+This document covers only the Plan-DSL core. Concrete execution contexts and input
+event sources are supplied by a *runtime* that implements the `PlanRuntime` interface
+(such as V4D); runtime-specific extensions are explicitly marked as such below.
 
 ---
 
@@ -28,10 +32,11 @@ A `Plan` subclass describes, in its three lifecycle methods, how data flows:
 | `setup()` | Build the initialization pipeline (alloca-like, one-shot)        | once per worker |
 | `infer()` | Build the per-iteration pipeline (the "kernel"/main body)        | re-built every frame |
 | `teardown()` | Build the shutdown pipeline (free, one-shot)                  | once per worker |
-| `gui()`   | Immediate-mode GUI code (ImGui), runs on the display thread      | per frame |
+| `gui()`   | optional UI hook; only invoked if the runtime provides a GUI     | per frame |
 
-`Plan::run<PlanT>(workers)` instantiates the plan, starts `workers` worker threads
-(each of which builds and runs the full graph), and enters the display loop.
+`Plan::make<Tplan>(args...)` instantiates a plan. Starting the worker pool and driving
+the per-iteration graph execution is the runtime's job (see §5.3); each worker builds
+and runs the full graph independently.
 
 ### 1.2 Edges are operands (SSA values)
 
@@ -157,13 +162,14 @@ produces a private copy. The result is a new value (like a load that snapshots).
 ### 2.7 `P<T>(key)` — runtime property
 
 ```cpp
-template<typename Tval> Property<Tval> P(V4D::Keys::Enum key)        // runtime property
 template<typename Tval> Property<Tval> P(LocalState::Keys::Enum key) // per-thread state
 template<typename Tval> Property<Tval> P(GlobalState::Keys::Enum key)// global state
 ```
 A property edge is a *shared, read-only* edge (`Edge<const T, false, true, true>`) bound
-to a named runtime value. `V4D::Keys` contains `SIZE`, `VIEWPORT`, `CLEAR_COLOR`,
-`NAMESPACE`, `DISABLE_INPUT_EVENTS`, etc.
+to a named value in the global/per-thread state tables (`GlobalState`/`LocalState` in
+`util.hpp`). Core keys are `FRAME_CNT`, `RUN_CNT`, `FPS`, ... (global) and
+`WORKER_INDEX` (per-thread). A runtime may register additional key sets and provide a
+matching `P` overload (e.g. V4D adds `V4D::Keys` with `SIZE`, `VIEWPORT`, ...).
 
 - LLVM equivalent: reading a **global variable** (`@global`) or a fixed runtime feature
   register.
@@ -175,8 +181,11 @@ template<typename Tclass> Event<Tclass> E()                     // all events
 template<typename Tclass> Event<Tclass> E(Tclass::Type t)       // events of a type
 template<typename Tclass> Event<Tclass> E(Tclass::Type t, Ttrigger tr) // type + trigger
 ```
-An edge that produces a `std::vector<std::shared_ptr<Tclass>>` of input events fetched by
-the runtime (`gwe::fetch`). `Mouse`, `Keyboard`, `Window`, `Joystick` are predefined.
+An edge that produces a `std::vector<std::shared_ptr<Tclass>>` of input events for the
+iteration. The event class must provide a nested `Type` enum and a `List` container;
+the DSL core itself always produces an empty list — polling actual input devices is the
+job of the runtime, which overrides the fetch callable (V4D does this for its `Mouse`,
+`Keyboard`, `Window`, `Joystick` event classes).
 
 - LLVM equivalent: an **external/volatile input channel**; reading it is a call with
   side effects (the events are polled each iteration).
@@ -377,7 +386,7 @@ endBranch();
   restructured into nested regions; loops are expressed as a `branch` on a predicate
   that is updated by the loop body (the graph is re-evaluated each iteration, so a
   "while" is naturally a predicated region whose predicate reads a value written by
-  the region body — see tutorial `11-video`).
+  the region body — see the video-editing example in `modules/v4d/samples/video_editing.cpp`).
 
 ### 4.4 Branch types (`BranchType::Enum`)
 
@@ -431,31 +440,36 @@ Context calls attach a node to a **context** (a specialized execution environmen
 are the "peripheral instructions" of the ISA. The function is invoked inside that
 context on the appropriate thread/device.
 
+The DSL core defines exactly one context — the **plain/CPU context** — and one generic
+attachment mechanism:
+
 | Call | Context | Purpose |
 |------|---------|---------|
 | `plain(fn, args...)` | CPU | general-purpose code (default for operators) |
 | `F(fn, args...)` | CPU | external function call (see §2.9) |
-| `gl(fn, args...)` | OpenGL | raw GL commands; `gl(idx, ...)` selects a context |
-| `gl<Tedge>(idxEdge, fn, args...)` | OpenGL | context selected by an edge's value |
-| `fb(fn, args...)` | framebuffer | operate on the display framebuffer (`cv::UMat`) |
-| `nvg(fn, args...)` | NanoVG | 2D vector graphics / text |
-| `bgfx(fn, args...)` | bgfx | bgfx rendering API |
-| `imgui(fn, args...)` | Dear ImGui | immediate-mode GUI |
-| `capture(fn, args...)` | source | read from the video source |
-| `write(fn, args...)` | sink | write to the video sink |
-| `ext(fn, args...)` | external | custom context, `ext(idx, ...)` for specific index |
-| `clear()` | OpenGL | clear the framebuffer to `V4D::Keys::CLEAR_COLOR` |
-| `set(key, valueEdge)` | runtime | write a runtime property (`V4D::set`) |
+
+Both are thin wrappers over the protected helper `add_transaction(ctx, id, fn, args...)`,
+which binds a node to any context handed out by the `PlanRuntime` interface
+(`plainCtx()`, `glCtx(i)`, `fbCtx()`, `nvgCtx()`, `bgfxCtx()`, `extCtx(i)`,
+`sourceCtx()`, `sinkCtx()`, `imguiCtx()`). The public form `call(ctx, name, fn, args)`
+records a node on an arbitrary context.
 
 All of these return `cv::Ptr<Plan>`, so they can be chained: `branch(...)->plain(...)->endBranch()`.
+
+> **Runtime extensions.** A concrete runtime maps further contexts onto this mechanism.
+> V4D, for example, adds the named calls `gl`/`fb`/`nvg`/`bgfx`/`imgui`/`capture`/
+> `write`/`ext`/`clear`/`set` (raw GL, framebuffer access, 2D vector graphics, GUI,
+> video source/sink, custom contexts, property writes). Those belong to the runtime's
+> documentation and are not part of the Plan-DSL contract.
 
 ### 5.3 Entry points
 
 ```cpp
 static cv::Ptr<Tplan> Plan::make<Tplan>(args...)         // instantiate + register size
-static void          Plan::run<Tplan>(int32_t workers, args...)
 ```
-`Plan::run` with `workers` from the command line: `-1`/`0`/`>0` (auto/off/main-only+workers).
+The core DSL provides instantiation only. Starting workers and executing the recorded
+graph each iteration is the runtime's responsibility (e.g. V4D's
+`V4DPlan::run<Tplan>(workers, ...)`, which also enters the display loop).
 
 ---
 
@@ -466,12 +480,13 @@ static void          Plan::run<Tplan>(int32_t workers, args...)
 | Plan member variable | plain C++ member; passed as `R`/`RW` | `alloca` slot in the function |
 | Shared (locked) variable | `_shared(x)` then `RS`/`RWS`/`CS` | global with atomic/ordered access |
 | Safe (never-shared) variable | `_safe(x)` | private, thread-local |
-| Runtime property | `V4D::Keys` + `P<T>(key)` + `set(key, edge)` | global variable with runtime callbacks |
+| Named state value | `GlobalState::get/set/create<V>(key)` + `P<T>(key)` | global variable with optional change callback |
 | Per-worker state | `LocalState::Keys::WORKER_INDEX`, `LocalState::get/set` | thread-id-dependent value |
-| Global counters | `GlobalState::Keys::{FRAME_CNT, RUN_CNT, FPS, ...}` | global variables |
 
-`set(key, value)` and `V4D::set(key, value)` support plain values, single edges, and
-callable setters (`set(key, fn, args...)` computing the value from edges).
+`GlobalState::create<V>(key, value, cb)` registers a named value with an optional change
+callback; `GlobalState::set<V>(key, v)` writes it. Edge-bound reads go through
+`P<T>(key)`. (A runtime may layer a node-form property write on top — V4D's
+`set(key, edge)` does exactly that.)
 
 ---
 
@@ -572,4 +587,4 @@ callable setters (`set(key, fn, args...)` computing the value from edges).
 Source locations: opcode enum `detail::Operators` in
 `modules/plan/include/opencv2/plan/detail/transaction.hpp`; operator implementations in
 `make_operator_func` (same file); symbol/named forms in
-`modules/v4d/include/opencv2/v4d/v4d.hpp` and `modules/plan/include/opencv2/plan/detail/transaction.hpp`.
+`modules/plan/include/opencv2/plan/plan.hpp`.

@@ -20,7 +20,7 @@ namespace cv {
 namespace v4d {
 namespace detail {
 
-class CV_EXPORTS ImGuiContextImpl : public cv::plan::detail::V4DContext {
+class CV_EXPORTS ImGuiContextImpl : public cv::plan::detail::PlanContext {
     friend class cv::v4d::V4D;
     cv::Ptr<FrameBufferContext> mainFbContext_;
     inline static ImGuiContext* context_;

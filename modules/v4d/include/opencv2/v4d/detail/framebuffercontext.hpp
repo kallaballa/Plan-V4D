@@ -89,7 +89,7 @@ public:
 /*!
  * The FrameBufferContext acquires the framebuffer from OpenGL (either by up-/download or by cl-gl sharing)
  */
-class CV_EXPORTS FrameBufferContext : public cv::plan::detail::V4DContext {
+class CV_EXPORTS FrameBufferContext : public cv::plan::detail::PlanContext {
     typedef unsigned int GLuint;
     typedef signed int GLint;
 

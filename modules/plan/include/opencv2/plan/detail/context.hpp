@@ -13,13 +13,13 @@ namespace cv {
 namespace plan {
 namespace detail {
 
-class V4DContext {
+class PlanContext {
 public:
-	virtual ~V4DContext() {}
+	virtual ~PlanContext() {}
     virtual int execute(const cv::Rect& vp, std::function<void()> fn) = 0;
 };
 
-class PlainContext : public V4DContext {
+class PlainContext : public PlanContext {
 public:
 	virtual ~PlainContext() {}
     virtual int execute(const cv::Rect& vp, std::function<void()> fn) override {

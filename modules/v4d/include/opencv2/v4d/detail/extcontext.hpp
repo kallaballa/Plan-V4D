@@ -12,7 +12,7 @@ namespace cv {
 namespace v4d {
 namespace detail {
 
-class CV_EXPORTS ExtContext : public cv::plan::detail::V4DContext {
+class CV_EXPORTS ExtContext : public cv::plan::detail::PlanContext {
 	const int32_t idx_;
     cv::Ptr<FrameBufferContext> mainFbContext_;
     cv::Ptr<FrameBufferContext> extFbContext_;
