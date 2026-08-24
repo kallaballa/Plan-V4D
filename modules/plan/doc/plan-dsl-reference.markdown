@@ -19,6 +19,8 @@ This document covers only the Plan-DSL core. Concrete execution contexts and inp
 event sources are supplied by a *runtime* that implements the `PlanRuntime` interface
 (such as V4D); runtime-specific extensions are explicitly marked as such below.
 
+NOTE: Edge-expression chaining is merely syntactic sugar. you can simply use semicolons.
+
 ---
 
 ## 1. Execution Model
@@ -208,7 +210,7 @@ operation without a dedicated operator opcode.
 ```cpp
 constexpr static auto SPLIT_ = _OL_(void, cv::split, cv::InputArray, cv::OutputArrayOfArrays);
 // ...
-plain(F(SPLIT_, R(src), RW(dst)));   // call, no result edge
+F(SPLIT_, R(src), RW(dst));   // call, no result edge
 auto r = F(ROUND_, R(x));            // call, produces result edge r
 ```
 
@@ -445,22 +447,12 @@ attachment mechanism:
 
 | Call | Context | Purpose |
 |------|---------|---------|
-| `plain(fn, args...)` | CPU | general-purpose code (default for operators) |
-| `F(fn, args...)` | CPU | external function call (see §2.9) |
+| `plain(fn, args...)` | CPU | general-purpose code (heavy-weight) |
+| `F(fn, args...)` | CPU | function call (see §2.9) |
 
 Both are thin wrappers over the protected helper `add_transaction(ctx, id, fn, args...)`,
-which binds a node to any context handed out by the `PlanRuntime` interface
-(`plainCtx()`, `glCtx(i)`, `fbCtx()`, `nvgCtx()`, `bgfxCtx()`, `extCtx(i)`,
-`sourceCtx()`, `sinkCtx()`, `imguiCtx()`). The public form `call(ctx, name, fn, args)`
-records a node on an arbitrary context.
 
 All of these return `cv::Ptr<Plan>`, so they can be chained: `branch(...)->plain(...)->endBranch()`.
-
-> **Runtime extensions.** A concrete runtime maps further contexts onto this mechanism.
-> V4D, for example, adds the named calls `gl`/`fb`/`nvg`/`bgfx`/`imgui`/`capture`/
-> `write`/`ext`/`clear`/`set` (raw GL, framebuffer access, 2D vector graphics, GUI,
-> video source/sink, custom contexts, property writes). Those belong to the runtime's
-> documentation and are not part of the Plan-DSL contract.
 
 ### 5.3 Entry points
 
@@ -584,7 +576,3 @@ callback; `GlobalState::set<V>(key, v)` writes it. Edge-bound reads go through
 | DEREF | `DEREF_` | 2 | — | `DEREF` | `op<DEREF_>` |
 | NEG | `NEG_` | 2 | — | `NEG` | `op<NEG_>` |
 
-Source locations: opcode enum `detail::Operators` in
-`modules/plan/include/opencv2/plan/detail/transaction.hpp`; operator implementations in
-`make_operator_func` (same file); symbol/named forms in
-`modules/plan/include/opencv2/plan/plan.hpp`.

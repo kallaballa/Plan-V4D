@@ -1097,13 +1097,14 @@ protected:
 				if(GlobalState::tryUnlockNode(currentState.branchID_)) {
 				}
 			}
-			throw ex;
+			throw;
 		} catch(std::exception& ex) {
+			CV_UNUSED(ex);
 			if(!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
 				if(GlobalState::tryUnlockNode(currentState.branchID_)) {
 				}
 			}
-			throw ex;
+			throw;
 		} catch(...) {
 			if(!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
 				if(GlobalState::tryUnlockNode(currentState.branchID_)) {

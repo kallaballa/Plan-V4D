@@ -376,7 +376,11 @@ public:
 		if constexpr(issmart_t::value && byvalue_t::value) {
 			holder_ = new base_t(t);
 		} else if constexpr(issmart_t::value) {
-			holder_ = &t;
+			// Non-owning alias: `&t` is an interior pointer into storage owned
+			// elsewhere (e.g. the cv::Ptr held by the producing op). Constructing
+			// an owning cv::Ptr over it caused a premature delete of that storage
+			// whenever an edge copy died while transactions still referenced it.
+			holder_ = cv::Ptr<base_t>(cv::Ptr<base_t>(), &t);
 		} else if constexpr(deref_t::value || func_t::value) {
 			holder_ = t;
 		}
