@@ -9,10 +9,10 @@ The DSL is not a text language. It is a set of C++ *functions, operators and mac
 invoked from inside the `infer()` / `setup()` / `teardown()` methods of a class that
 inherits from `cv::plan::Plan`. Every call records a **task node** and its **data
 dependencies** at (compile-time-typed) runtime; the recorded accesses are then compiled
-into a *directed acyclic graph* (DAG) that is executed every frame/iteration by a pool of
-worker threads. The graph is **built once** per worker (via `makeGraph()`) and then the
-same graph is **re-executed every frame** (via `runGraph()`), with branch predicates
-re-evaluated each iteration.
+into a flat task-node list that is re-executed every frame/iteration by a set of worker
+threads (one independent graph copy per worker). The graph is **built once** per worker
+(via `makeGraph()`) and then the same graph is **re-executed every frame** (via
+`runGraph()`), with branch predicates re-evaluated each iteration.
 
 All API entities live in namespace `cv::plan` (aliased to `using namespace cv::plan;` in
 samples). Header: `<opencv2/plan/plan.hpp>`.
@@ -21,7 +21,8 @@ This document covers only the Plan-DSL core. Concrete execution contexts and inp
 event sources are supplied by a *runtime* that implements the `PlanRuntime` interface
 (such as V4D); runtime-specific extensions are explicitly marked as such below.
 
-NOTE: Edge-expression chaining is merely syntactic sugar. you can simply use semicolons.
+NOTE: Edge-expression chaining is merely syntactic sugar; plain semicolon-separated
+statements work as well.
 
 ---
 
@@ -33,10 +34,10 @@ A `Plan` subclass describes, in its three lifecycle methods, how data flows:
 
 | Method    | Purpose                                                          | Runs |
 |-----------|------------------------------------------------------------------|------|
-| `setup()` | Build the initialization pipeline (alloca-like, one-shot)        | once per worker (see §1.5) |
-| `infer()` | Define the per-iteration pipeline (the "kernel"/main body)       | once per worker (see §1.5) |
-| `teardown()` | Build the shutdown pipeline (free, one-shot)                  | once per worker (see §1.5) |
-| `gui()`   | optional UI hook; only invoked if the runtime provides a GUI     | per frame |
+| `setup()` | Build the initialization pipeline (alloca-like, one-shot)        | once per worker thread (see §1.5) |
+| `infer()` | Define the per-iteration pipeline (the "kernel"/main body)       | once per worker thread (see §1.5) |
+| `teardown()` | Build the shutdown pipeline (free, one-shot)                  | once per worker thread (see §1.5) |
+| `gui()`   | optional UI hook (e.g. widget/callback setup)                    | once, on the main thread |
 
 The graph is **built once** per worker (by calling `infer()` + `makeGraph()`) and then
 **executed every frame** by calling `runGraph()`. The same `currentNodes_` list is
@@ -46,39 +47,51 @@ false). The graph structure itself is **not** rebuilt between frames.
 
 ### 1.5 `Plan::run` lifecycle
 
-The core DSL provides `Plan::make<Tplan>(args...)` for instantiation. Starting the
-worker pool and driving the per-iteration graph execution is the runtime's job (e.g.
-V4D's `V4DPlan::run<Tplan>(workers, ...)`, which also enters the display loop).
+The core provides `Plan::run<Tplan>(workers, args...)`, which orchestrates the complete
+lifecycle: worker spawning, the setup/infer/teardown graph phases, the startup barrier
+and the frame loop. Runtime specifics are delegated to four `PlanRuntime` hooks:
+`initWorkerThread()`, `willGui()`, `runFrameLoop()` and `releaseIo()`. (V4D's
+`V4DPlan::run` simply forwards to `Plan::run`; entering the display loop happens inside
+its `runFrameLoop()` implementation.)
 
-The complete per-worker lifecycle is:
+Worker-count semantics: `workers == -1` selects a default of **2** worker threads; any
+value `N >= 0` spawns **N + 1** worker threads (so `0` means "one worker plus main").
+Each worker `i` runs the `initWorkerThread(i)` hook, records its `WORKER_INDEX`, and
+then recurses into `Plan::run<Tplan>(0, ...)` on its own thread. The main thread never
+builds a graph; it runs `gui()` once and then participates in the runtime's frame loop
+(V4D's main thread only services the display/event loop).
+
+The complete lifecycle is:
 
 ```
-Plan::run<PlanT>(workers, args...)                    // runtime entry point
+Plan::run<Tplan>(workers, args...)            // core entry point (plan.hpp)
   │
-  ├── spawn worker threads (if workers > 0)
-  │     └── each worker recursively runs independently
+  ├── init GlobalState/LocalState keys
+  ├── plan = Plan::make<Tplan>(args...); attach runtime (PlanRuntime::current())
   │
-  └── per-worker execution:
-        plan->setup()                                 // DSL calls register init ops
-        plan->makeGraph()                             // compile accesses_ → currentNodes_
-        plan->runGraph()                              // execute setup graph (once)
-        plan->clearGraph()                            // reset for main graph
-
-        plan->infer()                                 // DSL calls register per-iteration ops
-        plan->makeGraph()                             // compile accesses_ → currentNodes_
-
-        barrier.wait()                                // all workers synchronize
-
-        // frame loop:
-        while (keep_running()) {
-            plan->runGraph()                          // re-execute the same graph
-        }
-
-        // teardown:
-        plan->teardown()
-        plan->makeGraph()
-        plan->runGraph()
-        plan->clearGraph()
+  ├── main thread spawns worker threads (see count semantics above)
+  │
+  ├── main thread                      ║  each worker thread
+  │     willGui(plan); gui();          ║    setup()   -> makeGraph() -> runGraph()
+  │                                    ║               -> clearGraph()
+  │                                    ║    (worker setup phases are serialized
+  │                                    ║     against each other by a semaphore)
+  │                                    ║    infer()   -> makeGraph()
+  │                                    ║    WORKERS_READY += 1
+  │
+  ├── barrier (workers + 1 participants arrive_and_wait)
+  │
+  ├── runtime->runFrameLoop(frameFn)   // frameFn == plan->runGraph()
+  │      main thread: display/event loop (V4D)
+  │      worker threads: frameFn() once per frame,
+  │      until the runtime ends the loop
+  │
+  ├── worker threads (teardown):
+  │      clearGraph()
+  │      teardown() -> makeGraph() -> runGraph() -> clearGraph()
+  │      releaseIo()
+  │
+  └── main thread: join worker threads; releaseIo()
 ```
 
 Each worker builds and executes its own independent copy of the graph. Workers never
@@ -103,10 +116,14 @@ Edges are created with *edge-calls* (Section 2) and consumed/produced by
 
 ### 1.3 Task nodes
 
-Each recorded call creates a node keyed by a unique id (derived from a hash of the
-callable pointer and the operand identities). `makeGraph()` iterates the recorded
-`accesses_` list and builds a flat `currentNodes_` list, deduplicating nodes that
-share the same id (recording additional dependency edges on the existing node).
+Each DSL call records one access tuple `(node-id, read?, operand-id)` in `accesses_`.
+The node id is a string produced by `make_id()` from the plan's space/name, the callable
+identity (function address or lambda-holder address) and the operand ids/types, made
+unique within one build by appending `+` characters on collision. The operand id is the
+edge's storage identity. `makeGraph()` walks `accesses_` in recording order and appends
+a new node to `currentNodes_` whenever the id differs from the **previous** entry;
+consecutive accesses sharing the same id merge into that node (recording additional
+dependency entries). An id recurring later in the list therefore starts a second node.
 
 Each node records:
 - `read_deps_` — set of operand ids this node reads
@@ -124,12 +141,14 @@ migrates partial iterations between workers.
 
 ### 1.4 Concurrency primitives
 
-- **Shared variables** (registered with `_shared`) get an associated `std::mutex`.
-  A *lockie* edge (`RS`/`RWS`/`CS`) acquires that mutex for the duration of the node's
-  transaction.
+- **Shared variables** (registered with `_shared`) get an associated `std::mutex`
+  (members living inside a registered variable's address range reuse that variable's
+  mutex). A *lockie* edge (`RS`/`RWS`) acquires that mutex for the duration of the
+  node's transaction; a **copy** edge (`CS`) snapshots the value under the same mutex.
 - **Single-branch** regions are protected by a global per-branch lock so that at most
   one worker executes them at a time.
-- **ONCE** regions run at most once (per worker for `PARALLEL_ONCE`).
+- **ONCE** regions run at most once: globally for `ONCE`, per worker for
+  `PARALLEL_ONCE`.
 
 ---
 
@@ -192,6 +211,10 @@ template<typename T> Edge<T, false, true, true> RS(const T& t)
 Read-only access to a **shared** variable. The variable must have been registered with
 `_shared()`. The node locks the variable's mutex for its duration.
 
+`RS`/`RWS` throw `std::runtime_error` if the variable is a plan member that was not
+registered with `_shared()`. Storage outside the plan object (globals, heap objects) is
+implicitly registered as shared on first shared access.
+
 ### 2.5 `RWS(variable)` — read-write shared
 
 ```cpp
@@ -207,6 +230,7 @@ template<typename T> Edge<T, true, true, true> CS(T& t)
 ```
 A thread-safe **copy** of a shared variable. Reads the variable under its mutex and
 produces a private copy. The result is a new value (like a load that snapshots).
+Throws for non-shared variables (see §2.4).
 
 - LLVM equivalent: a **load followed by a copy** — for data that is produced on one
   thread (e.g. GUI) and consumed on another without sharing a live definition.
@@ -236,8 +260,9 @@ template<typename Tclass> Event<Tclass> E(Tclass::Type t, Ttrigger tr) // type +
 An edge that produces a `std::vector<std::shared_ptr<Tclass>>` of input events for the
 iteration. The event class must provide a nested `Type` enum and a `List` container;
 the DSL core itself always produces an empty list — polling actual input devices is the
-job of the runtime, which overrides the fetch callable (V4D does this for its `Mouse`,
-`Keyboard`, `Window`, `Joystick` event classes).
+job of the runtime, which overrides the fetch callable (V4D's `V4DPlan::Event` fetches
+from the `gwe` event queues each iteration unless `V4D::Keys::DISABLE_INPUT_EVENTS` is
+set; event classes are `Mouse`, `Keyboard`, `Window`, `Joystick`).
 
 - LLVM equivalent: an **external/volatile input channel**; reading it is a call with
   side effects (the events are polled each iteration).
@@ -245,7 +270,7 @@ job of the runtime, which overrides the fetch callable (V4D does this for its `M
 ### 2.9 `F(fn, args...)` — call / external function
 
 ```cpp
-template<typename Tfn, typename ... Args> auto F(Tfn fn, Args&& ... args)
+template<typename Tfn, typename ... Args> auto F(Tfn src, Args&& ... args)
 ```
 Invokes a C++ function/member-function/lambda with the given operand edges. If `fn`
 returns a non-`void` value, `F` returns a new **result edge** (an SSA temporary);
@@ -254,14 +279,14 @@ operation without a dedicated operator opcode.
 
 - LLVM equivalent: **`call`** instruction (with/without a return value). For a
   returning call, the result is a new SSA register.
-- Pointer-to-member casts are produced with the `_OL_`/`_OLM_`/`_OLC_`/`_OLMC_` macros
-  (`static_cast<r (*)(args...)>(fn)` / `static_cast<r (C::*)(args...)>(fn)`).
+- Callables are passed directly — function pointers, member function pointers and
+  lambdas/function objects are all accepted and normalized internally
+  (`wrap_callable`).
 
 ```cpp
-constexpr static auto SPLIT_ = _OL_(void, cv::split, cv::InputArray, cv::OutputArrayOfArrays);
-// ...
-F(SPLIT_, R(src), RW(dst));   // call, no result edge
-auto r = F(ROUND_, R(x));            // call, produces result edge r
+F(&cv::split, R(src), RW(dst));          // free function, no result edge
+auto t = F(&cv::getTickCount);           // call, produces result edge t
+auto w = F(&cv::Size::width, R(sz));     // member function call
 ```
 
 ### 2.10 `_(...)` — operand group / tuple
@@ -317,7 +342,7 @@ Result rules:
 ### 3.1 Arithmetic
 
 | Opcode | Symbol | Named | Arity | Semantics (C++) | LLVM IR |
-|--------|--------|-------|-------|------------------|---------|
+|--------|--------|-------|-------|-----------------|---------|
 | `ADD_` | `+` | `ADD` | n-ary | `a + (b + ...)` | `add` |
 | `SUB_` | `-` | `SUB` | n-ary | `a - (b - ...)` (binary: `a-b`) | `sub` |
 | `MUL_` | `*` | `MUL` | n-ary | `a * (b * ...)` | `mul` |
@@ -405,14 +430,17 @@ nodes inside are executed only when it is true.
 ### 4.1 `branch(...)` — enter a predicated region
 
 ```cpp
-branch(predEdge)                              // predicate is a bool edge (e.g. R(cond))
-branch(fn, args...)                           // predicate is a bool-returning callable
-branch(workerIdx, fn, args...)                // + restrict to one worker (pinned)
-branch(BranchType::Enum type, predEdge)       // + explicit branch type
+branch(predEdge)                                       // bool edge predicate (default: PARALLEL)
+branch(fn)                                             // bool-returning callable
+branch(fn, args...)                                    // callable + operand edges
+branch(workerIdx, fn, args...)                         // + restrict to one worker (pinned)
+branch(workerIdx, BranchType::Enum type, fn, args...)  // pinned + explicit branch type
+branch(BranchType::Enum type, predEdge)                // + explicit branch type
 branch(BranchType::Enum type, fn, args...)
 branch(BranchType::Enum type, workerIdx, fn, args...)
 ```
-Pushes a region onto the branch stack. Returns `cv::Ptr<Plan>` so calls can be chained:
+Pushes a region onto the branch stack. Without an explicit type, `BranchType::PARALLEL`
+is used. Returns `cv::Ptr<Plan>` so calls can be chained:
 `branch(...)->plain(...)->endBranch()`.
 
 ### 4.2 `elseBranch()` — negate the current condition
@@ -468,7 +496,8 @@ or_       (bool, bool)     // a || b
 
 A `Plan` is a program (module). A plan can contain **sub-plans** (like a call to another
 function/module). Sub-plans are created with `_sub` and executed with `subInfer` /
-`subSetup` / `subTeardown`, which splice the sub-plan's graph into the parent:
+`subSetup` / `subTeardown`, which record the sub-plan's graph and splice its accesses
+and transactions into the parent:
 
 ```cpp
 template<typename TsubPlan, typename Tparent, typename ... Args>
@@ -500,18 +529,38 @@ attachment mechanism:
 | `plain(fn, args...)` | CPU | general-purpose code (heavy-weight) |
 | `F(fn, args...)` | CPU | function call (see §2.9) |
 
-Both are thin wrappers over the protected helper `add_transaction(ctx, id, fn, args...)`,
+Both are thin wrappers over the protected helper `add_transaction(ctx, id, fn, args...)`.
 
-All of these return `cv::Ptr<Plan>`, so they can be chained: `branch(...)->plain(...)->endBranch()`.
+`plain`, `branch`, `elseBranch` and `endBranch` return `cv::Ptr<Plan>`, so they can be
+chained: `branch(...)->plain(...)->endBranch()`. `F` returns a result edge when the
+callee returns a value.
+
+Runtimes expose additional contexts via the `PlanRuntime` accessors (`glCtx`, `fbCtx`,
+`nvgCtx`, `bgfxCtx`, `extCtx`, `sourceCtx`, `sinkCtx`, `imguiCtx`). **V4D-specific**
+attachment calls (all return `cv::Ptr<V4DPlan>`):
+
+| Call | Context | Purpose |
+|------|---------|---------|
+| `gl(fn, args...)` / `gl(idxEdge, fn, args...)` | GL | raw OpenGL commands (optionally on GL context `idx`) |
+| `fb<pos>(fn, args...)` | FrameBuffer | framebuffer access (fb edge auto-inserted at position `pos`) |
+| `nvg(fn, args...)` | NanoVG | vector graphics |
+| `bgfx(fn, args...)` | Bgfx | bgfx rendering |
+| `ext(fn, args...)` / `ext(idxEdge, fn, args...)` | Ext | external renderer contexts |
+| `capture(fn, args...)` / `capture(edge)` / `capture()` | Source | pull the next input frame |
+| `write(fn, args...)` / `write(edge)` / `write()` | Sink | push the finished frame |
+| `set(key, edge)` | CPU | property write node (fires change callbacks) |
+| `imgui(fn, args...)` | ImGui | installs the transaction into the ImGui context instead of the graph |
 
 ### 5.3 Entry points
 
 ```cpp
-static cv::Ptr<Tplan> Plan::make<Tplan>(args...)         // instantiate + register size
+static cv::Ptr<Tplan> Plan::make<Tplan>(args...)         // instantiate
+static void          Plan::run<Tplan>(workers, args...)  // full lifecycle (see §1.5)
 ```
-The core DSL provides instantiation only. Starting workers and executing the recorded
-graph each iteration is the runtime's responsibility (e.g. V4D's
-`V4DPlan::run<Tplan>(workers, ...)`, which also enters the display loop).
+Instantiation and the complete run lifecycle live in the core; runtime specifics enter
+through the `PlanRuntime` hooks (`initWorkerThread`, `willGui`, `runFrameLoop`,
+`releaseIo`). `V4DPlan::run` forwards to `Plan::run`; `V4DPlan::make` additionally
+publishes the plan namespace (`V4D::Keys::NAMESPACE`).
 
 ---
 
@@ -526,9 +575,9 @@ graph each iteration is the runtime's responsibility (e.g. V4D's
 | Per-worker state | `LocalState::Keys::WORKER_INDEX`, `LocalState::get/set` | thread-id-dependent value |
 
 `GlobalState::create<V>(key, value, cb)` registers a named value with an optional change
-callback; `GlobalState::set<V>(key, v)` writes it. Edge-bound reads go through
-`P<T>(key)`. (A runtime may layer a node-form property write on top — V4D's
-`set(key, edge)` does exactly that.)
+callback; `GlobalState::set<V>(key, v)` writes it and `GlobalState::apply<V>(key, f)`
+updates it atomically. Edge-bound reads go through `P<T>(key)`. (A runtime may layer a
+node-form property write on top — V4D's `set(key, edge)` does exactly that.)
 
 ---
 
@@ -597,7 +646,10 @@ callback; `GlobalState::set<V>(key, v)` writes it. Edge-bound reads go through
 
 When lowering LLVM IR to Plan-DSL, the control-flow graph (CFG) must be translated
 into nested `branch`/`endBranch` regions. The `llvm2plan` compiler uses two
-strategies, selected automatically.
+strategies, selected automatically: **structured lowering** (primary) and the
+**PC state machine** (fallback). Before structuring, the translator inlines defined
+internal calls into the entry function, canonicalizes the IR, and rewrites `switch`
+terminators into equality-comparison diamonds.
 
 #### The fundamental constraint
 
@@ -617,128 +669,112 @@ LLVM's `LoopInfo` and dominator tree. The tree nodes are:
 |-------------|-----------------|
 | **Seq** | Sequential emission of children (no wrapper) |
 | **Block** | One basic block's instructions + PHI contributions to successors |
-| **If** | `branch(cond); then; endBranch(); branch(NOT(cond)); else; endBranch();` |
-| **While** | Arming gate (`PARALLEL_ONCE`), then `branch(run_ && !brk_ && cond_)` loop body |
-| **DoWhile** | Like `While` but first iteration bypasses condition via `start_` flag |
-| **Return** | `assign(RW(ret_), val); assign(RW(returned_), V(true)); request_finish()` |
-| **Break** | PHI writes + `assign(RW(brkN_), V(true))` |
+| **If** | Two independent predicated regions: `branch(cond); then; endBranch(); branch(NOT(cond)); else; endBranch();` (an `elseBranch()` pair is deliberately avoided: the runtime's `[else]` handler flips the stacked branch state without consulting enclosing regions, so a disabled outer construct would still fire the else arm) |
+| **While** | Arming gate (`PARALLEL_ONCE`) sets `runN_` and recomputes `condN_`; the body is guarded by `branch(runN_ && !brkN_ && !returned_ && (startN_ \|\| condN_))`, whose predicate clears `startN_` and latches `failN_` when it fails; `condN_` is recomputed after the body |
+| **DoWhile** | Like `While`, but the first iteration bypasses the condition via `startN_` (set by the arming gate, cleared by the first predicate evaluation) |
+| **Return** | `assign(RW(ret_), val)` (or a plain node for inline constants), then `plain(... RW(returned_) ... r_ = true)`, then `plain([this]() { request_finish(); })` |
+| **Break** | PHI contributions along the break edge + `assign(RW(brkN_), V(true))` |
 | **Unreachable** | `plain([this]() { CV_Assert(false); });` |
+| **Empty** | Phi carrier only: control continues at a join/latch without code (emits the recorded PHI contributions) |
 
-**Loop flags** (per loop N):
+**Loop flags** (per loop N, declared automatically as plan members):
 
 | Flag | Purpose |
 |------|---------|
-| `runN_` | Arming gate: set `true` once by a `PARALLEL_ONCE` region to start the loop |
+| `runN_` | Armed once by the `PARALLEL_ONCE` arming gate to start the loop |
 | `brkN_` | Break flag: set `true` by `Break` region; rest of body skipped this frame |
-| `failN_` | Exit flag: set `true` when predicate fails; gates post-loop continuation |
-| `startN_` | First-iteration bypass (DoWhile): initially `true`, cleared after first body run |
-| `condN_` | Loop condition: recomputed each frame from member-rooted operands |
-| `doneN_` | One-shot latch: gates post-loop straight-line code to run once |
+| `failN_` | Exit flag: latched `true` when the loop predicate fails; opens the post-loop continuation era |
+| `startN_` | First-iteration bypass (DoWhile): initially `false`, set by the arming gate, cleared by every predicate evaluation |
+| `condN_` | Loop condition: recomputed from member-rooted operands before the first test and after each body run |
+| `doneN_` | One-shot latch: gates straight-line statements inside continuation gates to run exactly once |
 
 The structured model generates smaller, cleaner Plan-DSL because it leverages the
-source program's natural nesting. Code between loops chains through continuation gates
-(`failN_ && !doneN_`). Code after loops that may return is guarded by `!returned_`.
+source program's natural nesting. Everything before the first top-level loop is emitted
+inside a `PARALLEL_ONCE` guard (guarded additionally by `!returned_` when the program
+returns). Code between loops chains through a continuation gate `branch(R(failN_))`;
+straight-line statements inside are wrapped in a one-shot latch guarded by
+`!doneN_` (and `!returned_`), which sets `doneN_` after running. Nested loops chain
+through their own gates inside the outer continuation.
 
 **Strengths:** No boot node, no token variables, correct by construction, generates
 the most readable Plan-DSL. Handles all reducible control flow.
 
-**Limitation:** Cannot handle irreducible CFGs (bails to the fallback).
+**Limitation:** Cannot handle irreducible CFGs (bails to the PC state machine, §7.2C,
+printing the structuring bail reason as a diagnostic).
 
-#### B. Legacy token lowering (deprecated)
+#### B. Legacy token lowering (removed)
 
-When structuring fails (irreducible CFG, unsupported shapes), the legacy token model
-was used. It produces one `branch(R(tokN_)) ... endBranch()` region per basic block:
+An earlier design kept one `tokN_` bool per basic block (plus `pendN_` pending flags
+for loop headers) and a complex boot node that transferred tokens each frame. It has
+been **removed** from the translator; the PC state machine (§7.2C) replaced it because
+it needs O(1) state, no boot node and no emission-order assumptions. This subsection is
+kept only as a tombstone for older references.
 
-**Runtime state per block N:**
-- `tokN_` — `bool` member: `true` while control resides in block N this frame
-- `pendN_` — `bool` member (loop headers only): pending back-edge token
+#### C. PC state machine lowering (fallback)
 
-**Frame execution:**
-
-1. **Boot node** (`plain(...)`): runs first each frame:
-   - Frame 0 (`!booted`): `tok0_ = true; booted = true;` (arm entry block)
-   - Frame 1+: transfer pending back-edge tokens to headers, clear all others
-
-2. **One `branch(R(tokN_)) ... endBranch()` per block**
-
-3. **Terminator token writes**: forward edges write `tokS_`, back-edges write `pendS_`
-
-4. **PHI nodes**: member variable assignments at predecessor tail
-
-> **Deprecated.** The token model is being replaced by the PC state machine (§7.2C)
-> because it has structural problems:
->
-> - **O(N) state variables** — one `tokN_` bool per block plus `pendN_` for loop
->   headers. A function with 50 blocks needs 50-100 member variables.
-> - **Complex boot node** — runs every frame, touches every token variable, must know
->   which blocks are loop headers.
-> - **Ordering fragility** — forward-edge token propagation works only because blocks
->   are emitted in reverse-post-order and `runGraph()` iterates sequentially. A
->   forward edge to an earlier-emitted block would execute in the wrong frame.
-> - **Non-obvious PHI semantics** — the same PHI can be written by multiple predecessors
->   in the same frame; correctness depends on sequential execution order.
-
-#### C. PC state machine lowering (proposed fallback)
-
-The PC state machine replaces the token model with a single `int32_t pc_` member.
-Each basic block becomes a `branch` guarded by `pc == N`:
+The PC state machine replaces structured control flow with a single `int32_t pc_`
+member. Each basic block becomes a `branch` guarded by `pc == N`; terminators write the
+successor block's index. Back-edges work naturally: the PC value takes effect next
+frame, producing one iteration per frame. Implemented in `src/pc_state.cpp` /
+`src/cfg_emitter.cpp`.
 
 ```
-// State: int32_t pc_ = 0;  (single plan member)
-
-// No boot node needed.
+// State: int32_t pc_ = 0;  (single plan member, declared automatically)
 
 // Block 0 (entry):
 branch([this](const int32_t& pc) { return pc == 0; }, R(pc_));
     // ... instructions ...
-    assign(RW(pc_), V(1));       // fall through
+    assign(RW(pc_), V(1));               // fall through
 endBranch();
 
 // Block 1 (conditional):
 branch([this](const int32_t& pc) { return pc == 1; }, R(pc_));
     // ... instructions ...
-    assign(RW(pc_), cond ? V(2) : V(3));  // conditional branch
+    branch(cond);    assign(RW(pc_), V(2)); endBranch();   // true edge
+    branch(!cond);   assign(RW(pc_), V(3)); endBranch();   // false edge
 endBranch();
 
 // Block 2 (loop header):
 branch([this](const int32_t& pc) { return pc == 2; }, R(pc_));
     // ... instructions ...
-    assign(RW(pc_), V(3));       // enter loop body
+    assign(RW(pc_), V(3));               // enter loop body
 endBranch();
 
 // Block 3 (loop latch -> header):
 branch([this](const int32_t& pc) { return pc == 3; }, R(pc_));
     // ... instructions ...
-    assign(RW(pc_), V(2));       // back-edge to header
+    assign(RW(pc_), V(2));               // back-edge: takes effect next frame
 endBranch();
 ```
 
-**Why this is strictly better than the token model:**
+Details:
 
-| Aspect | Token model | PC state machine |
-|--------|------------|------------------|
-| State variables | O(N) bools + pending flags | 1 `int32_t pc_` |
-| Boot node | Required, complex, O(N) | None |
-| Ordering dependency | Fragile (emission order matters) | None (each block checks `pc == N`) |
-| Back-edge handling | `pendN_` + prolog transfer | `assign(RW(pc_), V(headerIndex))` |
-| Irreducible CFG | Works (with correct ordering) | Works (no ordering constraint) |
-| Readability | Hard to follow token flow | PC value directly names the block |
+- **No boot node.** `pc_` starts at the entry block's index.
+- **Conditional terminators** are emitted as two independent `branch` regions
+  (condition, then negation) rather than an `if/else` expression — matching the
+  structured emitter and avoiding `elseBranch()` ordering issues.
+- **PHI nodes** are written at predecessor tails immediately before the terminator's
+  `pc_` write.
+- **Returns** emit `assign(RW(ret_), val)` followed by `plain([this]() { request_finish(); })`.
+- **Switch** never reaches this stage (pre-lowered into equality diamonds);
+  `unreachable` lowers to `plain([this]() { CV_Assert(false); });`.
 
-The PC state machine is functionally equivalent to the token model (one iteration per
-frame, same PHI semantics) but eliminates the boot node, reduces state from O(N) to
-O(1), and removes the ordering fragility. Both produce O(N) branch regions.
+Compared to the removed token model (§7.2B), this reduces state from O(N) booleans to
+O(1), eliminates the boot node, removes the reverse-post-order emission-order
+dependency (each block checks its own `pc == N`), and handles arbitrary (including
+irreducible) CFGs.
 
 #### D. CFG lowering comparison
 
-| Aspect | Structured | PC state machine | Token (deprecated) |
-|--------|-----------|------------------|---------------------|
-| Branch regions | Nested, O(depth) | One per block, O(N) | One per block, O(N) |
-| State variables | `run_/brk_/fail_/start_/cond_/done_` per loop | 1 `int32_t pc_` | O(N) bools |
-| Boot node | None | None | Required |
-| Loop handling | Native `branch(pred)` nesting | `pc_ = headerIndex` | `pendN_` -> prolog |
-| Ordering | Structural nesting | None needed | Fragile (RPO) |
-| Code readability | Best (natural nesting) | Good (explicit PC) | Poor (token flow) |
-| Selection | Primary (reducible CFGs) | Fallback (any CFG) | Deprecated |
+| Aspect | Structured | PC state machine |
+|--------|-----------|------------------|
+| Branch regions | Nested, O(depth) | One per block, O(N) |
+| State variables | Per-loop flags (`run_/brk_/fail_/start_/cond_/done_`) + `returned_` | 1 `int32_t pc_` |
+| Boot node | None | None |
+| Loop handling | Native `branch(pred)` nesting | `pc_ = headerIndex` (next frame) |
+| Ordering | Structural nesting | None needed (each block checks `pc == N`) |
+| Code readability | Best (natural nesting) | Good (explicit PC) |
+| Selection | Primary (reducible CFGs) | Fallback (any CFG) |
 
 ---
 
@@ -775,4 +811,3 @@ O(1), and removes the ordering fragility. Both produce O(N) branch regions.
 | IDX | `IDX_` | 2 | `[]` | `IDX` | `op<IDX_>` |
 | DEREF | `DEREF_` | 2 | — | `DEREF` | `op<DEREF_>` |
 | NEG | `NEG_` | 2 | — | `NEG` | `op<NEG_>` |
-
