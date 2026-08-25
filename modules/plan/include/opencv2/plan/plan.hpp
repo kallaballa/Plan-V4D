@@ -19,6 +19,8 @@
 #include <memory>
 #include <vector>
 #include <barrier>
+#include <semaphore>
+#include <thread>
 #include <type_traits>
 #include <iomanip>
 #include <sstream>
@@ -83,6 +85,17 @@ class CV_EXPORTS PlanRuntime {
 public:
 	virtual ~PlanRuntime() {}
 
+	/*!
+	 * Thread-local registry of the runtime instance associated with the calling
+	 * thread. Registered by the runtime on initialization (e.g. V4D::init) and
+	 * picked up by Plan's default constructor. Defined in the plan module so
+	 * all modules share the same instance.
+	 *
+	 * Returns an owning cv::Ptr so that consumers share ownership of the
+	 * runtime instead of wrapping an already-owned raw pointer.
+	 */
+	CV_EXPORTS static cv::Ptr<PlanRuntime>& current();
+
 	// Context accessors - implemented by V4D
 	virtual cv::Ptr<detail::PlainContext> plainCtx() = 0;
 	virtual cv::Ptr<detail::PlanContext> glCtx(int32_t idx = 0) = 0;
@@ -109,6 +122,37 @@ public:
 
 	// Viewport access
 	virtual cv::Rect getViewport() const = 0;
+
+	// Lifecycle hooks used by Plan::run (see §1.5 of the Plan-DSL reference)
+
+	/*!
+	 * Called inside each spawned worker thread before its plan is built.
+	 * The runtime associates the calling thread with worker workerIdx here
+	 * (e.g. create a per-thread runtime instance, propagate IO, set the
+	 * thread name/priority).
+	 */
+	virtual void initWorkerThread(int32_t workerIdx) {
+		CV_UNUSED(workerIdx);
+	}
+
+	/*!
+	 * Called on the main thread right before the plan's gui() method.
+	 */
+	virtual void willGui(const cv::Ptr<Plan>& plan) {
+		CV_UNUSED(plan);
+	}
+
+	/*!
+	 * Execute the frame loop. Must invoke frameFn once per frame/iteration
+	 * until the runtime decides to finish (e.g. keep_running() turns false).
+	 */
+	virtual void runFrameLoop(std::function<void()> frameFn) = 0;
+
+	/*!
+	 * Called after the frame loop finished, on every participating thread
+	 * (release per-thread IO resources here).
+	 */
+	virtual void releaseIo() {}
 };
 
 class CV_EXPORTS Plan {
@@ -268,9 +312,9 @@ protected:
     	CV_UNUSED(n);
     }
 
-    virtual void runGraph() {
+	virtual void runGraph() {
 		BranchType::Enum btype;
-    	BranchState currentState;
+     	BranchState currentState;
 		try {
 			for (auto& n : currentNodes_) {
 				btype = n->tx_->getBranchType();
@@ -489,6 +533,11 @@ public:
 	constexpr static auto isFalse_ = [](const bool& b) { return !b; };
 	constexpr static auto and_ = [](const bool& a, const bool& b) { return a && b; };
 	constexpr static auto or_ = [](const bool& a, const bool& b) { return a || b; };
+
+	Plan() {
+		if(PlanRuntime::current())
+			runtime_ = PlanRuntime::current();
+	}
 
 	virtual ~Plan() { self_ = nullptr; };
 	virtual void gui() { };
@@ -1019,7 +1068,151 @@ public:
     	Tplan* plan = new Tplan(std::forward<Args>(args)...);
     	plan->template setActualTypeSize<Tplan>();
 		return plan->template self<Tplan>();
-    }
+	}
+
+	/*!
+	 * Run the plan (§1.5 of the Plan-DSL reference). Orchestrates the complete
+	 * per-worker lifecycle of the task graph:
+	 *
+	 *   spawn workers (each recursively calls run<Tplan>(0, ...))
+	 *   setup()  -> makeGraph() -> runGraph() -> clearGraph()
+	 *   infer()  -> makeGraph()
+	 *   barrier
+	 *   frame loop: runtime()->runFrameLoop(plan) re-executes the graph
+	 *               every frame/iteration
+	 *   teardown() -> makeGraph() -> runGraph() -> clearGraph()
+	 *
+	 * Runtime specifics are delegated to the PlanRuntime hooks.
+	 */
+	template<typename Tplan, typename ... Args>
+	static void run(int32_t workers, Args&& ... args) {
+		CV_Assert(workers > -2);
+		if(workers == -1) {
+			workers = 2;
+		} else {
+			++workers;
+		}
+
+		cv::Ptr<Tplan> plan;
+		std::vector<std::thread*> threads;
+		{
+			static std::mutex runMtx;
+			std::lock_guard<std::mutex> lock(runMtx);
+
+			GlobalState::init_keys();
+			LocalState::init_keys();
+			cv::setNumThreads(0);
+
+			if(GlobalState::isFirstRun()) {
+				GlobalState::setMainID(std::this_thread::get_id());
+				CV_LOG_INFO(nullptr, "Starting with " << workers << " workers");
+			}
+
+			plan = Plan::make<Tplan>(std::forward<Args>(args)...);
+
+			if(!plan->runtime_ && PlanRuntime::current())
+				plan->setRuntime(PlanRuntime::current());
+			CV_Assert(plan->runtime_);
+
+			if(GlobalState::isMain()) {
+				GlobalState::set<size_t>(GlobalState::Keys::WORKERS_STARTED, workers);
+				// Decay-copy the arguments once: every worker needs its own
+				// copy, so the per-thread capture below must not move out of
+				// the argument pack.
+				auto argsCopy = std::make_tuple(args...);
+				for (int32_t i = 0; i < workers; ++i) {
+					threads.push_back(
+						// Each worker constructs its own plan instance inside the
+						// thread (after the runtime hook registered the thread's
+						// runtime), because a plan and its transactions are bound
+						// to the contexts of the runtime it was created with.
+						new std::thread([rt = plan->runtime(), i, argsTuple = argsCopy]() mutable {
+							GlobalState::init_keys();
+							LocalState::init_keys();
+							rt->initWorkerThread(i);
+							if(!PlanRuntime::current())
+								PlanRuntime::current() = rt;
+							LocalState::set(LocalState::Keys::WORKER_INDEX, size_t(i));
+							std::apply([](Args&& ... unpacked) {
+								Plan::run<Tplan>(0, std::forward<decltype(unpacked)>(unpacked)...);
+							}, std::move(argsTuple));
+						})
+					);
+				}
+			}
+		}
+
+		CV_Assert(plan);
+
+		if(GlobalState::isMain()) {
+			try {
+				CV_LOG_DEBUG(nullptr, "Loading GUI");
+				plan->runtime()->willGui(plan);
+				plan->gui();
+			} catch(std::exception& ex) {
+				CV_Error_(cv::Error::StsError, ("Loading GUI failed: %s", ex.what()));
+			}
+		} else {
+			static std::binary_semaphore setup_sema(1);
+			try {
+				CV_LOG_DEBUG(nullptr, "Setup on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
+				setup_sema.acquire();
+				plan->setup();
+				plan->makeGraph();
+				plan->runGraph();
+				plan->clearGraph();
+				setup_sema.release();
+			} catch(std::exception& ex) {
+				CV_Error_(cv::Error::StsError, ("Setup failed: %s", ex.what()));
+			}
+			CV_LOG_DEBUG(nullptr, "Setup finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
+		}
+
+		if(GlobalState::isMain()) {
+			CV_LOG_DEBUG(nullptr, "GUI loaded");
+		} else {
+			try {
+				CV_LOG_DEBUG(nullptr, "Main inference on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
+				plan->infer();
+				plan->makeGraph();
+			} catch(std::exception& ex) {
+				CV_Error_(cv::Error::StsError, ("Main inference failed: %s", ex.what()));
+			}
+			CV_LOG_DEBUG(nullptr, "Main inference finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
+			GlobalState::apply<size_t>(GlobalState::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
+		}
+
+		static std::barrier syncPoint(std::ptrdiff_t(workers + 1));
+		syncPoint.arrive_and_wait();
+
+		try {
+			plan->runtime()->runFrameLoop([plan]() {
+				plan->runGraph();
+			});
+		} catch(std::exception& ex) {
+			CV_Error_(cv::Error::StsError, ("Main runtime failed: %s", ex.what()));
+		}
+
+		if(!GlobalState::isMain()) {
+			plan->clearGraph();
+			CV_LOG_DEBUG(nullptr, "Starting teardown on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
+			try {
+				plan->teardown();
+				plan->makeGraph();
+				plan->runGraph();
+				plan->clearGraph();
+			} catch(std::exception& ex) {
+				CV_Error_(cv::Error::StsError, ("Pipeline teardown failed: %s", ex.what()));
+			}
+			plan->runtime()->releaseIo();
+			CV_LOG_DEBUG(nullptr, "Teardown complete on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
+		} else {
+			for(auto& t : threads)
+				t->join();
+			CV_LOG_INFO(nullptr, "All threads terminated.");
+			plan->runtime()->releaseIo();
+		}
+	}
 
     cv::Ptr<PlanRuntime> runtime() const { return runtime_; }
     void setRuntime(cv::Ptr<PlanRuntime> rt) { runtime_ = rt; }

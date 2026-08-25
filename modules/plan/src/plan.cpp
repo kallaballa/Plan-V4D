@@ -5,6 +5,7 @@
 
 #include "../include/opencv2/plan/detail/transaction.hpp"
 #include "../include/opencv2/plan/util.hpp"
+#include "../include/opencv2/plan/plan.hpp"
 
 #include <tuple>
 #include <functional>
@@ -17,6 +18,12 @@ namespace cv {
 namespace plan {
 
 Transaction::Transaction() : btype_(BranchType::NONE) {
+}
+
+static thread_local cv::Ptr<PlanRuntime> g_currentRuntime_;
+
+cv::Ptr<PlanRuntime>& PlanRuntime::current() {
+	return g_currentRuntime_;
 }
 
 bool Transaction::isBranch() {

@@ -259,10 +259,74 @@ public:
         return get<cv::Rect>(Keys::VIEWPORT);
     }
 
+    // PlanRuntime lifecycle hooks (used by Plan::run)
+
+    void initWorkerThread(int32_t workerIdx) override {
+        static std::mutex worker_init_mtx_;
+        string name = title() + "-" + std::to_string(workerIdx);
+        setThreadName(name.c_str());
+        CV_LOG_DEBUG(&v4d_tag, "Creating worker: " << name);
+        auto src = getSource();
+        auto sink = getSink();
+        {
+            std::lock_guard guard(worker_init_mtx_);
+            cv::Ptr<V4D> worker = V4D::init(*this, name);
+
+            if (src) {
+                worker->setSource(src);
+            }
+            if (sink) {
+                worker->setSink(sink);
+            }
+        }
+
+        if(debugFlagsVal() & DebugFlags::LOWER_WORKER_PRIORITY) {
+#if defined(__linux__)
+            CV_LOG_INFO(&v4d_tag, "Lowering worker thread niceness from: " << getpriority(PRIO_PROCESS, gettid()) << " to: " << 1);
+
+            if (setpriority(PRIO_PROCESS, gettid(), 1)) {
+                CV_LOG_INFO(&v4d_tag, "Failed to set niceness: " << std::strerror(errno));
+            }
+#endif
+        }
+    }
+
+    void willGui(const cv::Ptr<cv::plan::Plan>& plan) override {
+        V4D::set(V4D::Keys::NAMESPACE, plan->space());
+    }
+
+    void runFrameLoop(std::function<void()> frameFn) override {
+        try {
+            if(GlobalState::isMain()) {
+                instance()->printSystemInfo();
+                CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
+                cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
+            }
+            CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED) << " workers.");
+            V4D::run(instance(), [frameFn](){
+                TimeTracker::getInstance()->execute("iteration", [frameFn](){
+                    frameFn();
+                    GL_CHECK(glFlush());
+                });
+            });
+        } catch(std::exception& ex) {
+            CV_Error_(cv::Error::StsError, ("Main plan->runtime_: %s", ex.what()));
+        }
+    }
+
+    void releaseIo() override {
+        setSink(nullptr);
+        setSource(nullptr);
+    }
+
     static void run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
 		static Resequence reseq(1);
-    	static std::binary_semaphore frame_sync_render(0);
-		static std::binary_semaphore frame_sync_sema_swap(0);
+    	// Counting semaphores rather than binary ones: during startup/shutdown
+    	// or when a worker stalls (e.g. slow fallback path) more than one token
+    	// may be in flight. Binary semaphores would trip their release assertion
+    	// in those situations.
+		static std::counting_semaphore<1024> frame_sync_render(0);
+		static std::counting_semaphore<1024> frame_sync_sema_swap(0);
 
 		try {
 			if(GlobalState::isMain()) {
@@ -271,12 +335,12 @@ public:
 					bool result = true;
 					TimeTracker::getInstance()->execute("display", [&result, runtime](){
 					if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-						if(!runtime->display()) {
-							frame_sync_render.release();
-							result = false;
-						}
-						frame_sync_render.release();
 						frame_sync_sema_swap.acquire();
+						if(!runtime->display()) {
+							result = false;
+						} else {
+							frame_sync_render.release();
+						}
 					} else {
 						if(!runtime->display()) {
 							result = false;
@@ -303,11 +367,11 @@ public:
 
 						if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
 							frame_sync_sema_swap.release();
-							runGraph();
 							reseq.waitFor(seq, [](uint64_t s) {
 								CV_UNUSED(s);
 								frame_sync_render.acquire();
 							});
+							runGraph();
 
 							if(!runtime->display()) {
 								frame_sync_sema_swap.release();
@@ -760,162 +824,10 @@ public:
 
     template<typename Tplan, typename ... Args>
 	static void run(int32_t workers, Args&& ... args) {
-		CV_Assert(workers > -2);
-		if(workers == -1) {
-			workers = 2;
-		} else {
-			++workers;
-		}
-
-		cv::Ptr<Tplan> plan;
-        static std::mutex worker_init_mtx_;
-
-		std::vector<std::thread*> threads;
-		{
-			static std::mutex runMtx;
-			std::lock_guard<std::mutex> lock(runMtx);
-			cv::setNumThreads(0);
-
-			if(GlobalState::isFirstRun()) {
-				GlobalState::setMainID(std::this_thread::get_id());
-				CV_LOG_INFO(&v4d_tag, "Starting with " << workers << " workers");
-			}
-
-	    	plan = V4DPlan::make<Tplan>(std::forward<Args>(args)...);
-
-			if(GlobalState::isMain()) {
-				const string title = V4D::instance()->title();
-				auto src = V4D::instance()->getSource();
-				auto sink = V4D::instance()->getSink();
-
-				if(!(V4D::instance()->debugFlags() & DebugFlags::DONT_PAUSE_LOG)) {
-					CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
-					cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
-				}
-
-                GlobalState::set<size_t>(GlobalState::Keys::WORKERS_STARTED, workers);
-				for (int32_t i = 0; i < workers; ++i) {
-					threads.push_back(
-						new std::thread(
-							[plan, i, src, sink, &args...] {
-								auto v4d = std::dynamic_pointer_cast<V4D>(plan->runtime());
-								string name = v4d->title() + "-" + std::to_string(i);
-					            setThreadName(name.c_str());
-					            CV_LOG_DEBUG(&v4d_tag, "Creating worker: " << name);
-								cv::Ptr<V4D> worker;
-								{
-									std::lock_guard guard(worker_init_mtx_);
-									worker = V4D::init(*v4d.get(), name);
-
-									if (src) {
-										worker->setSource(src);
-									}
-									if (sink) {
-										worker->setSink(sink);
-									}
-								}
-
-								LocalState::set(LocalState::Keys::WORKER_INDEX, size_t(i));
-								V4DPlan::run<Tplan>(0, std::forward<Args>(args)...);
-							}
-						)
-					);
-				}
-			} else {
-				if(V4D::instance()->debugFlags() & DebugFlags::LOWER_WORKER_PRIORITY) {
-#if defined(__linux__)
-					CV_LOG_INFO(&v4d_tag, "Lowering worker thread niceness from: " << getpriority(PRIO_PROCESS, gettid()) << " to: " << 1);
-
-					if (setpriority(PRIO_PROCESS, gettid(), 1)) {
-						CV_LOG_INFO(&v4d_tag, "Failed to set niceness: " << std::strerror(errno));
-					}
-#endif
-				}
-			}
-		}
-
-		CV_Assert(plan);
-
-		if(GlobalState::isMain()) {
-			V4D::instance()->printSystemInfo();
-            CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
-            cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
-            CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED) << " workers.");
-		} else {
-			static std::binary_semaphore setup_sema(1);
-			try {
-				CV_LOG_DEBUG(&v4d_tag, "Setup on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-				setup_sema.acquire();
-				plan->setup();
-				plan->makeGraph();
-				plan->runGraph();
-				plan->clearGraph();
-				setup_sema.release();
-			} catch(std::exception& ex) {
-				CV_Error_(cv::Error::StsError, ("Setup failed: %s", ex.what()));
-			}
-			CV_LOG_DEBUG(&v4d_tag, "Setup finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-		}
-		if(GlobalState::isMain()) {
-			try {
-				CV_LOG_DEBUG(&v4d_tag, "Loading GUI");
-				V4D::set(V4D::Keys::NAMESPACE, plan->space());
-				plan->gui();
-			} catch(std::exception& ex) {
-				CV_Error_(cv::Error::StsError, ("Loading GUI failed: %s", ex.what()));
-			}
-		} else {
-			try {
-				CV_LOG_DEBUG(&v4d_tag, "Main inference on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-				plan->infer();
-				plan->makeGraph();
-			} catch(std::exception& ex) {
-				CV_Error_(cv::Error::StsError, ("Main inference failed: %s", ex.what()));
-			}
-			CV_LOG_DEBUG(&v4d_tag, "Main inference finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-            GlobalState::apply<size_t>(GlobalState::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
-		}
-        static std::barrier syncPoint(std::ptrdiff_t(workers + 1));
-        syncPoint.arrive_and_wait();
-
-        if(GlobalState::isMain()) {
-                    CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED) << " workers.");
-        }
-
-        try {
-			V4D::run(V4D::instance(), [plan](){
-				TimeTracker::getInstance()->execute("iteration", [plan](){
-					plan->runGraph();
-					GL_CHECK(glFlush());
-				});
-			});
-		} catch(std::exception& ex) {
-			CV_Error_(cv::Error::StsError, ("Main plan->runtime_: %s", ex.what()));
-		}
-		CV_LOG_DEBUG(&v4d_tag, "Main plan->runtime_ finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-
-		if(!GlobalState::isMain()) {
-			plan->clearGraph();
-			CV_LOG_DEBUG(&v4d_tag, "Starting teardown on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-			try {
-				plan->teardown();
-				plan->makeGraph();
-				plan->runGraph();
-				plan->clearGraph();
-			} catch(std::exception& ex) {
-				CV_Error_(cv::Error::StsError, ("pipeline teardown failed: %s", ex.what()));
-			}
-			auto v4d = std::dynamic_pointer_cast<V4D>(plan->runtime());
-			v4d->setSink(nullptr);
-			v4d->setSource(nullptr);
-			CV_LOG_DEBUG(&v4d_tag, "Teardown complete on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-		} else {
-			for(auto& t : threads)
-				t->join();
-			V4D::instance()->setSink(nullptr);
-			V4D::instance()->setSource(nullptr);
-			CV_LOG_INFO(&v4d_tag, "All threads terminated.");
-		}
+		// The Plan-DSL lifecycle (worker spawning, setup/infer/teardown graph
+		// phases, barrier, frame loop) lives in the base class. Runtime
+		// specifics are provided by the V4D PlanRuntime hooks above.
+		Plan::run<Tplan>(workers, std::forward<Args>(args)...);
     }
 
 protected:
@@ -973,6 +885,9 @@ protected:
     	}
     }
 
+public:
+    // Public so that Plan::run can invoke the graph through derived plans
+    // (virtual dispatch reaches this instrumented override).
     virtual void runGraph() override {
 		BranchType::Enum btype;
     	BranchState currentState;

@@ -36,6 +36,7 @@ cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, AllocateFl
             instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
     }
     V4D::init_keys();
+    PlanRuntime::current() = instance_;
 	return instance_;
 }
 
@@ -49,6 +50,7 @@ cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbSize, const s
     }
 
     V4D::init_keys();
+    PlanRuntime::current() = instance_;
 	return instance_;
 }
 
@@ -59,6 +61,7 @@ cv::Ptr<V4D> V4D::init(const V4D& other, const string& title) {
 	    instance_ = new V4D(other, title);
 
 	V4D::init_keys();
+	PlanRuntime::current() = instance_;
 	return instance_;
 }
 

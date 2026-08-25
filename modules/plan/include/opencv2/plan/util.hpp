@@ -677,7 +677,8 @@ private:
 public:
 
 	static void init_keys(){
-		create<false, size_t>(Keys::WORKER_INDEX, 0);
+		if(map_.empty())
+			create<false, size_t>(Keys::WORKER_INDEX, 0);
 	}
 
 	template <typename V>
