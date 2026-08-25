@@ -1162,12 +1162,12 @@ auto operator++(const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& e)
 
 template<typename T>
 auto operator++(const Plan::Property<T>& rhs){
-	return operator--(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+	return operator++(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
 }
 
 template<typename T>
 auto operator++(const Plan::Event<T>& rhs){
-	return operator--(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+	return operator++(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
 }
 
 template<typename ... Edges>
@@ -1177,17 +1177,17 @@ auto operator++(const std::tuple<Edges...>& tuple, int){
 
 template<typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
 auto operator++(const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& e, int){
-	return operator++(std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(e)));
+	return Operation::op<INCR_>(std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(e)));
 }
 
 template<typename T>
 auto operator++(const Plan::Property<T>& rhs, int){
-	return operator++(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+	return Operation::op<INCR_>(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
 }
 
 template<typename T>
 auto operator++(const Plan::Event<T>& rhs, int){
-	return operator++(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+	return Operation::op<INCR_>(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
 }
 
 template<typename ... Edges>
@@ -1217,17 +1217,17 @@ auto operator--(const std::tuple<Edges...>& tuple, int){
 
 template<typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
 auto operator--(const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& e, int){
-	return operator--(std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(e)));
+	return Operation::op<DECR_>(std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(e)));
 }
 
 template<typename T>
 auto operator--(const Plan::Property<T>& rhs, int){
-	return operator--(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+	return Operation::op<DECR_>(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
 }
 
 template<typename T>
 auto operator--(const Plan::Event<T>& rhs, int){
-	return operator--(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+	return Operation::op<DECR_>(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
 }
 
 template<typename TedgeL, typename ... Edges>

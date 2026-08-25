@@ -10,7 +10,9 @@ invoked from inside the `infer()` / `setup()` / `teardown()` methods of a class 
 inherits from `cv::plan::Plan`. Every call records a **task node** and its **data
 dependencies** at (compile-time-typed) runtime; the recorded accesses are then compiled
 into a *directed acyclic graph* (DAG) that is executed every frame/iteration by a pool of
-worker threads.
+worker threads. The graph is **built once** per worker (via `makeGraph()`) and then the
+same graph is **re-executed every frame** (via `runGraph()`), with branch predicates
+re-evaluated each iteration.
 
 All API entities live in namespace `cv::plan` (aliased to `using namespace cv::plan;` in
 samples). Header: `<opencv2/plan/plan.hpp>`.
@@ -31,14 +33,56 @@ A `Plan` subclass describes, in its three lifecycle methods, how data flows:
 
 | Method    | Purpose                                                          | Runs |
 |-----------|------------------------------------------------------------------|------|
-| `setup()` | Build the initialization pipeline (alloca-like, one-shot)        | once per worker |
-| `infer()` | Build the per-iteration pipeline (the "kernel"/main body)        | re-built every frame |
-| `teardown()` | Build the shutdown pipeline (free, one-shot)                  | once per worker |
+| `setup()` | Build the initialization pipeline (alloca-like, one-shot)        | once per worker (see §1.5) |
+| `infer()` | Define the per-iteration pipeline (the "kernel"/main body)       | once per worker (see §1.5) |
+| `teardown()` | Build the shutdown pipeline (free, one-shot)                  | once per worker (see §1.5) |
 | `gui()`   | optional UI hook; only invoked if the runtime provides a GUI     | per frame |
 
-`Plan::make<Tplan>(args...)` instantiates a plan. Starting the worker pool and driving
-the per-iteration graph execution is the runtime's job (see §5.3); each worker builds
-and runs the full graph independently.
+The graph is **built once** per worker (by calling `infer()` + `makeGraph()`) and then
+**executed every frame** by calling `runGraph()`. The same `currentNodes_` list is
+iterated each frame; branch predicates are re-evaluated every iteration, so control
+flow can change dynamically (e.g. a `while` loop exits when its predicate becomes
+false). The graph structure itself is **not** rebuilt between frames.
+
+### 1.5 `Plan::run` lifecycle
+
+The core DSL provides `Plan::make<Tplan>(args...)` for instantiation. Starting the
+worker pool and driving the per-iteration graph execution is the runtime's job (e.g.
+V4D's `V4DPlan::run<Tplan>(workers, ...)`, which also enters the display loop).
+
+The complete per-worker lifecycle is:
+
+```
+Plan::run<PlanT>(workers, args...)                    // runtime entry point
+  │
+  ├── spawn worker threads (if workers > 0)
+  │     └── each worker recursively runs independently
+  │
+  └── per-worker execution:
+        plan->setup()                                 // DSL calls register init ops
+        plan->makeGraph()                             // compile accesses_ → currentNodes_
+        plan->runGraph()                              // execute setup graph (once)
+        plan->clearGraph()                            // reset for main graph
+
+        plan->infer()                                 // DSL calls register per-iteration ops
+        plan->makeGraph()                             // compile accesses_ → currentNodes_
+
+        barrier.wait()                                // all workers synchronize
+
+        // frame loop:
+        while (keep_running()) {
+            plan->runGraph()                          // re-execute the same graph
+        }
+
+        // teardown:
+        plan->teardown()
+        plan->makeGraph()
+        plan->runGraph()
+        plan->clearGraph()
+```
+
+Each worker builds and executes its own independent copy of the graph. Workers never
+share partial iterations or migrate work between threads.
 
 ### 1.2 Edges are operands (SSA values)
 
@@ -60,17 +104,23 @@ Edges are created with *edge-calls* (Section 2) and consumed/produced by
 ### 1.3 Task nodes
 
 Each recorded call creates a node keyed by a unique id (derived from a hash of the
-callable pointer and the operand identities). Dependencies between nodes are the edges
-they share:
+callable pointer and the operand identities). `makeGraph()` iterates the recorded
+`accesses_` list and builds a flat `currentNodes_` list, deduplicating nodes that
+share the same id (recording additional dependency edges on the existing node).
 
-- a **read** access (`read_deps_`) links a producer value to the consumer;
-- a **write** access (`write_deps_`) enforces ordering between nodes that mutate the
-  same object.
+Each node records:
+- `read_deps_` — set of operand ids this node reads
+- `write_deps_` — set of operand ids this node writes
 
-A node runs only when all its dependencies are satisfied and, if it is inside a
-branch, when the branch condition is currently true. Multiple workers execute
-independently built copies of the graph; the scheduler never migrates partial
-iterations between workers.
+> **Execution model.** `runGraph()` iterates `currentNodes_` **sequentially** in the
+> order nodes were registered during `infer()`. It does **not** use the dependency
+> edges for scheduling; a node runs unconditionally if it is enabled by its branch
+> state (§4). The `read_deps_` / `write_deps_` fields are populated by `makeGraph()`
+> for bookkeeping but are not consulted at runtime by the base `Plan::runGraph()`
+> implementation.
+
+Multiple workers execute independently built copies of the graph; the scheduler never
+migrates partial iterations between workers.
 
 ### 1.4 Concurrency primitives
 
@@ -528,7 +578,7 @@ callback; `GlobalState::set<V>(key, v)` writes it. Edge-bound reads go through
    argument — allocate a storage slot (`RW`) for the result.
 5. **Control flow must be structured.** Loops and conditionals must nest as balanced
    `branch`/`endBranch` regions. LLVM's CFG must be region-ified (dominator-tree based
-   structuring) before lowering.
+   structuring) before lowering. See §7.2 for the two lowering strategies.
 6. **`select` operands are eager.** LLVM `select` is lazy (only chosen side is
    evaluated), but `IF` is an operator node whose operands are all computed. For truly
    lazy branch-on-value semantics use `branch` regions instead.
@@ -539,6 +589,156 @@ callback; `GlobalState::set<V>(key, v)` writes it. Edge-bound reads go through
    plan members.
 9. **Floating point.** `DIV`/`MOD` use C++ `/`/`%`; for `frem` use `F(std::fmod, ...)`.
    `fneg` → `NEG`.
+10. **Edge lifetime.** Result edges produced by `OP<>()`/`F()` are temporary values
+    automatically kept alive by the transaction graph. No explicit `keep()` is needed;
+    the Plan runtime preserves them in the execution graph.
+
+### 7.2 CFG lowering strategies
+
+When lowering LLVM IR to Plan-DSL, the control-flow graph (CFG) must be translated
+into nested `branch`/`endBranch` regions. The `llvm2plan` compiler uses two
+strategies, selected automatically.
+
+#### The fundamental constraint
+
+Plan-DSL's execution model is **frame-based**: the graph is built once, then
+`runGraph()` re-executes the same `currentNodes_` list every frame with predicates
+re-evaluated. LLVM IR's CFG is **continuous**: a function call traverses the CFG from
+entry to return within a single execution. Every CFG lowering must force continuous
+semantics into a frame-sequential model. Both strategies achieve this by executing
+**one loop iteration per frame** — a loop with 10 iterations takes 10 frames.
+
+#### A. Structured lowering (preferred)
+
+The structuring pass region-ifies the CFG into a tree of structured regions using
+LLVM's `LoopInfo` and dominator tree. The tree nodes are:
+
+| Region kind | Plan-DSL output |
+|-------------|-----------------|
+| **Seq** | Sequential emission of children (no wrapper) |
+| **Block** | One basic block's instructions + PHI contributions to successors |
+| **If** | `branch(cond); then; endBranch(); branch(NOT(cond)); else; endBranch();` |
+| **While** | Arming gate (`PARALLEL_ONCE`), then `branch(run_ && !brk_ && cond_)` loop body |
+| **DoWhile** | Like `While` but first iteration bypasses condition via `start_` flag |
+| **Return** | `assign(RW(ret_), val); assign(RW(returned_), V(true)); request_finish()` |
+| **Break** | PHI writes + `assign(RW(brkN_), V(true))` |
+| **Unreachable** | `plain([this]() { CV_Assert(false); });` |
+
+**Loop flags** (per loop N):
+
+| Flag | Purpose |
+|------|---------|
+| `runN_` | Arming gate: set `true` once by a `PARALLEL_ONCE` region to start the loop |
+| `brkN_` | Break flag: set `true` by `Break` region; rest of body skipped this frame |
+| `failN_` | Exit flag: set `true` when predicate fails; gates post-loop continuation |
+| `startN_` | First-iteration bypass (DoWhile): initially `true`, cleared after first body run |
+| `condN_` | Loop condition: recomputed each frame from member-rooted operands |
+| `doneN_` | One-shot latch: gates post-loop straight-line code to run once |
+
+The structured model generates smaller, cleaner Plan-DSL because it leverages the
+source program's natural nesting. Code between loops chains through continuation gates
+(`failN_ && !doneN_`). Code after loops that may return is guarded by `!returned_`.
+
+**Strengths:** No boot node, no token variables, correct by construction, generates
+the most readable Plan-DSL. Handles all reducible control flow.
+
+**Limitation:** Cannot handle irreducible CFGs (bails to the fallback).
+
+#### B. Legacy token lowering (deprecated)
+
+When structuring fails (irreducible CFG, unsupported shapes), the legacy token model
+was used. It produces one `branch(R(tokN_)) ... endBranch()` region per basic block:
+
+**Runtime state per block N:**
+- `tokN_` — `bool` member: `true` while control resides in block N this frame
+- `pendN_` — `bool` member (loop headers only): pending back-edge token
+
+**Frame execution:**
+
+1. **Boot node** (`plain(...)`): runs first each frame:
+   - Frame 0 (`!booted`): `tok0_ = true; booted = true;` (arm entry block)
+   - Frame 1+: transfer pending back-edge tokens to headers, clear all others
+
+2. **One `branch(R(tokN_)) ... endBranch()` per block**
+
+3. **Terminator token writes**: forward edges write `tokS_`, back-edges write `pendS_`
+
+4. **PHI nodes**: member variable assignments at predecessor tail
+
+> **Deprecated.** The token model is being replaced by the PC state machine (§7.2C)
+> because it has structural problems:
+>
+> - **O(N) state variables** — one `tokN_` bool per block plus `pendN_` for loop
+>   headers. A function with 50 blocks needs 50-100 member variables.
+> - **Complex boot node** — runs every frame, touches every token variable, must know
+>   which blocks are loop headers.
+> - **Ordering fragility** — forward-edge token propagation works only because blocks
+>   are emitted in reverse-post-order and `runGraph()` iterates sequentially. A
+>   forward edge to an earlier-emitted block would execute in the wrong frame.
+> - **Non-obvious PHI semantics** — the same PHI can be written by multiple predecessors
+>   in the same frame; correctness depends on sequential execution order.
+
+#### C. PC state machine lowering (proposed fallback)
+
+The PC state machine replaces the token model with a single `int32_t pc_` member.
+Each basic block becomes a `branch` guarded by `pc == N`:
+
+```
+// State: int32_t pc_ = 0;  (single plan member)
+
+// No boot node needed.
+
+// Block 0 (entry):
+branch([this](const int32_t& pc) { return pc == 0; }, R(pc_));
+    // ... instructions ...
+    assign(RW(pc_), V(1));       // fall through
+endBranch();
+
+// Block 1 (conditional):
+branch([this](const int32_t& pc) { return pc == 1; }, R(pc_));
+    // ... instructions ...
+    assign(RW(pc_), cond ? V(2) : V(3));  // conditional branch
+endBranch();
+
+// Block 2 (loop header):
+branch([this](const int32_t& pc) { return pc == 2; }, R(pc_));
+    // ... instructions ...
+    assign(RW(pc_), V(3));       // enter loop body
+endBranch();
+
+// Block 3 (loop latch -> header):
+branch([this](const int32_t& pc) { return pc == 3; }, R(pc_));
+    // ... instructions ...
+    assign(RW(pc_), V(2));       // back-edge to header
+endBranch();
+```
+
+**Why this is strictly better than the token model:**
+
+| Aspect | Token model | PC state machine |
+|--------|------------|------------------|
+| State variables | O(N) bools + pending flags | 1 `int32_t pc_` |
+| Boot node | Required, complex, O(N) | None |
+| Ordering dependency | Fragile (emission order matters) | None (each block checks `pc == N`) |
+| Back-edge handling | `pendN_` + prolog transfer | `assign(RW(pc_), V(headerIndex))` |
+| Irreducible CFG | Works (with correct ordering) | Works (no ordering constraint) |
+| Readability | Hard to follow token flow | PC value directly names the block |
+
+The PC state machine is functionally equivalent to the token model (one iteration per
+frame, same PHI semantics) but eliminates the boot node, reduces state from O(N) to
+O(1), and removes the ordering fragility. Both produce O(N) branch regions.
+
+#### D. CFG lowering comparison
+
+| Aspect | Structured | PC state machine | Token (deprecated) |
+|--------|-----------|------------------|---------------------|
+| Branch regions | Nested, O(depth) | One per block, O(N) | One per block, O(N) |
+| State variables | `run_/brk_/fail_/start_/cond_/done_` per loop | 1 `int32_t pc_` | O(N) bools |
+| Boot node | None | None | Required |
+| Loop handling | Native `branch(pred)` nesting | `pc_ = headerIndex` | `pendN_` -> prolog |
+| Ordering | Structural nesting | None needed | Fragile (RPO) |
+| Code readability | Best (natural nesting) | Good (explicit PC) | Poor (token flow) |
+| Selection | Primary (reducible CFGs) | Fallback (any CFG) | Deprecated |
 
 ---
 
