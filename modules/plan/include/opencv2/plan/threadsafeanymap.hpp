@@ -46,20 +46,30 @@ std::string type_name() {
 class Value : public std::any {
 public:
 	std::function<void(Value& val)> callback_;
-	const bool read_;
+	bool read_;
 
 	Value(const bool& read = false) : read_(read) {
 	}
 
-    any& operator=(const any& rhs) {
-    	return std::any::operator =(rhs);
-    }
+	using std::any::operator=;
 
-    template <typename T>
-    any& operator=(T&& __rhs) {
-    	std::any::operator =(any(std::forward<T>(__rhs)));
-    	return *this;
-    }
+	Value& operator=(const Value& rhs) {
+		std::any::operator=(rhs);
+		callback_ = rhs.callback_;
+		read_ = rhs.read_;
+		return *this;
+	}
+
+	Value& operator=(Value&& rhs) noexcept {
+		std::any::operator=(std::move(rhs));
+		callback_ = std::move(rhs.callback_);
+		read_ = std::move(rhs.read_);
+		return *this;
+	}
+
+	const std::type_info& type() const noexcept {
+		return std::any::type();
+	}
 };
 
 template<typename K>
