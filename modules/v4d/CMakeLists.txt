@@ -34,9 +34,9 @@ if (${idx} LESS 0)
   ocv_module_disable(v4d)
 endif()
 
-# Update submodules
+# Update submodules (skip in OBS build environment)
 find_package(Git QUIET)
-if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.git")
+if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.git" AND NOT DEFINED ENV{OBS_BUILD})
   message(STATUS "Submodule update")
   execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
                   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../"
@@ -52,17 +52,47 @@ endif()
 
 set(V4D_MODULES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../")
 
-# Macro to download a file
+# Macro to download a file (or use local cache)
 macro(fetch_file download_name url hash)
-  FetchContent_Declare(${download_name}
-  URL ${url}
-  URL_HASH SHA256=${hash}
-  DOWNLOAD_NO_EXTRACT true
-  TLS_VERIFY true
-  )
-
-  FetchContent_MakeAvailable(${download_name})
+  set(LOCAL_CACHE_DIR "$ENV{HOME}/.cache/opencv_v4d" CACHE PATH "Local cache for downloaded files")
+  set(LOCAL_CACHE_FILE "${LOCAL_CACHE_DIR}/${download_name}")
+  if(EXISTS "${LOCAL_CACHE_FILE}")
+    message(STATUS "Using cached file for ${download_name}: ${LOCAL_CACHE_FILE}")
+    set(${download_name}_SOURCE_DIR "${LOCAL_CACHE_DIR}" CACHE PATH "Source dir for ${download_name}" FORCE)
+    set(${download_name}_BINARY_DIR "${CMAKE_BINARY_DIR}/_deps/${download_name}-build" CACHE PATH "Binary dir for ${download_name}" FORCE)
+    set(${download_name}_POPULATED TRUE CACHE BOOL "Populated flag for ${download_name}" FORCE)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_deps/${download_name}-build")
+  else()
+    FetchContent_Declare(${download_name}
+    URL ${url}
+    URL_HASH SHA256=${hash}
+    DOWNLOAD_NO_EXTRACT true
+    TLS_VERIFY true
+    )
+    FetchContent_MakeAvailable(${download_name})
+  endif()
 endmacro(fetch_file)
+
+# Populate assets using local files
+macro(populate_assets_local lbfmodel_path yunet_path)
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+    "${CMAKE_CURRENT_BINARY_DIR}/assets")
+
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/models")
+
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+    "${lbfmodel_path}"
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/lbfmodel.yaml")
+
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+    "${yunet_path}"
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/face_detection_yunet_2023mar.onnx")
+endmacro(populate_assets_local)
 
 # Macro to add a native sample
 macro(add_binary_sample sample source)
@@ -176,9 +206,20 @@ if(NOT (TARGET ${the_module}))
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
 
   # Populate assets
-  fetch_file("LBFMODEL" "https://github.com/kurnianggoro/GSOC2017/raw/master/data/lbfmodel.yaml" "70dd8b1657c42d1595d6bd13d97d932877b3bed54a95d3c4733a0f740d1fd66b")
+  set(LOCAL_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets" CACHE PATH "Local assets directory")
+  if(EXISTS "${LOCAL_ASSETS_DIR}/lbfmodel.yaml")
+    set(LBFMODEL_PATH "${LOCAL_ASSETS_DIR}/lbfmodel.yaml")
+  else()
+    fetch_file("LBFMODEL" "https://github.com/kurnianggoro/GSOC2017/raw/master/data/lbfmodel.yaml" "70dd8b1657c42d1595d6bd13d97d932877b3bed54a95d3c4733a0f740d1fd66b")
+    set(LBFMODEL_PATH "${lbfmodel_SOURCE_DIR}/lbfmodel.yaml")
+  endif()
 
-  fetch_file("YUNET" "https://github.com/opencv/opencv_zoo/raw/refs/heads/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4")
+  if(EXISTS "${LOCAL_ASSETS_DIR}/face_detection_yunet_2023mar.onnx")
+    set(YUNET_PATH "${LOCAL_ASSETS_DIR}/face_detection_yunet_2023mar.onnx")
+  else()
+    fetch_file("YUNET" "https://github.com/opencv/opencv_zoo/raw/refs/heads/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4")
+    set(YUNET_PATH "${yunet_SOURCE_DIR}/face_detection_yunet_2023mar.onnx")
+  endif()
 
   add_custom_command(TARGET ${the_module} PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -203,13 +244,13 @@ if(NOT (TARGET ${the_module}))
 
   add_custom_command(TARGET ${the_module} PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
-    "${lbfmodel_SOURCE_DIR}/lbfmodel.yaml"
-    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/")
+    "${LBFMODEL_PATH}"
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/lbfmodel.yaml")
 
   add_custom_command(TARGET ${the_module} PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
-    "${yunet_SOURCE_DIR}/face_detection_yunet_2023mar.onnx"
-    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/")
+    "${YUNET_PATH}"
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/face_detection_yunet_2023mar.onnx")
 
   #Add sample targets
   if(BUILD_EXAMPLES)
