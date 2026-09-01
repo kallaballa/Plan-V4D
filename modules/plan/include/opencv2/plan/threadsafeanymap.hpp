@@ -48,24 +48,16 @@ public:
 	std::function<void(Value& val)> callback_;
 	bool read_;
 
-	Value(const bool& read = false) : read_(read) {
+	Value(const bool& read = false) : std::any(), read_(read) {
 	}
+
+	Value(const Value& rhs) = default;
+	Value(Value&& rhs) = default;
 
 	using std::any::operator=;
 
-	Value& operator=(const Value& rhs) {
-		std::any::operator=(rhs);
-		callback_ = rhs.callback_;
-		read_ = rhs.read_;
-		return *this;
-	}
-
-	Value& operator=(Value&& rhs) noexcept {
-		std::any::operator=(std::move(rhs));
-		callback_ = std::move(rhs.callback_);
-		read_ = std::move(rhs.read_);
-		return *this;
-	}
+	Value& operator=(const Value& rhs) = default;
+	Value& operator=(Value&& rhs) = default;
 
 	const std::type_info& type() const noexcept {
 		return std::any::type();
