@@ -6,3 +6,16 @@ compile_commands.json
 obs/**/.osc/
 obs/**/*.tar.gz
 obs/**/plan-v4d.spec
+
+# Temporary git-filter-repo directory
+.git-rewrite/
+
+# Local ImGui config
+imgui.ini
+
+# Sample video files (large binaries)
+video/
+
+# OBS local checkouts
+home:elchaschab:Plan-V4D:Fedora/
+obs/home:elchaschab:Plan-V4D:Ubuntu_24.04/
