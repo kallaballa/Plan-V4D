@@ -4,9 +4,9 @@ set -euo pipefail
 # osc-build.sh — Monitor and interact with OBS builds for Plan-V4D
 #
 # Usage:
-#   ./osc-build.sh                          # monitor both builds
+#   ./osc-build.sh                          # monitor all builds
 #   ./osc-build.sh --status                 # quick status check
-#   ./osc-build.sh --results                # download built RPMs
+#   ./osc-build.sh --results                # download built packages
 #   ./osc-build.sh --rebuild openSUSE       # force rebuild for one target
 #   ./osc-build.sh --submit openSUSE_Tumbleweed  # submit to devel project
 
@@ -27,7 +27,7 @@ fi
 
 TOP_PROJECT="home:${OBS_USER}"
 PACKAGE="plan-v4d"
-PROJECTS=("${TOP_PROJECT}:Plan-V4D:openSUSE_Tumbleweed" "${TOP_PROJECT}:Plan-V4D:Fedora")
+PROJECTS=("${TOP_PROJECT}:Plan-V4D:openSUSE_Tumbleweed" "${TOP_PROJECT}:Plan-V4D:Fedora" "${TOP_PROJECT}:Plan-V4D:Ubuntu_24.04")
 
 ACTION="${1:-monitor}"
 
@@ -58,7 +58,7 @@ do_monitor() {
     done
 }
 
-# ---- Download built RPMs ----
+# ---- Download built packages ----
 do_results() {
     for proj in "${PROJECTS[@]}"; do
         local short
@@ -66,7 +66,7 @@ do_results() {
         local outdir="${SCRIPT_DIR}/results/${short}"
         mkdir -p "$outdir"
 
-        echo "=== Downloading RPMs for ${short} ==="
+        echo "=== Downloading packages for ${short} ==="
         osc -A "$OBS_API" getbinaries "$proj/$PACKAGE" "$outdir" 2>/dev/null || echo "  (no binaries yet)"
         echo "  Output: $outdir"
         echo ""
@@ -77,7 +77,7 @@ do_results() {
 do_rebuild() {
     local target="${1:-}"
     if [[ -z "$target" ]]; then
-        echo "Usage: $0 --rebuild <openSUSE_Tumbleweed|Fedora>" >&2
+        echo "Usage: $0 --rebuild <openSUSE_Tumbleweed|Fedora|Ubuntu_24.04>" >&2
         exit 1
     fi
 
@@ -98,7 +98,7 @@ do_rebuild() {
     exit 1
 }
 
-# ---- Submit to OBS devel project (openSUSE:Factory or Fedora) ----
+# ---- Submit to OBS devel project ----
 do_submit() {
     local target="${1:-}"
     local obs_target_project=""
@@ -110,8 +110,11 @@ do_submit() {
         Fedora*)
             obs_target_project="Fedora:Rawhide"
             ;;
+        Ubuntu*)
+            obs_target_project="Ubuntu:24.04"
+            ;;
         *)
-            echo "Usage: $0 --submit <openSUSE_Tumbleweed|Fedora>" >&2
+            echo "Usage: $0 --submit <openSUSE_Tumbleweed|Fedora|Ubuntu_24.04>" >&2
             exit 1
             ;;
     esac
@@ -150,7 +153,7 @@ case "$ACTION" in
     *)
         echo "Usage: $0 [--status|--results|--rebuild <target>|--submit <target>]" >&2
         echo ""
-        echo "Targets: openSUSE_Tumbleweed, Fedora" >&2
+        echo "Targets: openSUSE_Tumbleweed, Fedora, Ubuntu_24.04" >&2
         exit 1
         ;;
 esac
