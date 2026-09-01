@@ -27,7 +27,7 @@ fi
 
 TOP_PROJECT="home:${OBS_USER}"
 PACKAGE="plan-v4d"
-PROJECTS=("${TOP_PROJECT}:Plan-V4D:openSUSE_Tumbleweed" "${TOP_PROJECT}:Plan-V4D:Fedora" "${TOP_PROJECT}:Plan-V4D:Ubuntu_24.04")
+PROJECTS=("${TOP_PROJECT}:Plan-V4D:openSUSE_Tumbleweed" "${TOP_PROJECT}:Plan-V4D:Fedora" "${TOP_PROJECT}:Plan-V4D:Ubuntu_24.04" "${TOP_PROJECT}:Plan-V4D:Raspbian_12")
 
 ACTION="${1:-monitor}"
 
@@ -77,7 +77,7 @@ do_results() {
 do_rebuild() {
     local target="${1:-}"
     if [[ -z "$target" ]]; then
-        echo "Usage: $0 --rebuild <openSUSE_Tumbleweed|Fedora|Ubuntu_24.04>" >&2
+        echo "Usage: $0 --rebuild <openSUSE_Tumbleweed|Fedora|Ubuntu_24.04|Raspbian_12>" >&2
         exit 1
     fi
 
@@ -113,8 +113,11 @@ do_submit() {
         Ubuntu*)
             obs_target_project="Ubuntu:24.04"
             ;;
+        Raspbian*)
+            obs_target_project="Debian:12"
+            ;;
         *)
-            echo "Usage: $0 --submit <openSUSE_Tumbleweed|Fedora|Ubuntu_24.04>" >&2
+            echo "Usage: $0 --submit <openSUSE_Tumbleweed|Fedora|Ubuntu_24.04|Raspbian_12>" >&2
             exit 1
             ;;
     esac
@@ -153,7 +156,7 @@ case "$ACTION" in
     *)
         echo "Usage: $0 [--status|--results|--rebuild <target>|--submit <target>]" >&2
         echo ""
-        echo "Targets: openSUSE_Tumbleweed, Fedora, Ubuntu_24.04" >&2
+        echo "Targets: openSUSE_Tumbleweed, Fedora, Ubuntu_24.04, Raspbian_12" >&2
         exit 1
         ;;
 esac
