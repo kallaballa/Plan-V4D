@@ -219,11 +219,15 @@ void FrameBufferContext::init() {
     glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
     glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 #else
+#if GLFW_VERSION_MAJOR > 3 || (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
     if (glfwPlatformSupported(GLFW_PLATFORM_WAYLAND)) {
       glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
     } else {
         CV_LOG_WARNING(nullptr, "No Wayland Support");
     }
+#else
+    CV_LOG_WARNING(nullptr, "Wayland platform selection requires GLFW >= 3.4");
+#endif
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, major_);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, minor_);
