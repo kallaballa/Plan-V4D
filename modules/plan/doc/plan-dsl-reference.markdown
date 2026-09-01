@@ -515,6 +515,13 @@ subTeardown(cv::Ptr<TsubPlan>)   // inline child's teardown() graph
   the child plan's member variables, which the shared-variable table associates with the
   parent's address range.
 
+> **Constructor-only `_sub`.** `_sub<>` must be called **only in the plan constructor**,
+> as the first statement(s) after the initializer list. It must **not** be called from
+> `infer()`, `setup()`, or `teardown()`. This guarantees the sub-plan instance is created
+> exactly once (when the parent is constructed) and persists across frames — calling it
+> from `infer()` would recreate it every frame and break nested sub-plan return-value
+> propagation. `subInfer()` (the per-frame call) remains in `infer()`.
+
 ### 5.2 Context calls (side-effecting instructions)
 
 Context calls attach a node to a **context** (a specialized execution environment). They
