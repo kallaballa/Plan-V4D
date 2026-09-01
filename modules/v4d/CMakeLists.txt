@@ -303,4 +303,21 @@ if(NOT (TARGET ${the_module}))
   if(OPENCV_V4D_ENABLE_MALI)
     ocv_target_link_libraries(${the_module} mali)
   endif()
+
+  # Install asset files
+  install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/assets/"
+          DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/opencv4"
+          COMPONENT data)
+
+  # Install OpenCV data files (haarcascades, lbpcascades) from main OpenCV source
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../data/haarcascades")
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../data/haarcascades"
+            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/opencv4"
+            COMPONENT data)
+  endif()
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../data/lbpcascades")
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../data/lbpcascades"
+            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/opencv4"
+            COMPONENT data)
+  endif()
 endif()
