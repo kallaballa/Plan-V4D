@@ -255,6 +255,7 @@ if(NOT (TARGET ${the_module}))
   #Add sample targets
   if(BUILD_EXAMPLES)
       add_binary_sample(example_v4d_display_image_fb samples/display_image_fb.cpp)
+      add_binary_sample(example_v4d_imshow_reimplementation samples/imshow_reimplementation.cpp)
       add_binary_sample(example_v4d_display_image_nvg samples/display_image_nvg.cpp)
       add_binary_sample(example_v4d_vector_graphics samples/vector_graphics.cpp)
       add_binary_sample(example_v4d_vector_graphics_and_fb samples/vector_graphics_and_fb.cpp)

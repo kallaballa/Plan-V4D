@@ -11,11 +11,18 @@ set -euo pipefail
 # Prerequisites:
 #   - osc installed (zypper install osc / dnf install osc)
 #   - osc configured (run 'osc ls' once to trigger ~/.oscrc setup)
+#
+# This creates the OBS project hierarchy and does an initial upload of
+# packaging files. After this, use regenerate.sh for subsequent updates.
 
 OBS_API="${OBS_API:-https://api.opensuse.org}"
 OBS_USER="${1:-${OSC_USER:-}}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-OBS_DIR="${SCRIPT_DIR}"
+PACKAGING_DIR="$SCRIPT_DIR/packaging"
+
+# Prevent any interactive editor from opening
+EDITOR=true
+export EDITOR
 
 # ---- Read OBS credentials from oscrc if not provided ----
 if [[ -z "$OBS_USER" ]]; then
@@ -52,8 +59,13 @@ SUB_PROJECT_RASPIOS="${TOP_PROJECT}:Plan-V4D:Raspbian_12"
 PACKAGE="plan-v4d"
 
 # ---- Create projects ----
+# Use temp files for meta XML to avoid heredoc issues with osc
+
+TMPDIR=$(mktemp -d)
+trap "rm -rf $TMPDIR" EXIT
+
 echo "--- Creating top-level project: ${TOP_PROJECT} ---"
-osc -A "$OBS_API" meta prj -e "$TOP_PROJECT" --file - 2>/dev/null <<METAEOF || true
+cat > "$TMPDIR/top.xml" <<XML
 <project name="${TOP_PROJECT}">
   <title>Plan-V4D Packages</title>
   <description>OpenCV with Plan-DSL and V4D Visualization Modules (custom build)</description>
@@ -67,12 +79,13 @@ osc -A "$OBS_API" meta prj -e "$TOP_PROJECT" --file - 2>/dev/null <<METAEOF || t
     <arch>x86_64</arch>
   </repository>
 </project>
-METAEOF
+XML
+osc -A "$OBS_API" meta prj "$TOP_PROJECT" --file "$TMPDIR/top.xml" -m "Create Plan-V4D top-level project" 2>/dev/null || true
 echo "  Done."
 
 echo ""
 echo "--- Creating openSUSE Tumbleweed sub-project: ${SUB_PROJECT_TW} ---"
-osc -A "$OBS_API" meta prj -e "$SUB_PROJECT_TW" --file - 2>/dev/null <<METAEOF || true
+cat > "$TMPDIR/tw.xml" <<XML
 <project name="${SUB_PROJECT_TW}">
   <title>Plan-V4D for openSUSE Tumbleweed</title>
   <description>OpenCV+Plan-V4D packages targeting openSUSE Tumbleweed</description>
@@ -88,12 +101,13 @@ osc -A "$OBS_API" meta prj -e "$SUB_PROJECT_TW" --file - 2>/dev/null <<METAEOF |
     <enable/>
   </publish>
 </project>
-METAEOF
+XML
+osc -A "$OBS_API" meta prj "$SUB_PROJECT_TW" --file "$TMPDIR/tw.xml" -m "Create Tumbleweed sub-project" 2>/dev/null || true
 echo "  Done."
 
 echo ""
 echo "--- Creating Fedora sub-project: ${SUB_PROJECT_FEDORA} ---"
-osc -A "$OBS_API" meta prj -e "$SUB_PROJECT_FEDORA" --file - 2>/dev/null <<METAEOF || true
+cat > "$TMPDIR/fedora.xml" <<XML
 <project name="${SUB_PROJECT_FEDORA}">
   <title>Plan-V4D for Fedora</title>
   <description>OpenCV+Plan-V4D packages targeting Fedora Rawhide/latest</description>
@@ -109,12 +123,36 @@ osc -A "$OBS_API" meta prj -e "$SUB_PROJECT_FEDORA" --file - 2>/dev/null <<METAE
     <enable/>
   </publish>
 </project>
-METAEOF
+XML
+osc -A "$OBS_API" meta prj "$SUB_PROJECT_FEDORA" --file "$TMPDIR/fedora.xml" -m "Create Fedora sub-project" 2>/dev/null || true
 echo "  Done."
 
 echo ""
-echo "--- Creating Raspbian 12 sub-project: ${SUB_PROJECT_RASPIOS} ---"
-osc -A "$OBS_API" meta prj -e "$SUB_PROJECT_RASPIOS" --file - 2>/dev/null <<METAEOF || true
+echo "--- Creating Ubuntu 24.04 sub-project: ${SUB_PROJECT_UBUNTU} ---"
+cat > "$TMPDIR/ubuntu.xml" <<XML
+<project name="${SUB_PROJECT_UBUNTU}">
+  <title>Plan-V4D for Ubuntu 24.04</title>
+  <description>OpenCV+Plan-V4D packages targeting Ubuntu 24.04 (Noble)</description>
+  <person userid="${OBS_USER}" role="maintainer"/>
+  <repository name="Ubuntu_24.04">
+    <path project="Ubuntu:24.04" repository="universe"/>
+    <arch>x86_64</arch>
+    <arch>arm64</arch>
+  </repository>
+  <build>
+    <enable/>
+  </build>
+  <publish>
+    <enable/>
+  </publish>
+</project>
+XML
+osc -A "$OBS_API" meta prj "$SUB_PROJECT_UBUNTU" --file "$TMPDIR/ubuntu.xml" -m "Create Ubuntu sub-project" 2>/dev/null || true
+echo "  Done."
+
+echo ""
+echo "--- Creating Raspberry Pi OS 12 sub-project: ${SUB_PROJECT_RASPIOS} ---"
+cat > "$TMPDIR/raspbian.xml" <<XML
 <project name="${SUB_PROJECT_RASPIOS}">
   <title>Plan-V4D for Raspberry Pi OS (Debian 12)</title>
   <description>OpenCV+Plan-V4D packages targeting Raspberry Pi OS (Debian 12/Bookworm)</description>
@@ -131,49 +169,83 @@ osc -A "$OBS_API" meta prj -e "$SUB_PROJECT_RASPIOS" --file - 2>/dev/null <<META
     <enable/>
   </publish>
 </project>
-METAEOF
+XML
+osc -A "$OBS_API" meta prj "$SUB_PROJECT_RASPIOS" --file "$TMPDIR/raspbian.xml" -m "Create Raspbian sub-project" 2>/dev/null || true
 echo "  Done."
 
-# ---- Create packages and upload sources ----
+# ---- Create packages and upload initial packaging files ----
+# This stages files from the tracked packaging sources (no _service upload)
+# After setup, run regenerate.sh to upload the actual source tarballs and trigger builds.
+
+VERSION="4.13.0~beta~kallaballa"
+REVISION="1"
+
+generate_deb_files() {
+    local target="$1"
+    local outdir="$2"
+    local srcdir="$PACKAGING_DIR/$target"
+
+    sed -e "s/@VERSION@/$VERSION/g" -e "s/@REVISION@/$REVISION/g" \
+        "$srcdir/debian.changelog.in" > "$outdir/debian.changelog"
+    cp "$srcdir/debian.control" "$outdir/debian.control"
+    cp "$srcdir/debian.rules" "$outdir/debian.rules"
+    chmod +x "$outdir/debian.rules"
+    (cd "$srcdir" && tar czf "$outdir/debian.tar.gz" debian)
+    sed -e "s/@VERSION@/$VERSION/g" -e "s/@REVISION@/$REVISION/g" \
+        "$srcdir/plan-v4d.dsc.in" > "$outdir/plan-v4d.dsc"
+}
+
+STAGE=$(mktemp -d)
+trap 'rm -rf "$STAGE"' EXIT
+
+echo ""
+echo "--- Generating packaging files from tracked sources ---"
+generate_deb_files "ubuntu" "$STAGE/ubuntu"
+generate_deb_files "raspbian" "$STAGE/raspbian"
+
 for PROJECT in "$SUB_PROJECT_TW" "$SUB_PROJECT_FEDORA" "$SUB_PROJECT_UBUNTU" "$SUB_PROJECT_RASPIOS"; do
     echo ""
     echo "--- Setting up package in ${PROJECT} ---"
 
+    # Create a temporary staging dir for this project
     PKG_DIR="/tmp/obs-${PACKAGE}-$$/$(echo "$PROJECT" | tr ':' '_')"
     mkdir -p "$PKG_DIR"
 
-    # Copy packaging files. RPM targets use a spec file; Debian/Ubuntu/Raspbian
-    # targets use a debian/ directory.
-    if [[ "$PROJECT" == *Ubuntu* ]] || [[ "$PROJECT" == *Raspbian* ]]; then
-        cp "${OBS_DIR}/_service" "$PKG_DIR/"
-        cp -r "${OBS_DIR}/home:${OBS_USER}:Plan-V4D:Ubuntu_24.04/plan-v4d/debian" "$PKG_DIR/"
+    if [[ "$PROJECT" == *Raspbian* ]]; then
+        cp "$STAGE/raspbian/debian.changelog" "$PKG_DIR/"
+        cp "$STAGE/raspbian/debian.control" "$PKG_DIR/"
+        cp "$STAGE/raspbian/debian.rules" "$PKG_DIR/"
+        cp "$STAGE/raspbian/debian.tar.gz" "$PKG_DIR/"
+        cp "$STAGE/raspbian/plan-v4d.dsc" "$PKG_DIR/"
+    elif [[ "$PROJECT" == *Ubuntu* ]]; then
+        cp "$STAGE/ubuntu/debian.changelog" "$PKG_DIR/"
+        cp "$STAGE/ubuntu/debian.control" "$PKG_DIR/"
+        cp "$STAGE/ubuntu/debian.rules" "$PKG_DIR/"
+        cp "$STAGE/ubuntu/debian.tar.gz" "$PKG_DIR/"
+        cp "$STAGE/ubuntu/plan-v4d.dsc" "$PKG_DIR/"
     else
-        cp "${OBS_DIR}/plan-v4d.spec" "$PKG_DIR/"
-        cp "${OBS_DIR}/_service"      "$PKG_DIR/"
+        cp "$SCRIPT_DIR/plan-v4d.spec" "$PKG_DIR/"
     fi
 
     # Import into OBS
     osc -A "$OBS_API" checkout "$PROJECT/$PACKAGE" 2>/dev/null || true
     if [[ -d "$PROJECT/$PACKAGE" ]]; then
         cp "$PKG_DIR"/* "$PROJECT/$PACKAGE/" 2>/dev/null || true
-        cp -r "$PKG_DIR"/debian "$PROJECT/$PACKAGE/" 2>/dev/null || true
     else
         mkdir -p "$PROJECT/$PACKAGE"
         cp "$PKG_DIR"/* "$PROJECT/$PACKAGE/" 2>/dev/null || true
-        cp -r "$PKG_DIR"/debian "$PROJECT/$PACKAGE/" 2>/dev/null || true
     fi
 
     # Add and commit
     pushd "$PROJECT/$PACKAGE" >/dev/null
-    osc -A "$OBS_API" add --force _service 2>/dev/null || true
     if [[ "$PROJECT" == *Ubuntu* ]] || [[ "$PROJECT" == *Raspbian* ]]; then
-        osc -A "$OBS_API" add --force debian 2>/dev/null || true
+        osc -A "$OBS_API" add --force debian.changelog debian.control debian.rules debian.tar.gz plan-v4d.dsc 2>/dev/null || true
     else
         osc -A "$OBS_API" add --force plan-v4d.spec 2>/dev/null || true
     fi
-    osc -A "$OBS_API" commit -m "Initial upload: plan-v4d ${PROJECT##*:}" --no-verify
+    osc -A "$OBS_API" commit -m "Initial upload: plan-v4d packaging for ${PROJECT##*:}" --noservice
     popd >/dev/null
-    echo "  Committed sources to ${PROJECT}/${PACKAGE}"
+    echo "  Committed packaging files to ${PROJECT}/${PACKAGE}"
 done
 
 # ---- Cleanup ----
@@ -183,9 +255,11 @@ echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Monitor builds:"
+echo "  1. Run regenerate.sh to upload source tarballs and trigger builds:"
+echo "       ./regenerate.sh"
+echo "  2. Monitor builds:"
 echo "       ./osc-build.sh"
-echo "  2. Or check on web:"
+echo "  3. Or check on web:"
 echo "       ${OBS_API}/${SUB_PROJECT_TW}/${PACKAGE}"
 echo "       ${OBS_API}/${SUB_PROJECT_FEDORA}/${PACKAGE}"
 echo "       ${OBS_API}/${SUB_PROJECT_UBUNTU}/${PACKAGE}"

@@ -312,6 +312,11 @@ fi
 mkdir -p %{buildroot}%{_bindir}
 cp -a build/bin/example_v4d_* %{buildroot}%{_bindir}/ 2>/dev/null || true
 
+# OpenCV's generated pkgconfig template combines ${exec_prefix} with an install
+# path that already contains the prefix, producing a double slash that breaks
+# debugedit during stripping. Collapse any occurrences.
+sed -i 's#//usr#/usr#g' %{buildroot}%{_libdir}/pkgconfig/opencv*.pc
+
 install -d %{buildroot}%{_docdir}/%{name}
 install -m 0644 LICENSE        %{buildroot}%{_docdir}/%{name}/LICENSE
 install -m 0644 CONTRIBUTING.md %{buildroot}%{_docdir}/%{name}/CONTRIBUTING.md
@@ -356,3 +361,7 @@ install -m 0644 CONTRIBUTING.md %{buildroot}%{_docdir}/%{name}/CONTRIBUTING.md
 %{_bindir}/example_v4d_*
 
 %changelog
+* Tue Sep 01 2026 elchaschab <elchaschab@users.noreply.github.com> - 4.13.0~beta~kallaballa-1
+- Initial release for openSUSE Tumbleweed / Fedora
+- Custom build of OpenCV 4.13.0 with Plan-DSL and V4D visualization modules
+- Built with Qt5, OpenGL, and OpenCL support
