@@ -1,0 +1,8 @@
+plan-v4d (@VERSION@-@REVISION@) raspbian; urgency=medium
+
+  * Initial release for Raspberry Pi OS (Debian 12/Bookworm).
+  * Custom build of OpenCV @VERSION@ with Plan-DSL and V4D visualization modules.
+  * Built with Qt5, OpenGL ES, and OpenCL support.
+  * Optimized for ARM (armhf/arm64) architectures.
+
+ -- elchaschab <elchaschab@users.noreply.github.com>  Thu, 01 Sep 2026 00:00:00 +0000

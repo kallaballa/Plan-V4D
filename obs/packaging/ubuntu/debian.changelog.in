@@ -1,0 +1,6 @@
+plan-v4d (@VERSION@-@REVISION@) noble; urgency=medium
+
+  * Custom build of OpenCV @VERSION@ with Plan-DSL and V4D visualization modules.
+  * Initial release for Ubuntu 24.04 LTS (noble).
+
+ -- elchaschab <elchaschab@users.noreply.github.com>  Thu, 01 Sep 2026 00:00:00 +0000

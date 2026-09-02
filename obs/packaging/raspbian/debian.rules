@@ -1,0 +1,153 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE := 1
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	export CL_TARGET_OPENCL_VERSION=120 && cmake -B build \
+	    -DCMAKE_INSTALL_PREFIX=/usr \
+	    -DCMAKE_INSTALL_LIBDIR=lib/$(DEB_HOST_MULTIARCH) \
+	    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+	    -DOPENCV_EXTRA_MODULES_PATH=$(CURDIR)/extra_modules \
+	    -DOPENCV_V4D_ENABLE_ES3=ON \
+	    -DOPENCV_GENERATE_PKGCONFIG=ON \
+	    -DOPENCV_CUSTOM_PACKAGE_INFO=ON \
+	    -DCMAKE_CXX_FLAGS="-DCL_TARGET_OPENCL_VERSION=120" \
+	    -DCMAKE_SKIP_RPATH=ON \
+	    \
+	    -DWITH_WAYLAND=ON \
+	    -DWITH_OPENGL=ON \
+	    -DWITH_OPENCL=ON \
+	    -DWITH_QT=ON \
+	    -DWITH_FFMPEG=OFF \
+	    -DWITH_VA=OFF \
+	    -DWITH_VA_INTEL=OFF \
+	    -DWITH_PTHREADS_PF=ON \
+	    -DWITH_QUIRC=ON \
+	    -DOPENCV_ENABLE_EGL=ON \
+	    -DOPENCV_ENABLE_GLX=OFF \
+	    -DOPENCV_FFMPEG_ENABLE_LIBAVDEVICE=OFF \
+	    -DCV_TRACE=OFF \
+	    -DCV_ENABLE_INTRINSICS=ON \
+	    \
+	    -DWITH_1394=OFF \
+	    -DWITH_ADE=OFF \
+	    -DWITH_VTK=OFF \
+	    -DWITH_EIGEN=OFF \
+	    -DWITH_GTK=OFF \
+	    -DWITH_GTK_2_X=OFF \
+	    -DWITH_IPP=OFF \
+	    -DWITH_JASPER=OFF \
+	    -DWITH_WEBP=OFF \
+	    -DWITH_OPENEXR=OFF \
+	    -DWITH_OPENVX=OFF \
+	    -DWITH_OPENNI=OFF \
+	    -DWITH_OPENNI2=OFF \
+	    -DWITH_TBB=OFF \
+	    -DWITH_TIFF=OFF \
+	    -DWITH_OPENCL_SVM=OFF \
+	    -DWITH_OPENCLAMDFFT=OFF \
+	    -DWITH_OPENCLAMDBLAS=OFF \
+	    -DWITH_GPHOTO2=OFF \
+	    -DWITH_LAPACK=OFF \
+	    -DWITH_ITT=OFF \
+	    \
+	    -DBUILD_SHARED_LIBS=ON \
+	    -DBUILD_ZLIB=OFF \
+	    -DBUILD_opencv_apps=OFF \
+	    -DBUILD_TESTS=OFF \
+	    -DBUILD_PERF_TESTS=OFF \
+	    -DBUILD_DOCS=OFF \
+	    -DBUILD_EXAMPLES=ON \
+	    -DBUILD_PACKAGE=ON \
+	    \
+	    -DBUILD_opencv_calib3d=ON \
+	    -DBUILD_opencv_ccalib=ON \
+	    -DBUILD_opencv_dnn=ON \
+	    -DBUILD_opencv_features2d=ON \
+	    -DBUILD_opencv_flann=ON \
+	    -DBUILD_opencv_photo=ON \
+	    -DBUILD_opencv_imgcodecs=ON \
+	    -DBUILD_opencv_videoio=ON \
+	    -DBUILD_opencv_video=ON \
+	    -DBUILD_opencv_stitching=ON \
+	    -DBUILD_opencv_face=ON \
+	    -DBUILD_opencv_optflow=ON \
+	    -DBUILD_opencv_plot=ON \
+	    -DBUILD_opencv_tracking=ON \
+	    -DBUILD_opencv_ximgproc=ON \
+	    -DBUILD_opencv_plan=ON \
+	    -DBUILD_opencv_v4d=ON \
+	    \
+	    -DBUILD_opencv_java=OFF \
+	    -DBUILD_opencv_js=OFF \
+	    -DBUILD_opencv_python2=OFF \
+	    -DBUILD_opencv_python3=OFF \
+	    -DBUILD_opencv_gapi=OFF \
+	    -DBUILD_opencv_ml=OFF \
+	    -DBUILD_opencv_highgui=OFF \
+	    -DBUILD_opencv_shape=OFF \
+	    -DBUILD_opencv_videostab=OFF \
+	    -DBUILD_opencv_superres=OFF \
+	    -DBUILD_opencv_world=OFF \
+	    -DBUILD_opencv_alphamat=OFF \
+	    -DBUILD_opencv_aruco=OFF \
+	    -DBUILD_opencv_barcode=OFF \
+	    -DBUILD_opencv_bgsegm=OFF \
+	    -DBUILD_opencv_bioinspired=OFF \
+	    -DBUILD_opencv_cannops=OFF \
+	    -DBUILD_opencv_cnn_3dobj=OFF \
+	    -DBUILD_opencv_cvv=OFF \
+	    -DBUILD_opencv_datasets=OFF \
+	    -DBUILD_opencv_dnn_objdetect=OFF \
+	    -DBUILD_opencv_dnn_superres=OFF \
+	    -DBUILD_opencv_dpm=OFF \
+	    -DBUILD_opencv_freetype=OFF \
+	    -DBUILD_opencv_fuzzy=OFF \
+	    -DBUILD_opencv_hdf=OFF \
+	    -DBUILD_opencv_hfs=OFF \
+	    -DBUILD_opencv_img_hash=OFF \
+	    -DBUILD_opencv_intensity_transform=OFF \
+	    -DBUILD_opencv_line_descriptor=OFF \
+	    -DBUILD_opencv_mcc=OFF \
+	    -DBUILD_opencv_ovis=OFF \
+	    -DBUILD_opencv_phase_unwrapping=OFF \
+	    -DBUILD_opencv_quality=OFF \
+	    -DBUILD_opencv_rapid=OFF \
+	    -DBUILD_opencv_reg=OFF \
+	    -DBUILD_opencv_rgbd=OFF \
+	    -DBUILD_opencv_saliency=OFF \
+	    -DBUILD_opencv_sfm=OFF \
+	    -DBUILD_opencv_stereo=OFF \
+	    -DBUILD_opencv_structured_light=OFF \
+	    -DBUILD_opencv_surface_matching=OFF \
+	    -DBUILD_opencv_text=OFF \
+	    -DBUILD_opencv_xfeatures2d=OFF \
+	    -DBUILD_opencv_xobjdetect=OFF \
+	    -DBUILD_opencv_xphoto=OFF \
+	    -DBUILD_opencv_wechat_qrcode=OFF \
+	    -DGBFX_CONFIG_MULTITHREADED=OFF \
+	    -DBGFX_CONFIG_PASSIVE=ON
+
+override_dh_auto_build:
+	$(MAKE) -C build
+
+override_dh_auto_test:
+	@echo "Skipping tests (BUILD_TESTS=OFF)"
+
+override_dh_auto_install:
+	$(MAKE) -C build DESTDIR=$(CURDIR)/debian/tmp install
+	rm -f debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libnanovg.so*
+	install -d debian/tmp/usr/bin
+	cp -a build/bin/example_v4d_* debian/tmp/usr/bin/ 2>/dev/null || true
+	install -d debian/tmp/usr/share/doc/plan-v4d
+	install -m 0644 LICENSE debian/tmp/usr/share/doc/plan-v4d/LICENSE
+	install -m 0644 CONTRIBUTING.md debian/tmp/usr/share/doc/plan-v4d/CONTRIBUTING.md
+
+override_dh_auto_clean:
+	rm -rf build
+
+override_dh_missing:
+	@true

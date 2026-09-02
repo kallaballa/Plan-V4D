@@ -1,0 +1,62 @@
+Source: plan-v4d
+Section: libs
+Priority: optional
+Maintainer: elchaschab <elchaschab@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.20),
+               g++,
+               make,
+               git,
+               pkg-config,
+               opencl-headers,
+               zlib1g-dev,
+               libpng-dev,
+               libjpeg-dev,
+               libxinerama-dev,
+               libxcursor-dev,
+               libxi-dev,
+               libgl1-mesa-dev,
+               libglu1-mesa-dev,
+               libglew-dev,
+               libglfw3-dev,
+               qtbase5-dev,
+               ocl-icd-opencl-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/kallaballa/Plan-V4D
+
+Package: plan-v4d-data
+Architecture: all
+Depends: ${misc:Depends}
+Description: Data files for OpenCV+Plan-V4D
+ Pre-trained models (LBF, YuNet face detection), cascade classifiers, fonts
+ and other data files needed at runtime by the V4D and Plan modules.
+
+Package: plan-v4d-libs
+Architecture: any
+Depends: plan-v4d-data,
+         ${shlibs:Depends},
+         ${misc:Depends}
+Recommends: ocl-icd-libopencl1,
+            libgl1-mesa-dri,
+            libqt5opengl5
+Description: OpenCV+Plan-V4D shared libraries
+ Shared libraries for OpenCV built with the Plan-DSL and V4D visualization
+ modules. Includes support for Qt5, OpenGL ES, and OpenCL.
+
+Package: plan-v4d-dev
+Architecture: any
+Depends: plan-v4d-libs (= ${binary:Version}),
+         ${misc:Depends}
+Description: Development files for OpenCV+Plan-V4D
+ Header files, pkgconfig files and development libraries for building
+ applications against OpenCV with Plan-DSL and V4D modules.
+
+Package: plan-v4d-samples
+Architecture: any
+Depends: plan-v4d-libs (= ${binary:Version}),
+         plan-v4d-data,
+         ${misc:Depends}
+Description: Sample binaries for OpenCV+Plan-V4D
+ Demonstration programs for the V4D visualization module including
+ framebuffer, vector graphics, font rendering, video editing, face
+ detection, optical flow, and shader demos.

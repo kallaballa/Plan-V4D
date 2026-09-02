@@ -1,0 +1,75 @@
+Source: plan-v4d
+Section: libs
+Priority: optional
+Maintainer: elchaschab <elchaschab@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.20),
+               g++,
+               make,
+               git,
+               pkg-config,
+               opencl-headers,
+               zlib1g-dev,
+               libpng-dev,
+               libjpeg-dev,
+               libva-dev,
+               libxinerama-dev,
+               libxcursor-dev,
+               libxi-dev,
+               libgl1-mesa-dev,
+               libglu1-mesa-dev,
+               libglew-dev,
+               libglfw3-dev,
+               qtbase5-dev,
+               ocl-icd-opencl-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/kallaballa/Plan-V4D
+Vcs-Git: https://github.com/kallaballa/Plan-V4D.git
+Rules-Requires-Root: no
+
+Package: plan-v4d-data
+Architecture: all
+Multi-Arch: foreign
+Description: Data files for OpenCV+Plan-V4D
+ Pre-trained models (LBF, YuNet face detection), cascade classifiers, fonts
+ and other data files needed at runtime by the V4D and Plan modules.
+
+Package: plan-v4d-libs
+Architecture: any
+Multi-Arch: same
+Depends: plan-v4d-data (= ${source:Version}), ${shlibs:Depends}, ${misc:Depends}
+Recommends: intel-opencl-icd,
+            ocl-icd-libopencl1,
+            libva2,
+            libva-drm2,
+            libva-x11-2,
+            qtbase5-dev
+Description: OpenCV+Plan-V4D shared libraries
+ Shared libraries for OpenCV built with the Plan-DSL and V4D visualization
+ modules. Includes support for FFmpeg, Qt5, OpenGL, OpenCL, and VA-API.
+
+Package: plan-v4d-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends: plan-v4d-libs (= ${binary:Version}), ${misc:Depends}
+Recommends: libgl1-mesa-dev,
+            libglu1-mesa-dev,
+            libglew-dev,
+            libglfw3-dev,
+            qtbase5-dev
+Provides: opencv-dev (= ${source:Version}),
+          opencv4-dev (= ${source:Version})
+Description: Development files for OpenCV+Plan-V4D
+ Header files, pkgconfig files and development libraries for building
+ applications against OpenCV with Plan-DSL and V4D modules.
+
+Package: plan-v4d-samples
+Architecture: any
+Depends: plan-v4d-libs (= ${binary:Version}),
+         plan-v4d-data (= ${source:Version}),
+         ${misc:Depends}
+Description: Sample binaries for OpenCV+Plan-V4D
+ Demonstration programs for the V4D visualization module including
+ framebuffer, vector graphics, font rendering, video editing, face
+ detection, optical flow, and shader demos.

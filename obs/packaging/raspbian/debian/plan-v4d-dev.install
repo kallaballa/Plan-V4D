@@ -1,0 +1,6 @@
+usr/include/opencv4 usr/include/
+usr/include/nanovg usr/include/
+usr/lib/*/libopencv*.so usr/lib/
+usr/lib/*/pkgconfig/opencv*.pc usr/lib/*/pkgconfig/
+usr/lib/*/cmake/opencv4 usr/lib/*/cmake/
+usr/bin/setup_vars_opencv4.sh usr/bin/
