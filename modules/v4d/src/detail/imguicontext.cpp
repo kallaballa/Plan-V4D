@@ -72,15 +72,17 @@ int ImGuiContextImpl::execute(const cv::Rect& vp, std::function<void()> fn) {
 		window_flags |= ImGuiWindowFlags_NoNav;
 		window_flags |= ImGuiWindowFlags_NoDecoration;
 		window_flags |= ImGuiWindowFlags_NoInputs;
-		static ImVec2 pos(0, 0);
-		ImGui::SetNextWindowPos(pos, ImGuiCond_Once);
-		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
-		ImGui::Begin("Display", open_ptr, window_flags);
-		double fps = GlobalState::get<double>(GlobalState::Keys::FPS);
-		size_t workers = GlobalState::get<size_t>(GlobalState::Keys::WORKERS_READY);
-		ImGui::Text("%.4f ms/frame (%.1f FPS), workers: %ld", (1000.0f / fps), fps, workers);
-		ImGui::End();
-        ImGui::PopStyleColor(1);
+                if(GlobalState::get<bool>(GlobalState::Keys::SHOW_FRAME_TIME)) {
+			static ImVec2 pos(0, 0);
+			ImGui::SetNextWindowPos(pos, ImGuiCond_Once);
+			ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
+			ImGui::Begin("Display", open_ptr, window_flags);
+			double fps = GlobalState::get<double>(GlobalState::Keys::FPS);
+			size_t workers = GlobalState::get<size_t>(GlobalState::Keys::WORKERS_READY);
+			ImGui::Text("%.4f ms/frame (%.1f FPS), workers: %ld", (1000.0f / fps), fps, workers);
+			ImGui::End();
+		        ImGui::PopStyleColor(1);
+		}
 		if(GlobalState::get<bool>(GlobalState::Keys::TIME_TRACKER)) {
 	        std::stringstream ss;
 	        TimeTracker::getInstance()->print(ss);

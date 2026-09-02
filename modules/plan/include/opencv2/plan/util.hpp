@@ -498,6 +498,7 @@ public:
 			LOCK_CONTENTION_RATE,
 			LCR_CNT,
 		    SHOW_GUI,
+		    SHOW_FRAME_TIME,
 		    TIME_TRACKER
 		};
 	};
@@ -563,6 +564,7 @@ public:
 			create<false, double>(Keys::LOCK_CONTENTION_RATE, 0.0);
 			create<false, uint64_t>(Keys::LCR_CNT, 0);
 			create<false, bool>(Keys::SHOW_GUI, true);
+                        create<false, bool>(Keys::SHOW_FRAME_TIME, true);
 			create<false, bool>(Keys::TIME_TRACKER, true);
 		}
 	}

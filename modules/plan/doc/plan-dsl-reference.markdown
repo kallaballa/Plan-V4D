@@ -333,20 +333,14 @@ Result rules:
   value is recomputed by the node each iteration. Multiple consumers share the node.
 - **Statement forms** (`op<>`, `assign`, `construct`) do not create a result edge.
 
-> **Associativity caveat.** The n-ary implementations fold the *tail* right-associatively:
-> `SUB(a,b,c)` computes `a - (b - c)`, `DIV(a,b,c)` computes `a / (b / c)`, and the
-> comparisons compute e.g. `a == (b == c)`. For the common **binary** case (`SUB(a,b)`,
-> `EQ(a,b)`, ...) the result is exact. When lowering to LLVM IR, emit one operator per
-> binary instruction.
-
 ### 3.1 Arithmetic
 
 | Opcode | Symbol | Named | Arity | Semantics (C++) | LLVM IR |
 |--------|--------|-------|-------|-----------------|---------|
-| `ADD_` | `+` | `ADD` | n-ary | `a + (b + ...)` | `add` |
-| `SUB_` | `-` | `SUB` | n-ary | `a - (b - ...)` (binary: `a-b`) | `sub` |
-| `MUL_` | `*` | `MUL` | n-ary | `a * (b * ...)` | `mul` |
-| `DIV_` | `/` | `DIV` | n-ary | `a / (b / ...)` (binary: `a/b`) | `sdiv`/`udiv`/`fdiv` (via C++ `/`) |
+| `ADD_` | `+` | `ADD` | n-ary | `(a + b) + ...` (binary: `a+b`) | `add` |
+| `SUB_` | `-` | `SUB` | n-ary | `(a - b) - ...` (binary: `a-b`) | `sub` |
+| `MUL_` | `*` | `MUL` | n-ary | `(a * b) * ...` (binary: `a*b`) | `mul` |
+| `DIV_` | `/` | `DIV` | n-ary | `(a / b) / ...` (binary: `a/b`) | `sdiv`/`udiv`/`fdiv` (via C++ `/`) |
 | `MOD_` | `%` | `MOD` | binary | `a % b` (integer remainder) | `srem`/`urem`/`frem` (via C++ `%`) |
 | `NEG_` | — | `NEG` | binary | `dst = -value` (dst first!) | `sub 0, %x` / `fneg` |
 | `INCL_` | `++x` | `INCL` | unary | `++x` (pre-increment) | `add x, 1` + store |
@@ -361,28 +355,25 @@ The unary `-x` symbol instead expands to `x * (-1)` (`MUL`).
 
 | Opcode | Symbol | Named | Arity | Semantics | LLVM IR |
 |--------|--------|-------|-------|-----------|---------|
-| `AND_` | `&&` | `AND` | n-ary | `a && (b && ...)` | `and i1` (bool logic) |
-| `OR_` | `\|\|` | `OR` | n-ary | `a \|\| (b \|\| ...)` | `or i1` (bool logic) |
+| `AND_` | `&&` | `AND` | n-ary | `(a && b) && ...` | `and i1` (bool logic) |
+| `OR_` | `\|\|` | `OR` | n-ary | `(a \|\| b) \|\| ...` | `or i1` (bool logic) |
 | `NOT_` | `!` | `NOT` | unary | `!a` | `xor i1 a, true` |
-| `XOR_` | `^` | `XOR` | n-ary | `a ^ (b ^ ...)` | `xor` |
-| `BAND_` | `&` | `BAND` | n-ary | `a & (b & ...)` | `and` |
-| `BOR_` | `\|` | `BOR` | n-ary | `a \| (b \| ...)` | `or` |
-| `SHL_` | `<<` | `SHL` | n-ary | `a << (b << ...)` (binary: `a<<b`) | `shl` |
-| `SHR_` | `>>` | `SHR` | n-ary | `a >> (b >> ...)` (binary: `a>>b`) | `lshr`/`ashr` (C++ `>>` on signed = arithmetic) |
-
-> Note: `SHL`/`SHR`'s n-ary form also folds the tail right-associatively
-> (`a << (b << c)`); emit one op per binary shift when lowering.
+| `XOR_` | `^` | `XOR` | n-ary | `(a ^ b) ^ ...` | `xor` |
+| `BAND_` | `&` | `BAND` | n-ary | `(a & b) & ...` | `and` |
+| `BOR_` | `\|` | `BOR` | n-ary | `(a \| b) \| ...` | `or` |
+| `SHL_` | `<<` | `SHL` | n-ary | `(a << b) << ...` (binary: `a<<b`) | `shl` |
+| `SHR_` | `>>` | `SHR` | n-ary | `(a >> b) >> ...` (binary: `a>>b`) | `lshr`/`ashr` (C++ `>>` on signed = arithmetic) |
 
 ### 3.3 Comparison
 
 | Opcode | Symbol | Named | Arity | Semantics | LLVM IR |
 |--------|--------|-------|-------|-----------|---------|
-| `EQ_` | `==` | `EQ` | n-ary | `a == (b == ...)` (binary exact) | `icmp eq` / `fcmp oeq` |
-| `NEQ_` | `!=` | `NEQ` | n-ary | `a != (b != ...)` (binary exact) | `icmp ne` / `fcmp une` |
-| `LT_` | `<` | `LT` | n-ary | `a < (b < ...)` (binary exact) | `icmp slt/ult` / `fcmp olt` |
-| `GT_` | `>` | `GT` | n-ary | `a > (b > ...)` (binary exact) | `icmp sgt/ugt` / `fcmp ogt` |
-| `LE_` | `<=` | `LE` | n-ary | `a <= (b <= ...)` (binary exact) | `icmp sle/ule` / `fcmp ole` |
-| `GE_` | `>=` | `GE` | n-ary | `a >= (b >= ...)` (binary exact) | `icmp sge/uge` / `fcmp oge` |
+| `EQ_` | `==` | `EQ` | n-ary | `(a == b) == ...` (binary exact) | `icmp eq` / `fcmp oeq` |
+| `NEQ_` | `!=` | `NEQ` | n-ary | `(a != b) != ...` (binary exact) | `icmp ne` / `fcmp une` |
+| `LT_` | `<` | `LT` | n-ary | `(a < b) < ...` (binary exact) | `icmp slt/ult` / `fcmp olt` |
+| `GT_` | `>` | `GT` | n-ary | `(a > b) > ...` (binary exact) | `icmp sgt/ugt` / `fcmp ogt` |
+| `LE_` | `<=` | `LE` | n-ary | `(a <= b) <= ...` (binary exact) | `icmp sle/ule` / `fcmp ole` |
+| `GE_` | `>=` | `GE` | n-ary | `(a >= b) >= ...` (binary exact) | `icmp sge/uge` / `fcmp oge` |
 
 All comparisons are implemented with the native C++ operators, so signed/unsigned and
 integer/float behavior follow C++ semantics. Emit one op per LLVM `icmp`/`fcmp`.
@@ -555,7 +546,7 @@ attachment calls (all return `cv::Ptr<V4DPlan>`):
 | `ext(fn, args...)` / `ext(idxEdge, fn, args...)` | Ext | external renderer contexts |
 | `capture(fn, args...)` / `capture(edge)` / `capture()` | Source | pull the next input frame |
 | `write(fn, args...)` / `write(edge)` / `write()` | Sink | push the finished frame |
-| `set(key, edge)` | CPU | property write node (fires change callbacks) |
+| `set(key, edge)` | CPU | property write node |
 | `imgui(fn, args...)` | ImGui | installs the transaction into the ImGui context instead of the graph |
 
 ### 5.3 Entry points
@@ -628,8 +619,8 @@ node-form property write on top — V4D's `set(key, edge)` does exactly that.)
    plan member variables and `R`/`RW`/`assign`. Use the most restrictive intent you can
    prove (`R` when a value is only read) to maximize parallelism.
 3. **One op per instruction.** Emit binary operators exactly as the IR expresses them;
-   the n-ary/right-fold behavior (§3) only matters when you deliberately fuse
-   instructions (e.g. `ADD` of a long constant chain).
+   the n-ary form is only useful when you deliberately fuse instructions (e.g. `ADD`
+   of a long constant chain).
 4. **Destination-first ops.** `NEG` and `DEREF` take the destination as their first
    argument — allocate a storage slot (`RW`) for the result.
 5. **Control flow must be structured.** Loops and conditionals must nest as balanced

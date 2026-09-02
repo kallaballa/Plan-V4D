@@ -243,7 +243,7 @@ Think of an edge as a typed SSA value with an explicit memory access
 intent. The intent tells the runtime how the node should treat the storage
 on the other end of the edge.
 
-### 5.1 The five kinds of edge-calls
+### 5.1 The edge-calls
 
 | Edge-call | What it points at                | Access intent              |
 |-----------|----------------------------------|----------------------------|
@@ -365,19 +365,12 @@ When you only care about the write-back (e.g. `RW(x) = R(y)`), you can use
 the *statement* form. It returns `cv::Ptr<Plan>` so it can be chained.
 
 ```cpp
-assign(RW(x), R(y));   // x = y  (no result edge needed)
-op<Operators::ADD_>(RW(x), R(y));  // x += y (statement form)
+assign(RW(x), R(y));                // x = y  (no result edge needed)
+assign(RW(x), R(x) + R(y));         // x += y (use assign with an explicit ADD)
 ```
 
 Statement forms are how you get "void" instructions without forcing the
 caller to discard a result.
-
-### 6.3 Associativity caveat
-
-The n-ary implementations fold the *tail* right-associatively. For binary
-operators — the common case — this is irrelevant. For ternary and beyond,
-remember: `BAND(a, b, c)` means `a & (b & c)`, not `(a & b) & c`. If in
-doubt, spell it out with explicit parentheses using `_(...)`.
 
 ---
 
@@ -1045,8 +1038,8 @@ F(fn, args...)     // call any callable; non-void returns an edge
 T member_;                            // local per-worker storage
 _shared(member_)                      // give member_ a shared mutex
 _safe(member_)                        // declare-as-safe (never shared)
-_globalstate<T>::set(key, v)          // write a global property
-_globalstate<T>::get<T>(key)          // read a global property directly
+GlobalState::set<T>(key, v)           // write a global property
+GlobalState::get<T>(key)              // read a global property directly
 ```
 
 ### Operators (all return a result edge; use lowercase form for no-result)
@@ -1081,8 +1074,8 @@ cond ? a : b     IF(cond, a, b)
 Statement forms (return `cv::Ptr<Plan>`, no result edge):
 
 ```cpp
-op<Operators::ADD_>(RW(x), R(y));      // x += y
 assign(RW(x), R(y));                  // x = y
+assign(RW(x), R(x) + R(y));           // x += y
 construct(RW(ptr), ...);              // ptr = new T(...)
 ```
 

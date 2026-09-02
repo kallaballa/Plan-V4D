@@ -84,21 +84,21 @@ static auto make_operator_func(Tfirst, Args ...) {
 			auto tup = std::forward_as_tuple(r...);
 			return l = std::get<0>(tup);
 		};
-	}  else if constexpr(Top == Operators::ADD_) {
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values)  -> decltype(f + (values + ...)){
-			return f + (values + ...);
+} else if constexpr(Top == Operators::ADD_) {
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values)  -> decltype(((f + values) + ...)){
+			return ((f + values) + ...);
 		};
 	} else if constexpr(Top == Operators::SUB_) {
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f - (values - ...)) {
-			return f - (values - ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f - values) - ...)) {
+			return ((f - values) - ...);
 		};
 	} else if constexpr(Top == Operators::MUL_) {
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f * (values * ...)) {
-			return f * (values * ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f * values) * ...)) {
+			return ((f * values) * ...);
 		};
 	} else if constexpr(Top == Operators::DIV_) {
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values)  -> decltype(f / (values / ...)) {
-			return f / (values / ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values)  -> decltype(((f / values) / ...)) {
+			return ((f / values) / ...);
 		};
 	} else if constexpr(Top == Operators::MOD_) {
 		static_assert(binary, "Invalid number of arguments to MOD");
@@ -127,44 +127,44 @@ static auto make_operator_func(Tfirst, Args ...) {
 		};
 	} else if constexpr(Top == Operators::AND_) {
 		static_assert(nary, "Invalid number of arguments to AND");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f && (values && ...)) {
-			return f && (values && ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f && values) && ...)) {
+			return ((f && values) && ...);
 		};
 	} else if constexpr(Top == Operators::OR_) {
 		static_assert(nary, "Invalid number of arguments to OR");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f || (values || ...)) {
-			return f || (values || ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f || values) || ...)) {
+			return ((f || values) || ...);
 		};
 	} else if constexpr(Top == Operators::EQ_) {
 		static_assert(nary, "Invalid number of arguments to EQ");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f == (values == ...)) {
-			return f == (values == ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f == values) == ...)) {
+			return ((f == values) == ...);
 		};
 
 	} else if constexpr(Top == Operators::NEQ_) {
 		static_assert(nary, "Invalid number of arguments to NEQ");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f != (values != ...)) {
-			return f != (values != ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f != values) != ...)) {
+			return ((f != values) != ...);
 		};
 	} else if constexpr(Top == Operators::LT_) {
 		static_assert(nary, "Invalid number of arguments to LT");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f < (values < ...)) {
-			return f < (values < ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f < values) < ...)) {
+			return ((f < values) < ...);
 		};
 	} else if constexpr(Top == Operators::GT_) {
 		static_assert(nary, "Invalid number of arguments to GT");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f > (values > ...)) {
-			return f > (values > ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f > values) > ...)) {
+			return ((f > values) > ...);
 		};
 	} else if constexpr(Top == Operators::LE_) {
 		static_assert(nary, "Invalid number of arguments to LE");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f <= (values <= ...)) {
-			return f <= (values <= ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f <= values) <= ...)) {
+			return ((f <= values) <= ...);
 		};
 	} else if constexpr(Top == Operators::GE_) {
 		static_assert(nary, "Invalid number of arguments to GE");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f >= (values >= ...)) {
-			return f >= (values >= ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f >= values) >= ...)) {
+			return ((f >= values) >= ...);
 		};
 	} else if constexpr(Top == Operators::NOT_) {
 		static_assert(unary, "Invalid number of arguments to NOT");
@@ -173,28 +173,28 @@ static auto make_operator_func(Tfirst, Args ...) {
 		};
 	} else if constexpr(Top == Operators::XOR_) {
 		static_assert(nary, "Invalid number of arguments to XOR");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f ^ (values ^ ...)) {
-			return f ^ (values ^ ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f ^ values) ^ ...)) {
+			return ((f ^ values) ^ ...);
 		};
 	} else if constexpr(Top == Operators::BAND_) {
 		static_assert(nary, "Invalid number of arguments to BAND");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f & (values & ...)) {
-			return f & (values & ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f & values) & ...)) {
+			return ((f & values) & ...);
 		};
 	} else if constexpr(Top == Operators::BOR_) {
 		static_assert(nary, "Invalid number of arguments to BOR");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f | (values | ...)) {
-			return f | (values | ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f | values) | ...)) {
+			return ((f | values) | ...);
 		};
 	} else if constexpr(Top == Operators::SHL_) {
 		static_assert(nary, "Invalid number of arguments to SHL");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values)  -> decltype(f << (values << ...)) {
-			return f << (values << ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values)  -> decltype(((f << values) << ...)) {
+			return ((f << values) << ...);
 		};
 	} else if constexpr(Top == Operators::SHR_) {
 		static_assert(nary, "Invalid number of arguments to SHR");
-		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f >> (values >> ...)) {
-			return f >> (values >> ...);
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(((f >> values) >> ...)) {
+			return ((f >> values) >> ...);
 		};
 	} else if constexpr(Top == Operators::IF_) {
 		static_assert(ternary, "Invalid number of arguments to IF");

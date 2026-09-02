@@ -80,6 +80,8 @@ public:
 
     void setup() override {
         set(GlobalState::Keys::TIME_TRACKER, V(false));
+        set(GlobalState::Keys::SHOW_FRAME_TIME, V(false));
+
         plain([](const UMat& src, UMat& bgra, UMat& rgba) {
             if (src.channels() == 1) {
                 cvtColor(src, rgba, COLOR_GRAY2RGBA);
@@ -192,7 +194,6 @@ public:
         // -- Render the canvas ----------------------------------------------
         nvg([](const UMat& bgra, const State& state, const cv::Size& sz) {
             using namespace cv::v4d::nvg;
-
             // ----- Image -----
             save();
             translate(state.pan_.x, state.pan_.y);
@@ -403,6 +404,9 @@ public:
         imgui([this](State& state, const cv::Size& sz) {
             using namespace ImGui;
 
+            ImFont* font = GetFont();
+            font->Scale = 1.5;
+            PushFont(font);
             // ---------- Keyboard shortcuts ----------
             // Pan with Ctrl+Arrows (~5% of the viewport, mirrors QT imshow).
             auto panFrac = [&](float dx, float dy) {
@@ -640,6 +644,7 @@ public:
                 Text("R / G / B values inside each pixel.");
                 End();
             }
+            PopFont();
         }, RWS(state_), size_);
     }
 
