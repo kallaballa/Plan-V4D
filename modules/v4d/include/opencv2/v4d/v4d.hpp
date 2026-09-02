@@ -781,6 +781,16 @@ public:
         return self<V4DPlan>();
     }
 
+    template<typename Tedge>
+    cv::Ptr<Plan> set(const GlobalState::Keys::Enum& key, const Tedge& e) {
+        return Plan::set(key, e);
+    }
+
+    template<typename ... Args>
+    cv::Ptr<Plan> set(std::tuple<GlobalState::Keys::Enum,Args>&& ... tuples) {
+        return Plan::set(tuples...);
+    }
+
     template<typename Tval>
     Property<Tval> P(V4D::Keys::Enum key) {
         const auto& ref = std::dynamic_pointer_cast<V4D>(runtime())->template get<Tval>(key);

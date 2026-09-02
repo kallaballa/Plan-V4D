@@ -985,17 +985,38 @@ public:
 		return Plan::makeSubPlan<TsubPlan>(parent.get(), std::forward<Args>(args)...);
 	}
 
-    template<typename Tvar>
-    void _shared(Tvar& val) {
-        GlobalState::shared_vars().makeSharedVar(val);
-    }
+        template<typename Tvar>
+        void _shared(Tvar& val) {
+            GlobalState::shared_vars().makeSharedVar(val);
+        }
 
 	template<typename Tvar>
 	void _safe(Tvar& val) {
 		GlobalState::shared_vars().registerSafe(val);
 	}
 
-	template<typename T>
+       template<typename Tedge>
+       cv::Ptr<Plan> set(const GlobalState::Keys::Enum& key, const Tedge& e) {
+           auto plan = self<Plan>();
+           using TE = std::remove_const_t<Tedge>;
+           using ref_t = decltype(std::declval<TE>().ref());
+           std::function<void(ref_t)> fn = [plan, key](ref_t v){
+               GlobalState::set(key, v);
+           };
+            const string id = make_id(this->space(), "set-fn", fn, e);
+            emit_access(id, R(*this));
+            emit_access(id, e);
+            add_transaction(runtime()->plainCtx(), id, fn, e);
+            return self<Plan>();
+        }
+
+        template<typename ... Args>
+        cv::Ptr<Plan> set(std::tuple<GlobalState::Keys::Enum,Args>&& ... tuples) {
+            (set(std::forward<std::tuple<GlobalState::Keys::Enum,Args>>(tuples)),...);
+            return self<Plan>();
+        }
+
+        template<typename T>
 	detail::Edge<T, false, true> R(const T& t) {
 		return detail::Edge<T, false, true>::make(self<Plan>(), t);
 	}
@@ -1101,7 +1122,8 @@ public:
 
 			GlobalState::init_keys();
 			LocalState::init_keys();
-			cv::setNumThreads(0);
+			cv::setNumThreads(workers < 1 ? -1 : 0);
+
 
 			if(GlobalState::isFirstRun()) {
 				GlobalState::setMainID(std::this_thread::get_id());
