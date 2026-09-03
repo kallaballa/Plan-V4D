@@ -1,9 +1,9 @@
-name: PUSH:next_release
+name: PUSH:rollback
 
 on:
   push:
     branches:
-      - next_release
+      - rollback
 
 jobs:
   macOS-ARM64-v4d:
@@ -22,11 +22,14 @@ jobs:
         run: |
           cmake -B build -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib/modules \
                 -DBUILD_opencv_plan=ON -DBUILD_opencv_v4d=ON \
-                -DBUILD_EXAMPLES=ON -DWITH_OPENCL=OFF \
-                -DWITH_FFMPEG=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF
+                -DWITH_OPENCL=OFF -DWITH_FFMPEG=OFF \
+                -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF
         working-directory: opencv
-      - name: Build v4d sample
-        run: cmake --build build --target example_v4d_video_editing -j 4
+      - name: Build plan
+        run: cmake --build build --target opencv_plan -j 4
+        working-directory: opencv
+      - name: Build v4d
+        run: cmake --build build --target opencv_v4d -j 4
         working-directory: opencv
 
   macOS-X64-v4d:
@@ -45,11 +48,14 @@ jobs:
         run: |
           cmake -B build -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib/modules \
                 -DBUILD_opencv_plan=ON -DBUILD_opencv_v4d=ON \
-                -DBUILD_EXAMPLES=ON -DWITH_OPENCL=OFF \
-                -DWITH_FFMPEG=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF
+                -DWITH_OPENCL=OFF -DWITH_FFMPEG=OFF \
+                -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF
         working-directory: opencv
-      - name: Build v4d sample
-        run: cmake --build build --target example_v4d_video_editing -j 3
+      - name: Build plan
+        run: cmake --build build --target opencv_plan -j 3
+        working-directory: opencv
+      - name: Build v4d
+        run: cmake --build build --target opencv_v4d -j 3
         working-directory: opencv
 
   Linux:
