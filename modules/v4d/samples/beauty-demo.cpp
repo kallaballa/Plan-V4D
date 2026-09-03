@@ -510,13 +510,13 @@ int main(int argc, char **argv) {
     }
 
 	cv::Rect viewport(0, 0, 1920, 1080);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 	//V4D provides a source, sink system which is used mostly but not exclusively with video data.
 	auto src = Source::make(runtime, argv[1]);
 //	auto sink = Sink::make(runtime, "beauty-demo.mkv", 60, cv::Size(1920, 1080));
     runtime->setSource(src);
 //    runtime->setSink(sink);
-    V4DPlan::run<BeautyDemoPlan>(6);
+    V4DPlan::run<BeautyDemoPlan>(2);
 
     return 0;
 }

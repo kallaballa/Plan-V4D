@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
     cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 
     //Make the video source
     auto src = Source::make(runtime, argv[1]);
@@ -47,5 +47,5 @@ int main(int argc, char** argv) {
     runtime->setSource(src);
     runtime->setSink(sink);
 
-    V4DPlan::run<VideoEditingPlan>(0);
+    V4DPlan::run<VideoEditingPlan>(2);
 }

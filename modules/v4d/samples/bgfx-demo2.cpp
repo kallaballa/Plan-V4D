@@ -282,12 +282,12 @@ public:
 
 
 int main(int argc, char** argv) {
-	cv::Ptr<V4D> runtime = V4D::init(cv::Rect(0,0, 1280, 720), "Bgfx Demo", AllocateFlags::BGFX | AllocateFlags::IMGUI);
-    auto src = Source::make(runtime, argv[2]);
+	cv::Ptr<V4D> runtime = V4D::init(cv::Rect(0,0, 1280, 720), "Bgfx Demo", AllocateFlags::BGFX | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+    auto src = Source::make(runtime, argv[1]);
     auto sink = Sink::make(runtime, "bgfx-demo2.mkv", 60, cv::Size(1280, 720));
     runtime->setSource(src);
     runtime->setSink(sink);
-    V4DPlan::run<BgfxDemoPlan>(std::stoi(argv[1]));
+    V4DPlan::run<BgfxDemoPlan>(2);
 
     return 0;
 }

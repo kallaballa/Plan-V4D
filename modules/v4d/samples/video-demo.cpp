@@ -38,12 +38,12 @@ int main(int argc, char** argv) {
     }
 
 	cv::Rect viewport(0,0,1280,720);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Video Demo", AllocateFlags::IMGUI);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Video Demo", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
     auto src = Source::make(runtime, argv[1]);
     auto sink = Sink::make(runtime, "video-demo.mkv", src->fps(), viewport.size());
     runtime->setSource(src);
     runtime->setSink(sink);
-    V4DPlan::run<VideoDemoPlan>(0);
+    V4DPlan::run<VideoDemoPlan>(2);
 
     return 0;
 }

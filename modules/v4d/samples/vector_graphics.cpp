@@ -103,7 +103,7 @@ public:
 
 int main() {
     cv::Rect viewport(0,0, 960, 960);
-	Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    V4DPlan::run<VectorGraphicsPlan>(0);
+	Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+    V4DPlan::run<VectorGraphicsPlan>(2);
 }
 

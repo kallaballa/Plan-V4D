@@ -25,8 +25,8 @@ public:
 
 int main() {
 	cv::Rect viewport(0, 0, 960, 960);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, "Font Rendering", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-	V4DPlan::run<FontRenderingPlan>(0);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Font Rendering", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+	V4DPlan::run<FontRenderingPlan>(2);
 
 	return 0;
 }

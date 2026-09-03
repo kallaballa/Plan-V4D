@@ -5,6 +5,8 @@
 
 #include "opencv2/v4d/nvg.hpp"
 #include "opencv2/v4d/v4d.hpp"
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 namespace cv {
 namespace v4d {
@@ -239,11 +241,40 @@ float NVG::radToDeg(float rad) {
 }
 
 int NVG::createImage(const char* filename, int imageFlags) {
-    return nvgCreateImage(getContext(), filename, imageFlags);
+    cv::Mat img = cv::imread(filename, cv::IMREAD_UNCHANGED);
+    if (img.empty())
+        return 0;
+
+    cv::Mat rgba;
+    if (img.channels() == 4)
+        cv::cvtColor(img, rgba, cv::COLOR_BGRA2RGBA);
+    else if (img.channels() == 3)
+        cv::cvtColor(img, rgba, cv::COLOR_BGR2RGBA);
+    else if (img.channels() == 1)
+        cv::cvtColor(img, rgba, cv::COLOR_GRAY2RGBA);
+    else
+        return 0;
+
+    return nvgCreateImageRGBA(getContext(), rgba.cols, rgba.rows, imageFlags, rgba.data);
 }
 
 int NVG::createImageMem(int imageFlags, unsigned char* data, int ndata) {
-    return nvgCreateImageMem(getContext(), imageFlags, data, ndata);
+    cv::Mat enc(1, ndata, CV_8UC1, data);
+    cv::Mat img = cv::imdecode(enc, cv::IMREAD_UNCHANGED);
+    if (img.empty())
+        return 0;
+
+    cv::Mat rgba;
+    if (img.channels() == 4)
+        cv::cvtColor(img, rgba, cv::COLOR_BGRA2RGBA);
+    else if (img.channels() == 3)
+        cv::cvtColor(img, rgba, cv::COLOR_BGR2RGBA);
+    else if (img.channels() == 1)
+        cv::cvtColor(img, rgba, cv::COLOR_GRAY2RGBA);
+    else
+        return 0;
+
+    return nvgCreateImageRGBA(getContext(), rgba.cols, rgba.rows, imageFlags, rgba.data);
 }
 
 int NVG::createImageRGBA(int w, int h, int imageFlags, const unsigned char* data) {

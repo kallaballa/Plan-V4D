@@ -143,6 +143,20 @@ macro(add_binary_sample sample source)
       "${V4D_MODULES_DIR}/optflow/include"
       ${BGFX_INC_DIRS}
       "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/")
+    if(OPENCV_V4D_ENABLE_BGFX)
+      add_custom_command(TARGET ${sample} PRE_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/examples/runtime/shaders"
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        )
+      add_custom_command(TARGET ${sample} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/examples/runtime/shaders"
+        "${CMAKE_BINARY_DIR}/bin/shaders"
+        )
+    endif()
 endmacro()
 
 if (NOT (TARGET nanovg))
@@ -155,6 +169,7 @@ if (NOT (TARGET nanovg))
     target_compile_options(nanovg PUBLIC -w)
     target_compile_options(nanovg PUBLIC -pthread)
     target_compile_options(nanovg PUBLIC -fvisibility=default)
+    target_compile_definitions(nanovg PUBLIC NVG_NO_STB)
 
     install(TARGETS nanovg EXPORT OpenCVModules)
   endif()
@@ -186,7 +201,7 @@ if(NOT (TARGET ${the_module}))
   if(BUILD_EXAMPLES)
      ocv_add_module(v4d opencv_plan opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs glfw nanovg)
   else()
-     ocv_add_module(v4d opencv_plan opencv_core opencv_imgproc opencv_videoio opencv_video)
+     ocv_add_module(v4d opencv_plan opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs)
   endif()
 
   file(GLOB imgui_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/imguicontext.cpp")
@@ -195,7 +210,7 @@ if(NOT (TARGET ${the_module}))
   file(GLOB imgui_thirdparty_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
   set_source_files_properties(${imgui_thirdparty_sources} COMPILE_OPTIONS "-w")
   ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/" ${imgui_sources} ${imgui_backend_sources} ${imgui_glfw_sources})
-  ocv_module_include_directories(
+  set(_v4d_module_includes
     "${CMAKE_CURRENT_LIST_DIR}/include"
     "${V4D_MODULES_DIR}/plan/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/"
@@ -203,9 +218,13 @@ if(NOT (TARGET ${the_module}))
     "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui"
     "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/"
     "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/")
-   if(OPENCV_V4D_ENABLE_BGFX)
-      ocv_module_include_directories(${sample} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
+  if(OPENCV_V4D_ENABLE_BGFX)
+    list(APPEND _v4d_module_includes
+      "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/"
+      "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/"
+      "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
   endif()
+  ocv_module_include_directories(${_v4d_module_includes})
   ocv_create_module()
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
 

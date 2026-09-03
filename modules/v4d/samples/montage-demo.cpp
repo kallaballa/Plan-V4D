@@ -360,8 +360,8 @@ public:
 MontageDemoPlan::State MontageDemoPlan::globalState_;
 
 int main(int argc, char** argv) {
-	if (argc != 3) {
-        cerr << "Usage: montage-demo <video-file> <number of extra workers>" << endl;
+	if (argc != 2) {
+        cerr << "Usage: montage-demo <video-file>" << endl;
         exit(1);
     }
 	cv::Rect viewport(0, 0, 1920, 1080);
@@ -370,7 +370,7 @@ int main(int argc, char** argv) {
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
     runtime->setSink(sink);
-    V4DPlan::run<MontageDemoPlan>(atoi(argv[2]));
+    V4DPlan::run<MontageDemoPlan>(2);
 
     return 0;
 }

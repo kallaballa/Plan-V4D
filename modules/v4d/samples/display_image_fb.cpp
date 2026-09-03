@@ -36,7 +36,7 @@ int main() {
 	cv::Rect viewport(0, 0, 960,960);
 	//Creates a V4D object
     Ptr<V4D> runtime = V4D::init(viewport, "Display an Image through direct FB access", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-    V4DPlan::run<DisplayImageFB>(0, samples::findFile("lena.jpg"));
+    V4DPlan::run<DisplayImageFB>(2, samples::findFile("lena.jpg"));
 
     return 0;
 }

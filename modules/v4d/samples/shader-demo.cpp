@@ -351,7 +351,7 @@ int main(int argc, char** argv) {
 //	runtime->setSink(sink);
 
 	//15 seconds auto zoom
-	V4DPlan::run<ShaderDemoPlan>(7, 15);
+	V4DPlan::run<ShaderDemoPlan>(2, 15);
 
 	return 0;
 }

@@ -397,7 +397,6 @@ public:
 			CV_LOG_WARNING(&v4d_tag, "Pipeline terminated with unknown error.");
 		}
 		request_finish();
-		reseq.finish();
 		if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
 			if(GlobalState::isMain()) {
 				for(size_t i = 0; i < GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED); ++i)
@@ -405,7 +404,8 @@ public:
 			} else {
 				frame_sync_sema_swap.release();
 			}
-    	}
+		}
+		reseq.finish();
     }
 private:
     V4D(const V4D& v4d, const string& title);
@@ -833,11 +833,11 @@ public:
     }
 
     template<typename Tplan, typename ... Args>
-	static void run(int32_t workers, Args&& ... args) {
+	static void run(int32_t extra_workers, Args&& ... args) {
 		// The Plan-DSL lifecycle (worker spawning, setup/infer/teardown graph
 		// phases, barrier, frame loop) lives in the base class. Runtime
 		// specifics are provided by the V4D PlanRuntime hooks above.
-		Plan::run<Tplan>(workers, std::forward<Args>(args)...);
+		Plan::run<Tplan>(extra_workers, std::forward<Args>(args)...);
     }
 
 protected:

@@ -68,8 +68,8 @@ public:
 
 int main(int argc, char** argv) {
 	cv::Rect viewport(0,0, 1280, 720);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, "Display an image using bgfx", AllocateFlags::BGFX | AllocateFlags::IMGUI);
-    V4DPlan::run<DisplayImageBgfx>(0);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Display an image using bgfx", AllocateFlags::BGFX | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+    V4DPlan::run<DisplayImageBgfx>(2);
 
     return 0;
 }

@@ -82,7 +82,7 @@ public:
 
 int main() {
 	cv::Rect viewport(0, 0, 960, 960);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Custom Source/Sink", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Custom Source/Sink", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
     //check out the video after. It will only contain frames filtered by the plan by conditional branching
     //the frame rate is set to one frame every 3 seconds because that is what we are going to emit to the video.
     //anyway, xou may choose a fps value to your own liking.
@@ -120,6 +120,6 @@ int main() {
 	runtime->setSource(src);
 	runtime->setSink(sink);
 
-	V4DPlan::run<CustomSourceAndSinkPlan>(0);
+	V4DPlan::run<CustomSourceAndSinkPlan>(2);
 }
 

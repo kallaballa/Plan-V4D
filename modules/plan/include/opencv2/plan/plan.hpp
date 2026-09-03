@@ -1106,13 +1106,13 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 	 * Runtime specifics are delegated to the PlanRuntime hooks.
 	 */
 	template<typename Tplan, typename ... Args>
-	static void run(int32_t workers, Args&& ... args) {
-		CV_Assert(workers > -2);
-		if(workers == -1) {
-			workers = 2;
-		} else {
-			++workers;
-		}
+	static void run(int32_t extra_workers, Args&& ... args) {
+		CV_Assert(extra_workers >= -1);
+		// Contract:
+		//   extra_workers == -1 -> 1 worker + display thread, cv::setNumThreads(0)
+		//   extra_workers ==  0 -> 1 worker + display thread, cv::setNumThreads(-1)
+		//   extra_workers ==  n -> n workers + display thread, cv::setNumThreads(0)
+		const int32_t workers = (extra_workers <= 0) ? 1 : extra_workers;
 
 		cv::Ptr<Tplan> plan;
 		std::vector<std::thread*> threads;
@@ -1122,7 +1122,7 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 
 			GlobalState::init_keys();
 			LocalState::init_keys();
-			cv::setNumThreads(workers < 1 ? -1 : 0);
+			cv::setNumThreads(extra_workers == 0 ? -1 : 0);
 
 
 			if(GlobalState::isFirstRun()) {

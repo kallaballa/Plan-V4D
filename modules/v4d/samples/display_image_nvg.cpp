@@ -63,8 +63,8 @@ int main() {
     cv::Rect viewport(0, 0, 960, 960);
 
     // Initialize the V4D runtime with NanoVG and IMGUI subsystems
-    Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 
     // Run the Plan with the specified image file
-    V4DPlan::run<DisplayImageNVG>(7, samples::findFile("lena.jpg"));
+    V4DPlan::run<DisplayImageNVG>(2, samples::findFile("lena.jpg"));
 }

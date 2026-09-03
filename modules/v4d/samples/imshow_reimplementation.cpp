@@ -700,8 +700,8 @@ int main(int argc, char** argv) {
         filename = samples::findFile("lena.jpg");
     }
     cv::Ptr<V4D> runtime = V4D::init(viewport, "V4D imshow Reimplementation",
-                                     AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT);
-    V4DPlan::run<ImshowReimplementation>(0, std::move(filename));
+                                     AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+    V4DPlan::run<ImshowReimplementation>(2, std::move(filename));
     return 0;
 }
 

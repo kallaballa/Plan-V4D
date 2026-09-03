@@ -284,11 +284,11 @@ int main(int argc, char **argv) {
     }
 
     cv::Rect viewport(0, 0, 1920, 1080);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
     auto src = Source::make(runtime, argv[1]);
 //    auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 60, viewport.size());
     runtime->setSource(src);
 //    runtime->setSink(sink);
-    V4DPlan::run<PedestrianDemoPlan>(7);
+    V4DPlan::run<PedestrianDemoPlan>(2);
     return 0;
 }

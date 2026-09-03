@@ -218,7 +218,7 @@ double FontDemoPlan::timeOffset_ = 0.0f;
 
 int main() {
 	cv::Rect viewport(0, 0, 1920, 1080);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, viewport.size(),  "Font Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-	V4DPlan::run<FontDemoPlan>(0);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, viewport.size(),  "Font Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+	V4DPlan::run<FontDemoPlan>(2);
     return 0;
 }
