@@ -219,19 +219,22 @@ generate_deb_files() {
     cp "$srcdir/debian.rules" "$outdir/debian.rules"
     chmod +x "$outdir/debian.rules"
 
-    # Stage the debian/ overlay (changelog + control + rules + .install files + compat)
-    # so the generated debian.tar.gz is a complete overlay ready for debtransform.
+    # Stage the debian/ overlay. debtransform picks up the top-level
+    # debian.rules / debian.control / debian.changelog files from the package
+    # source directory on its own; bundling them into debian.tar.gz as well
+    # triggers '"rules" exists in both the debian archive as well as the
+    # package source directory.' So the tarball only carries files that are
+    # not surfaced as separate top-level files: .install files, compat,
+    # copyright, source/format.
     local overlay="$outdir/debian-overlay"
     rm -rf "$overlay"
     mkdir -p "$overlay/debian/source"
-    cp "$srcdir/debian/compat"          "$overlay/debian/compat"
+    if [[ -f "$srcdir/debian/compat" ]]; then
+        cp "$srcdir/debian/compat" "$overlay/debian/compat"
+    fi
     cp "$srcdir/debian/copyright"       "$overlay/debian/copyright"
     cp "$srcdir/debian/source/format"   "$overlay/debian/source/format"
     cp "$srcdir/debian/"*.install       "$overlay/debian/"
-    cp "$outdir/debian.changelog"       "$overlay/debian/changelog"
-    cp "$outdir/debian.control"         "$overlay/debian/control"
-    cp "$outdir/debian.rules"           "$overlay/debian/rules"
-    chmod +x "$overlay/debian/rules"
     (cd "$overlay" && tar czf "$outdir/debian.tar.gz" debian)
     rm -rf "$overlay"
 

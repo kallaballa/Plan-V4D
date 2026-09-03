@@ -18,15 +18,9 @@ Build-Depends: debhelper-compat (= 13),
                libxi-dev,
                libgl1-mesa-dev,
                libglu1-mesa-dev,
-               libegl1-mesa-dev,
-               libgles2-mesa-dev,
-               libopengl-dev,
                libglew-dev,
                libglfw3-dev,
-               libxkbcommon-dev,
-               libwayland-dev,
                qtbase5-dev,
-               libqt5opengl5-dev,
                ocl-icd-opencl-dev
 Standards-Version: 4.6.2
 Homepage: https://github.com/kallaballa/Plan-V4D
