@@ -263,6 +263,48 @@ CMake options:
 | `OPENCV_V4D_ENABLE_MALI`        | Mali GPU support (requires libmali).            |
 | `BUILD_EXAMPLES`                | Build the programs in `samples/`.               |
 
+## Building on macOS
+
+V4D is a windowed, GLFW + OpenGL runtime, so on macOS you need GLFW
+and must leave `OPENCV_V4D_ENABLE_ES3=OFF` (the OpenGL ES path uses
+EGL, which is not available on macOS).
+
+Requirements:
+
+* macOS 13+ (Ventura) with Xcode 14+ (Apple Clang 14+ / libc++ 14+)
+  for C++20 `<barrier>` and `<semaphore>`, and for the vendored
+  third-party code.
+* GLFW 3, via Homebrew: `brew install glfw`
+* Homebrew's `opencv` (or build the main OpenCV tree from source).
+
+```bash
+brew install glfw
+mkdir build && cd build
+cmake -DOPENCV_EXTRA_MODULES_PATH=../modules \
+      -DBUILD_opencv_plan=ON \
+      -DBUILD_opencv_v4d=ON \
+      -DBUILD_EXAMPLES=ON \
+      ../..
+cmake --build . --target example_v4d_video_editing
+```
+
+macOS-specific behavior and notes:
+
+* On macOS, V4D automatically requests a desktop GL **3.2 core
+  profile** window with forward compatibility (see
+  `src/detail/framebuffercontext.cpp`). The `__APPLE__` code path is
+  taken instead of the EGL-based ES3 branch, and `glad` loading is
+  skipped because macOS exposes its own system GL function pointers.
+* Apple has deprecated the desktop OpenGL API. This is harmless — V4D
+  still builds and runs — but newer Xcode toolchains may emit
+  deprecation warnings from the vendored GL bits.
+* OpenCL/GL sharing is not exercised in the headless CI runners; if
+  you rely on it, test locally on a real Mac.
+
+macOS builds of V4D (with the samples) are verified continuously in
+CI via the dedicated `macOS-ARM64-v4d` and `macOS-X64-v4d` GitHub
+Actions jobs in `.github/workflows/PR-next.yaml`.
+
 ## License
 
 Apache 2.0, like the rest of OpenCV. See the top-level

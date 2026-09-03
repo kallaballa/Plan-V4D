@@ -6,6 +6,52 @@ on:
       - next_release
 
 jobs:
+  macOS-ARM64-v4d:
+    name: macOS ARM64 (v4d/plan)
+    runs-on: macos-14
+    steps:
+      - name: Checkout this repo (contrib modules)
+        uses: actions/checkout@v4
+        with:
+          path: opencv_contrib
+      - name: Install dependencies
+        run: brew install glfw
+      - name: Clone main OpenCV
+        run: git clone --depth 1 --branch 4.x https://github.com/opencv/opencv.git
+      - name: Configure
+        run: |
+          cmake -B build -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib/modules \
+                -DBUILD_opencv_plan=ON -DBUILD_opencv_v4d=ON \
+                -DBUILD_EXAMPLES=ON -DWITH_OPENCL=OFF \
+                -DWITH_FFMPEG=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF
+        working-directory: opencv
+      - name: Build v4d sample
+        run: cmake --build build --target example_v4d_video_editing -j 4
+        working-directory: opencv
+
+  macOS-X64-v4d:
+    name: macOS x86_64 (v4d/plan)
+    runs-on: macos-13
+    steps:
+      - name: Checkout this repo (contrib modules)
+        uses: actions/checkout@v4
+        with:
+          path: opencv_contrib
+      - name: Install dependencies
+        run: brew install glfw
+      - name: Clone main OpenCV
+        run: git clone --depth 1 --branch 4.x https://github.com/opencv/opencv.git
+      - name: Configure
+        run: |
+          cmake -B build -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib/modules \
+                -DBUILD_opencv_plan=ON -DBUILD_opencv_v4d=ON \
+                -DBUILD_EXAMPLES=ON -DWITH_OPENCL=OFF \
+                -DWITH_FFMPEG=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF
+        working-directory: opencv
+      - name: Build v4d sample
+        run: cmake --build build --target example_v4d_video_editing -j 3
+        working-directory: opencv
+
   Linux:
     uses: opencv/ci-gha-workflow/.github/workflows/OCV-PR-Linux.yaml@main
     with:
