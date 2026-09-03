@@ -21,6 +21,7 @@ mkdir -p "$BUILD_DIR"
 
 COMMON_ARGS=(
   -DCMAKE_BUILD_TYPE=Release
+  -DOPENCV_ALGO_HINT_DEFAULT=ALGO_HINT_APPROX
   -DCMAKE_TOOLCHAIN_FILE="$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
   -DOPENCV_EXTRA_MODULES_PATH="$EXTRA_MODULES"
   -DBUILD_opencv_v4d=ON

@@ -268,10 +268,10 @@ in mind when copying a sample: if it uses `nvg(...)`, you must pass
 
 | Flag                    | Effect                                                       |
 |-------------------------|--------------------------------------------------------------|
-| `ConfigFlags::DEFAULT`  | Normal resizable window.                                     |
+| `ConfigFlags::DEFAULT`  | No display-related flag bits are set (`0`).                   |
 | `ConfigFlags::OFFSCREEN`| Render to an off-screen framebuffer (no visible window).     |
 | `ConfigFlags::DISPLAY_MODE` | Synchronize the display thread and the worker thread with `swap`/`render` semaphores, so the frame loop drives the visible output directly. Needed for `imshow`-style programs. |
-| `ConfigFlags::RESIZEABLE`| Allow the user to resize the window. (Default.)             |
+| `ConfigFlags::RESIZEABLE`| Allow the user to resize the window. Must be requested explicitly — the window is not resizable by default. |
 
 ### 4.3 `DebugFlags` — what to log
 
@@ -649,7 +649,7 @@ In release builds `GL_CHECK` is a no-op.
 
 `Property<T>` is an *edge* that reads a typed slot from
 `GlobalState` or `LocalState`. V4D adds these keys (see
-`v4d.hpp:118-130`):
+`v4d.hpp:119-131`):
 
 | Key                       | Type        | What it is                                 |
 |---------------------------|-------------|--------------------------------------------|
@@ -1080,7 +1080,7 @@ across sub-plans.
 
 | N   | Threads                                            |
 |-----|----------------------------------------------------|
-| `-1`| 1 worker + main (default; rarely used)             |
+| `-1`| 2 workers + main                                  |
 | `0` | 1 worker + main                                    |
 | `1` | 2 workers + main                                   |
 | `6` | 7 workers + main (e.g. `beauty-demo`)              |

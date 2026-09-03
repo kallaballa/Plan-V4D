@@ -55,6 +55,7 @@ void ImGuiContextImpl::setTransaction(cv::Ptr<Transaction> tx) {
 
 int ImGuiContextImpl::execute(const cv::Rect& vp, std::function<void()> fn) {
 	CV_UNUSED(fn);
+	CV_UNUSED(vp);
 	if (context_ && GlobalState::get<bool>(GlobalState::Keys::SHOW_GUI)) {
 	    ImGui_ImplOpenGL3_NewFrame();
 	    ImGui_ImplGlfw_NewFrame();

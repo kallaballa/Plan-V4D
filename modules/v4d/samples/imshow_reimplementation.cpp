@@ -99,6 +99,7 @@ public:
         }, R(image_), RW(bgra_), RW(rgba_));
 
         nvg([](UMat& rgba, const UMat& image, const UMat& bgra, State& state, const cv::Size& sz) {
+            (void)bgra;
             using namespace cv::v4d::nvg;
             CV_Assert(!rgba.empty());
             state.imageWidth_  = rgba.cols;

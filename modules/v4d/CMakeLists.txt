@@ -150,7 +150,7 @@ if (NOT (TARGET nanovg))
       add_definitions(-DNANOVG_GL3=1)
     endif()
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/")
-    target_compile_options(nanovg PUBLIC -Wno-error)
+    target_compile_options(nanovg PUBLIC -w)
     target_compile_options(nanovg PUBLIC -pthread)
     target_compile_options(nanovg PUBLIC -fvisibility=default)
 
@@ -190,6 +190,8 @@ if(NOT (TARGET ${the_module}))
   file(GLOB imgui_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/imguicontext.cpp")
   file(GLOB imgui_backend_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp")
   file(GLOB imgui_glfw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
+  file(GLOB imgui_thirdparty_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
+  set_source_files_properties(${imgui_thirdparty_sources} COMPILE_OPTIONS "-w")
   ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/" ${imgui_sources} ${imgui_backend_sources} ${imgui_glfw_sources})
   ocv_module_include_directories(
     "${CMAKE_CURRENT_LIST_DIR}/include"

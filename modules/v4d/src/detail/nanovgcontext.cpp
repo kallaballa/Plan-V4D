@@ -65,17 +65,12 @@ int NanoVGContext::render(const cv::Rect& vp, std::function<void()> fn) {
 
 
 void NanoVGContext::begin(const cv::Rect& viewport) {
+    CV_UNUSED(viewport);
     float w = fbCtx()->size().width;
     float h = fbCtx()->size().height;
-    float wVP = viewport.width;
-    float hVP = viewport.height;
-    float xVP = viewport.x;
-    float yVP = h - viewport.y;
     float r = fbCtx()->pixelRatioX();
     nvgSave(context_);
     nvgBeginFrame(context_, w, h, r);
-//    nvgScale(context_, wVP / w, hVP / h);
-//    nvgTranslate(context_, xVP + w / 2, yVP + h / 2);
 }
 
 void NanoVGContext::end() {

@@ -457,7 +457,8 @@ endBranch();
   restructured into nested regions; loops are expressed as a `branch` on a predicate
   that is updated by the loop body (the graph is re-evaluated each iteration, so a
   "while" is naturally a predicated region whose predicate reads a value written by
-  the region body — see the video-editing example in `modules/v4d/samples/video_editing.cpp`).
+  the region body — see the `CountdownPlan` example in §12 of
+  `plan-dsl-programming-guide.markdown`).
 
 ### 4.4 Branch types (`BranchType::Enum`)
 
@@ -713,8 +714,8 @@ kept only as a tombstone for older references.
 The PC state machine replaces structured control flow with a single `int32_t pc_`
 member. Each basic block becomes a `branch` guarded by `pc == N`; terminators write the
 successor block's index. Back-edges work naturally: the PC value takes effect next
-frame, producing one iteration per frame. Implemented in `src/pc_state.cpp` /
-`src/cfg_emitter.cpp`.
+frame, producing one iteration per frame. Implemented in the `llvm2plan` translator
+(`src/pc_state.cpp` / `src/cfg_emitter.cpp` in that project, not in this module).
 
 ```
 // State: int32_t pc_ = 0;  (single plan member, declared automatically)

@@ -24,6 +24,7 @@ namespace v4d {
 #define _OLC_(r,f, ...) static_cast<r (*)(__VA_ARGS__) const>(f)
 
 CV_EXPORTS void copy_cross(const cv::UMat& src, cv::UMat& dst);
+CV_EXPORTS void setThreadName(const char* threadName);
 
 template<typename T>
 constexpr int matrix_depth() {

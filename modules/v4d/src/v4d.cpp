@@ -41,6 +41,7 @@ cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, AllocateFl
 }
 
 cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbSize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
+	CV_UNUSED(fbSize);
 	GlobalState::init_keys();
 	LocalState::init_keys();
 	{

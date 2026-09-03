@@ -118,7 +118,7 @@ void setup() override {
 
         imageSize(handle, &img.w_, &img.h_);
 
-        img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f, handle, 1.0);
+        img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f / 180.0f * NVG_PI, handle, 1.0);
     }, RW(image_));
 }
 ```

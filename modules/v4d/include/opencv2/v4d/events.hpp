@@ -238,7 +238,6 @@ namespace detail {
 inline double js_repeat_delay = 0.40;      // seconds to first repeat
 inline double js_repeat_rate  = 1.0 / 60;  // seconds between repeats
 
-inline static std::map<int, std::array<double, GLFW_GAMEPAD_BUTTON_LAST + 1>> next_repeat_at; // initialized to -1.0
 // Per-axis next repeat time: jid -> per-axis timestamps (init to -1.0)
 inline static std::map<int, std::array<double, GLFW_GAMEPAD_AXIS_LAST + 1>> axis_next_repeat_at;
 

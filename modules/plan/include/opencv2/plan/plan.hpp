@@ -631,7 +631,7 @@ public:
         emit_access(id, R(*this));
         (emit_access(id, args ),...);
         std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... innerArgs){
-            return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == workerIdx && wrapInner(innerArgs...);
+return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<size_t>(workerIdx) && wrapInner(innerArgs...);
         };
         add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
         return self<Plan>();

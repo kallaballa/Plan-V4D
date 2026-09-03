@@ -154,7 +154,7 @@ void infer() override {
 
 - **`branch(&PureColor::found, R(finder_))`**: This is the branch condition. It calls the `found()` method of our `finder_` object. The nodes inside the branch will only execute if this method returns `true`.
 - **`->write()`**: The `write()` operation is now *inside* the branch. This means it will only be called for frames where `finder_.found()` is true.
-- **`std::dynamic_pointer_cast<V4Plan>(…)`**: This is required because the base `Plan::branch` returns `cv::Ptr<Plan>`, but the `write()` graph primitive only exists on `V4DPlan`. Downcasting to `V4DPlan` re-exposes `write()` and the rest of the fluent interface.
+- **`std::dynamic_pointer_cast<V4DPlan>(…)`**: This is required because the base `Plan::branch` returns `cv::Ptr<Plan>`, but the `write()` graph primitive only exists on `V4DPlan`. Downcasting to `V4DPlan` re-exposes `write()` and the rest of the fluent interface.
 - **`->endBranch()`**: This closes the conditional block.
 
 The result is that only frames identified as pure primary or secondary colors are written to our custom sink, and subsequently to the output video file.

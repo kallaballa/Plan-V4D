@@ -553,7 +553,7 @@ The DSL core ships these keys:
 * Global: `FRAME_CNT`, `CAPTURE_CNT`, `FPS_CNT`, `RUN_CNT`, `START_TIME`,
   `FPS`, `WORKERS_READY`, `WORKERS_STARTED`, `LOCKING`, `DISPLAY_READY`,
   `LOCK_CONTENTION_CNT`, `LOCK_CONTENTION_RATE`, `LCR_CNT`, `SHOW_GUI`,
-  `TIME_TRACKER`.
+  `SHOW_FRAME_TIME`, `TIME_TRACKER`.
 * Local (per thread): `WORKER_INDEX`.
 
 Runtimes extend these. V4D adds `V4D::Keys::SIZE`, `VIEWPORT`, `NAMESPACE`,
@@ -620,8 +620,8 @@ branch runs as long as the predicate is true — exactly the semantics of
 changes.
 
 For examples of more elaborate loop constructs (with break / continue,
-state-machine lowering, etc.) see §17 and the video-editing sample's
-`infer()` method.
+state-machine lowering, etc.) see §17 and the `CountdownPlan` example
+above (and the `llvm2plan` translator docs).
 
 ---
 
@@ -888,9 +888,11 @@ private:
 ```
 
 * `params_` and `features_` are *static*, so they live across all plan
-  instances. They are also declared with `_shared` in the constructor
-  (below) so they get a mutex and can be safely accessed from `gui()`
-  and from worker threads alike.
+  instances. Because they live outside the plan object (they are not plan
+  members), they are *implicitly* registered as shared — given a mutex —
+  on first `RS`/`RWS`/`CS` access (see `SharedVariables::checkShared`),
+  so they can be safely accessed from `gui()` and from worker threads
+  alike. (Unlike plan members, they need no explicit `_shared` call.)
 * `frames_` is per-worker (a non-static member) — each worker has its
   own scratch buffers.
 * `size_` and `seqCnt_` are *property edges* — typed views onto the
