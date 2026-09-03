@@ -152,3 +152,9 @@ override_dh_auto_clean:
 
 override_dh_missing:
 	@true
+
+# OpenCL ICD shims (ocl-icd-libopencl1 / pocl) don't always carry the symbols
+# dpkg-shlibdeps expects. Don't fail the build over an unresolved OpenCL SONAME;
+# the runtime dependency on ocl-icd-libopencl1 is still emitted by Recommends.
+override_dh_shlibdeps:
+	dh_shlibdeps --dpkg-shlibdeps-params=--ignore-missing-info

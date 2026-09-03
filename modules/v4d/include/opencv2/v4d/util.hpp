@@ -40,10 +40,8 @@ constexpr int matrix_depth() {
 		return CV_32F;
 	} else if constexpr(std::is_same_v<T, double>){
 		return CV_64F;
-	} else if constexpr(true) {
-#if !defined(__APPLE__)
-		static_assert(false, "Type not supported for operation.");
-#endif
+	} else {
+		static_assert(sizeof(T) == 0, "Type not supported for operation.");
 		return 0;
 	}
 }
