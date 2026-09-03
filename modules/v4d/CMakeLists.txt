@@ -144,18 +144,7 @@ macro(add_binary_sample sample source)
       ${BGFX_INC_DIRS}
       "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/")
     if(OPENCV_V4D_ENABLE_BGFX)
-      add_custom_command(TARGET ${sample} PRE_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/examples/runtime/shaders"
-        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
-        )
-      add_custom_command(TARGET ${sample} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/shaders"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/examples/runtime/shaders"
-        "${CMAKE_BINARY_DIR}/bin/shaders"
-        )
+      add_dependencies(${sample} v4d_copy_shaders)
     endif()
 endmacro()
 
@@ -277,30 +266,42 @@ if(NOT (TARGET ${the_module}))
 
   #Add sample targets
   if(BUILD_EXAMPLES)
-      add_binary_sample(example_v4d_display_image_fb samples/display_image_fb.cpp)
-      add_binary_sample(example_v4d_imshow_reimplementation samples/imshow_reimplementation.cpp)
-      add_binary_sample(example_v4d_display_image_nvg samples/display_image_nvg.cpp)
-      add_binary_sample(example_v4d_vector_graphics samples/vector_graphics.cpp)
-      add_binary_sample(example_v4d_vector_graphics_and_fb samples/vector_graphics_and_fb.cpp)
-      add_binary_sample(example_v4d_render_opengl samples/render_opengl.cpp)
-      add_binary_sample(example_v4d_custom_source_and_sink samples/custom_source_and_sink.cpp)
-      add_binary_sample(example_v4d_font_rendering samples/font_rendering.cpp)
-      add_binary_sample(example_v4d_font_with_gui samples/font_with_gui.cpp)
-      add_binary_sample(example_v4d_video_editing samples/video_editing.cpp)
-      add_binary_sample(example_v4d_cube-demo samples/cube-demo.cpp)
-      add_binary_sample(example_v4d_many_cubes-demo samples/many_cubes-demo.cpp)
-      add_binary_sample(example_v4d_video-demo samples/video-demo.cpp)
-      add_binary_sample(example_v4d_nanovg-demo samples/nanovg-demo.cpp)
-      add_binary_sample(example_v4d_font-demo samples/font-demo.cpp)
-      add_binary_sample(example_v4d_shader-demo samples/shader-demo.cpp)
-      add_binary_sample(example_v4d_pedestrian-demo samples/pedestrian-demo.cpp)
-      add_binary_sample(example_v4d_optflow-demo samples/optflow-demo.cpp)
-      add_binary_sample(example_v4d_beauty-demo samples/beauty-demo.cpp)
-      if(OPENCV_V4D_ENABLE_BGFX)
-        add_binary_sample(example_v4d_bgfx-demo samples/bgfx-demo.cpp)
-        add_binary_sample(example_v4d_bgfx-demo2 samples/bgfx-demo2.cpp)
-      endif()
-      add_binary_sample(example_v4d_montage-demo samples/montage-demo.cpp)
+    if(OPENCV_V4D_ENABLE_BGFX)
+      add_custom_target(v4d_copy_shaders ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/examples/runtime/shaders"
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/shaders"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/examples/runtime/shaders"
+        "${CMAKE_BINARY_DIR}/bin/shaders"
+        )
+    endif()
+    add_binary_sample(example_v4d_display_image_fb samples/display_image_fb.cpp)
+    add_binary_sample(example_v4d_imshow_reimplementation samples/imshow_reimplementation.cpp)
+    add_binary_sample(example_v4d_display_image_nvg samples/display_image_nvg.cpp)
+    add_binary_sample(example_v4d_vector_graphics samples/vector_graphics.cpp)
+    add_binary_sample(example_v4d_vector_graphics_and_fb samples/vector_graphics_and_fb.cpp)
+    add_binary_sample(example_v4d_render_opengl samples/render_opengl.cpp)
+    add_binary_sample(example_v4d_custom_source_and_sink samples/custom_source_and_sink.cpp)
+    add_binary_sample(example_v4d_font_rendering samples/font_rendering.cpp)
+    add_binary_sample(example_v4d_font_with_gui samples/font_with_gui.cpp)
+    add_binary_sample(example_v4d_video_editing samples/video_editing.cpp)
+    add_binary_sample(example_v4d_cube-demo samples/cube-demo.cpp)
+    add_binary_sample(example_v4d_many_cubes-demo samples/many_cubes-demo.cpp)
+    add_binary_sample(example_v4d_video-demo samples/video-demo.cpp)
+    add_binary_sample(example_v4d_nanovg-demo samples/nanovg-demo.cpp)
+    add_binary_sample(example_v4d_font-demo samples/font-demo.cpp)
+    add_binary_sample(example_v4d_shader-demo samples/shader-demo.cpp)
+    add_binary_sample(example_v4d_pedestrian-demo samples/pedestrian-demo.cpp)
+    add_binary_sample(example_v4d_optflow-demo samples/optflow-demo.cpp)
+    add_binary_sample(example_v4d_beauty-demo samples/beauty-demo.cpp)
+    if(OPENCV_V4D_ENABLE_BGFX)
+      add_binary_sample(example_v4d_bgfx-demo samples/bgfx-demo.cpp)
+      add_binary_sample(example_v4d_bgfx-demo2 samples/bgfx-demo2.cpp)
+    endif()
+    add_binary_sample(example_v4d_montage-demo samples/montage-demo.cpp)
   endif()
 
   if(OPENCV_V4D_ENABLE_ES3)

@@ -1,4 +1,3 @@
 usr/lib/*/libopencv*.so.* usr/lib/
-usr/lib/*/libnanovg.so* usr/lib/
 usr/share/doc/plan-v4d/LICENSE usr/share/doc/plan-v4d/
 usr/share/doc/plan-v4d/CONTRIBUTING.md usr/share/doc/plan-v4d/
