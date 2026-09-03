@@ -10,7 +10,6 @@ Here is the complete source code for this example. You can find it in `modules/v
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
-#include <opencv2/plan/util.hpp>
 
 using namespace cv;
 using namespace cv::v4d;

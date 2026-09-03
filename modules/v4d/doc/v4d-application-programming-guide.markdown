@@ -656,7 +656,7 @@ In release builds `GL_CHECK` is a no-op.
 | `V4D::Keys::SIZE`         | `cv::Size`  | The framebuffer size in pixels.            |
 | `V4D::Keys::WINDOW_SIZE`  | `cv::Size`  | The OS window size.                        |
 | `V4D::Keys::VIEWPORT`     | `cv::Rect`  | The viewport rectangle.                    |
-| `V4D::Keys::FRAMEBUFFER_SIZE` | `cv::Size` | The native framebuffer size (pre-stretch). |
+| `V4D::Keys::FRAMEBUFFER_SIZE` | `cv::Size` | The native framebuffer size (in pixels). |
 | `V4D::Keys::CLEAR_COLOR`  | `cv::Scalar`| Color used by `clear()`.                   |
 | `V4D::Keys::NAMESPACE`    | `string`    | Plan namespace, set automatically.         |
 | `V4D::Keys::FULLSCREEN`   | `bool`      | Whether the window is fullscreen.          |

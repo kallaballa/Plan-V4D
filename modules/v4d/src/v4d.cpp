@@ -397,7 +397,11 @@ bool V4D::display() {
 		GlobalState::set(GlobalState::Keys::DISPLAY_READY, true);
 		GL_CHECK(glClearColor(0,0,0,1));
 		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
-		return !glfwWindowShouldClose(getGLFWWindow());
+		bool keepOpen = !glfwWindowShouldClose(getGLFWWindow());
+		if(!keepOpen) {
+			cv::v4d::request_finish();
+		}
+		return keepOpen;
 	} else {
 		if(GlobalState::apply<bool>(GlobalState::Keys::DISPLAY_READY, [](bool& v){
 			if(!v)
