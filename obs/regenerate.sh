@@ -223,7 +223,7 @@ generate_deb_files() {
     # so the generated debian.tar.gz is a complete overlay ready for debtransform.
     local overlay="$outdir/debian-overlay"
     rm -rf "$overlay"
-    mkdir -p "$overlay/debian"
+    mkdir -p "$overlay/debian/source"
     cp "$srcdir/debian/compat"          "$overlay/debian/compat"
     cp "$srcdir/debian/copyright"       "$overlay/debian/copyright"
     cp "$srcdir/debian/source/format"   "$overlay/debian/source/format"
