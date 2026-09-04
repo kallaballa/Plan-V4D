@@ -320,37 +320,6 @@ body {
     text-decoration: none;
 }
 
-.search-box {
-    flex: 1;
-    max-width: 400px;
-    position: relative;
-}
-
-.search-box input {
-    width: 100%;
-    padding: 8px 12px 8px 36px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 0.9rem;
-    background: var(--bg-secondary);
-    transition: border-color 0.2s;
-}
-
-.search-box input:focus {
-    outline: none;
-    border-color: var(--accent);
-}
-
-.search-box::before {
-    content: "🔍";
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.85rem;
-    opacity: 0.5;
-}
-
 /* Layout */
 .layout {
     display: flex;
@@ -599,60 +568,6 @@ pre code {
     background: var(--bg-secondary);
 }
 
-/* Search results */
-.search-results {
-    position: fixed;
-    top: var(--header-height);
-    left: 50%;
-    transform: translateX(-50%);
-    width: 500px;
-    max-height: 400px;
-    overflow-y: auto;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-    z-index: 2000;
-    display: none;
-}
-
-.search-results.visible {
-    display: block;
-}
-
-.search-result-item {
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    text-decoration: none;
-    display: block;
-    color: var(--text-primary);
-}
-
-.search-result-item:hover,
-.search-result-item.active {
-    background: var(--bg-secondary);
-}
-
-.search-result-item .result-title {
-    font-weight: 600;
-    color: var(--accent);
-    font-size: 0.9rem;
-}
-
-.search-result-item .result-context {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    margin-top: 2px;
-}
-
-.search-no-results {
-    padding: 16px;
-    color: var(--text-muted);
-    text-align: center;
-    font-size: 0.9rem;
-}
-
 /* Back to top */
 .back-to-top {
     position: fixed;
@@ -699,11 +614,6 @@ pre code {
     .menu-toggle {
         display: block !important;
     }
-    .search-results {
-        width: calc(100% - 40px);
-        left: 20px;
-        transform: none;
-    }
 }
 
 .menu-toggle {
@@ -717,19 +627,16 @@ pre code {
 }
 
 /* Scrollbar */
-.sidebar::-webkit-scrollbar,
-.search-results::-webkit-scrollbar {
+.sidebar::-webkit-scrollbar {
     width: 6px;
 }
 
-.sidebar::-webkit-scrollbar-thumb,
-.search-results::-webkit-scrollbar-thumb {
+.sidebar::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: 3px;
 }
 
-.sidebar::-webkit-scrollbar-thumb:hover,
-.search-results::-webkit-scrollbar-thumb:hover {
+.sidebar::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
 }
 
@@ -843,118 +750,44 @@ JS = """\
     window.addEventListener('scroll', updateActiveNav, { passive: true });
     updateActiveNav();
 
-    // ── Search ────────────────────────────────────────────────────────────────
-    const searchInput = document.getElementById('search-input');
-    const searchResults = document.getElementById('search-results');
-    let searchIndex = [];
-
-    function buildSearchIndex() {
-        const sections = document.querySelectorAll('.doc-section');
-        searchIndex = [];
-        sections.forEach(section => {
-            const title = section.querySelector('h1');
-            const sectionTitle = title ? title.textContent.trim() : '';
-            const headings = section.querySelectorAll('h1, h2, h3, h4');
-            const paragraphs = section.querySelectorAll('p');
-            const codeBlocks = section.querySelectorAll('pre code');
-            
-            const allText = [];
-            if (sectionTitle) allText.push({ text: sectionTitle, type: 'title' });
-            headings.forEach(h => allText.push({ text: h.textContent.trim(), type: 'heading', id: h.id }));
-            paragraphs.forEach(p => allText.push({ text: p.textContent.trim(), type: 'text' }));
-            codeBlocks.forEach(c => allText.push({ text: c.textContent.trim().substring(0, 200), type: 'code' }));
-            
-            searchIndex.push({ sectionTitle, items: allText });
-        });
-    }
-
-    function performSearch(query) {
-        if (!query || query.length < 2) {
-            searchResults.classList.remove('visible');
-            return;
-        }
-        
-        const q = query.toLowerCase();
-        const results = [];
-        
-        searchIndex.forEach(idx => {
-            idx.items.forEach(item => {
-                if (item.text.toLowerCase().includes(q)) {
-                    results.push({
-                        title: item.type === 'title' ? item.text : (item.type === 'heading' ? item.text : idx.sectionTitle),
-                        context: item.text.substring(0, 120),
-                        id: item.id || '',
-                        type: item.type,
-                    });
-                }
-            });
-        });
-
-        // Deduplicate and limit
-        const seen = new Set();
-        const unique = [];
-        for (const r of results) {
-            const key = r.title + '|' + r.context;
-            if (!seen.has(key)) {
-                seen.add(key);
-                unique.push(r);
-            }
-        }
-
-        renderSearchResults(unique.slice(0, 20));
-    }
-
-    function renderSearchResults(results) {
-        if (results.length === 0) {
-            searchResults.innerHTML = '<div class="search-no-results">No results found</div>';
-        } else {
-            searchResults.innerHTML = results.map((r, i) => {
-                const idAttr = r.id ? ` data-id="${r.id}"` : '';
-                return `<a href="#${r.id || ''}" class="search-result-item" data-index="${i}"${idAttr}>
-                    <div class="result-title">${escapeHtml(r.title)}</div>
-                    <div class="result-context">${escapeHtml(r.context)}</div>
-                </a>`;
-            }).join('');
-            
-            searchResults.querySelectorAll('.search-result-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const id = item.getAttribute('href').substring(1);
-                    if (id) {
-                        const el = document.getElementById(id);
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
-                    }
-                    searchResults.classList.remove('visible');
-                    searchInput.value = '';
-                });
-            });
-        }
-        searchResults.classList.add('visible');
-    }
-
+    // ── Helpers ─────────────────────────────────────────────────────────────
     function escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
 
-    let searchTimeout;
-    searchInput.addEventListener('input', (e) => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => performSearch(e.target.value), 200);
+    function escapeRegex(string) {
+        return string.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+    }
+
+    // ── Sidebar collapse ──────────────────────────────────────────────────────
+    document.querySelectorAll('.sidebar-title').forEach(title => {
+        title.addEventListener('click', () => {
+            title.parentElement.classList.toggle('collapsed');
+        });
     });
 
-    searchInput.addEventListener('focus', () => {
-        buildSearchIndex();
-        if (searchInput.value.length >= 2) {
-            performSearch(searchInput.value);
-        }
-    });
+    // ── Active nav highlighting ───────────────────────────────────────────────
+    const mainContent = document.querySelector('.main');
+    const navLinks = document.querySelectorAll('.nav-link');
+    const headings = document.querySelectorAll('.doc-section h1, .doc-section h2, .doc-section h3');
 
-    document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
-            searchResults.classList.remove('visible');
-        }
-    });
+    function updateActiveNav() {
+        let currentId = '';
+        const scrollPos = window.scrollY + 100;
+        headings.forEach(h => {
+            if (h.offsetTop <= scrollPos) {
+                currentId = h.id;
+            }
+        });
+        navLinks.forEach(link => {
+            link.classList.toggle('active', link.getAttribute('href') === '#' + currentId);
+        });
+    }
+
+    window.addEventListener('scroll', updateActiveNav, { passive: true });
+    updateActiveNav();
 
     // ── Back to top ────────────────────────────────────────────────────────────
     const backToTop = document.getElementById('back-to-top');
@@ -1109,7 +942,7 @@ def main():
     # Build main content HTML
     content_html = ""
     for sec in all_sections:
-        content_html += f'<div class="doc-section" id="{sec["id"]}">\n'
+        content_html += f'<div class="doc-section" id="{sec["id"]}" data-doc="{escape_html(sec.get("prefix", ""))}">\n'
         content_html += f'<h1>{escape_html(sec["title"])}<a href="#{sec["id"]}" class="section-anchor">#</a></h1>\n'
         content_html += sec.get("html", "") + "\n"
         content_html += "</div>\n"
@@ -1128,19 +961,15 @@ def main():
 </head>
 <body>
     <header class="header">
-        <button class="menu-toggle" id="menu-toggle" aria-label="Toggle menu">☰</button>
-        <div class="header-title">
-            <a href="https://viel-zu.org/opencv/doxygen/html/d7/dfc/v4d.html">Plan-V4D</a>
-        </div>
-        <div class="search-box">
-            <input type="text" id="search-input" placeholder="Search documentation..." autocomplete="off">
-        </div>
-        <div class="search-results" id="search-results"></div>
-    </header>
-    <div class="layout">
-        <aside class="sidebar" id="sidebar">
-            {sidebar_html}
-        </aside>
+         <button class="menu-toggle" id="menu-toggle" aria-label="Toggle menu">☰</button>
+         <div class="header-title">
+             <a href="https://viel-zu.org/opencv/doxygen/html/d7/dfc/v4d.html">Plan-V4D</a>
+         </div>
+     </header>
+     <div class="layout">
+         <aside class="sidebar" id="sidebar">
+             {sidebar_html}
+         </aside>
         <main class="main">
             {content_html}
         </main>
