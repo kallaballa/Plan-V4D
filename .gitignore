@@ -21,3 +21,5 @@ home:elchaschab:Plan-V4D:Fedora/
 obs/home:elchaschab:Plan-V4D:Ubuntu_24.04/
 obs/home:elchaschab:Plan-V4D:Raspbian_12/
 
+web/__pycache__/generate.cpython-313.pyc
+web/v4d.html
