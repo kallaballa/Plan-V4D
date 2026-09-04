@@ -1,786 +1,964 @@
-# Plan-DSL API Reference (ISA-style)
+# Plan-DSL Reference
 
-This document describes **Plan-DSL**, the compile-time task-graph language that makes
-up the *Plan* part of Plan-V4D, in the style of an *Instruction Set Architecture* (ISA)
-manual. It is intended as the authoritative contract for tools that lower other
-intermediate representations — most notably LLVM IR — onto Plan-DSL.
+*The formal reference for Plan-DSL, the task-graph language used by Plan-V4D.*
 
-The DSL is not a text language. It is a set of C++ *functions, operators and macros*
-invoked from inside the `infer()` / `setup()` / `teardown()` methods of a class that
-inherits from `cv::plan::Plan`. Every call records a **task node** and its **data
-dependencies** at (compile-time-typed) runtime; the recorded accesses are then compiled
-into a flat task-node list that is re-executed every frame/iteration by a set of worker
-threads (one independent graph copy per worker). The graph is **built once** per worker
-(via `makeGraph()`) and then the same graph is **re-executed every frame** (via
-`runGraph()`), with branch predicates re-evaluated each iteration.
+This document is the companion to `plan-dsl-programming-guide.markdown`.
 
-All API entities live in namespace `cv::plan` (aliased to `using namespace cv::plan;` in
-samples). Header: `<opencv2/plan/plan.hpp>`.
+The programming guide explains how to think about Plan-DSL. This reference describes the language model more directly:
 
-This document covers only the Plan-DSL core. Concrete execution contexts and input
-event sources are supplied by a *runtime* that implements the `PlanRuntime` interface
-(such as V4D); runtime-specific extensions are explicitly marked as such below.
-
-NOTE: Edge-expression chaining is merely syntactic sugar; plain semicolon-separated
-statements work as well.
+* edge-calls,
+* operators,
+* control-flow instructions,
+* contexts,
+* state model,
+* LLVM lowering correspondence.
 
 ---
 
-## 1. Execution Model
+## Table of Contents
 
-### 1.1 The graph is the program
-
-A `Plan` subclass describes, in its three lifecycle methods, how data flows:
-
-| Method    | Purpose                                                          | Runs |
-|-----------|------------------------------------------------------------------|------|
-| `setup()` | Build the initialization pipeline (alloca-like, one-shot)        | once per worker thread (see §1.5) |
-| `infer()` | Define the per-iteration pipeline (the "kernel"/main body)       | once per worker thread (see §1.5) |
-| `teardown()` | Build the shutdown pipeline (free, one-shot)                  | once per worker thread (see §1.5) |
-| `gui()`   | optional UI hook (e.g. widget/callback setup)                    | once, on the main thread |
-
-The graph is **built once** per worker (by calling `infer()` + `makeGraph()`) and then
-**executed every frame** by calling `runGraph()`. The same `currentNodes_` list is
-iterated each frame; branch predicates are re-evaluated every iteration, so control
-flow can change dynamically (e.g. a `while` loop exits when its predicate becomes
-false). The graph structure itself is **not** rebuilt between frames.
-
-### 1.5 `Plan::run` lifecycle
-
-The core provides `Plan::run<Tplan>(workers, args...)`, which orchestrates the complete
-lifecycle: worker spawning, the setup/infer/teardown graph phases, the startup barrier
-and the frame loop. Runtime specifics are delegated to four `PlanRuntime` hooks:
-`initWorkerThread()`, `willGui()`, `runFrameLoop()` and `releaseIo()`. (V4D's
-`V4DPlan::run` simply forwards to `Plan::run`; entering the display loop happens inside
-its `runFrameLoop()` implementation.)
-
-Worker-count semantics: `workers == -1` selects a default of **2** worker threads; any
-value `N >= 0` spawns **N + 1** worker threads (so `0` means "one worker plus main").
-Each worker `i` runs the `initWorkerThread(i)` hook, records its `WORKER_INDEX`, and
-then recurses into `Plan::run<Tplan>(0, ...)` on its own thread. The main thread never
-builds a graph; it runs `gui()` once and then participates in the runtime's frame loop
-(V4D's main thread only services the display/event loop).
-
-The complete lifecycle is:
-
-```
-Plan::run<Tplan>(workers, args...)            // core entry point (plan.hpp)
-  │
-  ├── init GlobalState/LocalState keys
-  ├── plan = Plan::make<Tplan>(args...); attach runtime (PlanRuntime::current())
-  │
-  ├── main thread spawns worker threads (see count semantics above)
-  │
-  ├── main thread                      ║  each worker thread
-  │     willGui(plan); gui();          ║    setup()   -> makeGraph() -> runGraph()
-  │                                    ║               -> clearGraph()
-  │                                    ║    (worker setup phases are serialized
-  │                                    ║     against each other by a semaphore)
-  │                                    ║    infer()   -> makeGraph()
-  │                                    ║    WORKERS_READY += 1
-  │
-  ├── barrier (workers + 1 participants arrive_and_wait)
-  │
-  ├── runtime->runFrameLoop(frameFn)   // frameFn == plan->runGraph()
-  │      main thread: display/event loop (V4D)
-  │      worker threads: frameFn() once per frame,
-  │      until the runtime ends the loop
-  │
-  ├── worker threads (teardown):
-  │      clearGraph()
-  │      teardown() -> makeGraph() -> runGraph() -> clearGraph()
-  │      releaseIo()
-  │
-  └── main thread: join worker threads; releaseIo()
-```
-
-Each worker builds and executes its own independent copy of the graph. Workers never
-share partial iterations or migrate work between threads.
-
-### 1.2 Edges are operands (SSA values)
-
-An **edge** is the operand type of the DSL. It is a typed handle to either a
-memory object (a C++ variable, plan member, or runtime property) or to a
-computed value (the result of an operator). Every edge carries *access intent*:
-read-only, read-write, copy, and/or shared (locked).
-
-Thinking in LLVM terms:
-
-- A **variable** wrapped by an edge ≈ a stack/global allocation (`alloca`/`global`).
-- The **result edge** of an operator ≈ an SSA virtual register / temporary.
-- An **operator application** ≈ an instruction (`add`, `icmp`, `select`, ...).
-- Access intent ≈ the `readnone`/`readonly`/`writeonly` memory attributes.
-
-Edges are created with *edge-calls* (Section 2) and consumed/produced by
-*operators* (Section 3) and by *context calls* (Section 5.2).
-
-### 1.3 Task nodes
-
-Each DSL call records one access tuple `(node-id, read?, operand-id)` in `accesses_`.
-The node id is a string produced by `make_id()` from the plan's space/name, the callable
-identity (function address or lambda-holder address) and the operand ids/types, made
-unique within one build by appending `+` characters on collision. The operand id is the
-edge's storage identity. `makeGraph()` walks `accesses_` in recording order and appends
-a new node to `currentNodes_` whenever the id differs from the **previous** entry;
-consecutive accesses sharing the same id merge into that node (recording additional
-dependency entries). An id recurring later in the list therefore starts a second node.
-
-Each node records:
-- `read_deps_` — set of operand ids this node reads
-- `write_deps_` — set of operand ids this node writes
-
-> **Execution model.** `runGraph()` iterates `currentNodes_` **sequentially** in the
-> order nodes were registered during `infer()`. It does **not** use the dependency
-> edges for scheduling; a node runs unconditionally if it is enabled by its branch
-> state (§4). The `read_deps_` / `write_deps_` fields are populated by `makeGraph()`
-> for bookkeeping but are not consulted at runtime by the base `Plan::runGraph()`
-> implementation.
-
-Multiple workers execute independently built copies of the graph; the scheduler never
-migrates partial iterations between workers.
-
-### 1.4 Concurrency primitives
-
-- **Shared variables** (registered with `_shared`) get an associated `std::mutex`
-  (members living inside a registered variable's address range reuse that variable's
-  mutex). A *lockie* edge (`RS`/`RWS`) acquires that mutex for the duration of the
-  node's transaction; a **copy** edge (`CS`) snapshots the value under the same mutex.
-- **Single-branch** regions are protected by a global per-branch lock so that at most
-  one worker executes them at a time.
-- **ONCE** regions run at most once: globally for `ONCE`, per worker for
-  `PARALLEL_ONCE`.
+1. [Execution model](#1-execution-model)
+2. [Edge-calls](#2-edge-calls)
+3. [Operator instructions](#3-operator-instructions)
+4. [Control-flow instructions](#4-control-flow-instructions)
+5. [Program structure and contexts](#5-program-structure-and-contexts)
+6. [State model](#6-state-model)
+7. [LLVM IR to Plan-DSL translation](#7-llvm-ir-to-plan-dsl-translation)
+8. [Opcode index](#8-opcode-index)
 
 ---
 
-## 2. Edge-Call Instructions (operand producers)
+## 1. Execution model
 
-An *edge-call* wraps a value to make it usable as an operand. It is the closest analogue
-to "load a register from a storage location" or "materialize a constant".
+Plan-DSL is an embedded C++ language that records a task graph.
 
-Template layout of an edge (`detail::Edge<T, Tcopy, Tread, Tshared, Tbase, TbyValue>`):
+User code is written inside lifecycle methods of a class derived from `Plan` or `V4DPlan`.
 
-| Param | Meaning |
-|-------|---------|
-| `T` | element type |
-| `Tcopy` | produce a per-node copy (snapshot) |
-| `Tread` | read the value (input) |
-| `Tshared` | treat as shared: acquire the variable's mutex for the node |
-| `Tbase` | base type when dereferencing a pointer/smart-pointer |
-| `TbyValue` | pass by value instead of by reference |
+The main lifecycle methods are:
 
-### 2.1 `V(value)` — immediate / constant
+| Method | Role |
+|---|---|
+| `setup()` | One-shot initialization graph |
+| `infer()` | Per-frame graph |
+| `teardown()` | One-shot cleanup graph |
+| `gui()` | Main-thread GUI setup |
+
+The graph is built once and then executed repeatedly.
+
+```text
+infer() records nodes
+runGraph() replays nodes every frame
+```
+
+Nodes are executed in record order.
+
+Plan-DSL does not perform dynamic dependency scheduling, work stealing, or automatic vectorization.
+
+The runtime evaluates branch predicates each frame and executes enabled nodes.
+
+---
+
+## 2. Edge-calls
+
+Edges are the only value type in Plan-DSL.
+
+An edge represents either:
+
+* storage,
+* a computed value,
+* a runtime property,
+* an event stream.
+
+Each edge has an access intent.
+
+### 2.1 `V(value)` — constant
 
 ```cpp
-V(T value)
+template<typename T> Edge<T, true, true, false> V(T&& value)
 ```
-Materializes an immediate constant. Returns `Edge<Ptr<T>, false, true, false, T, true>`.
 
-- LLVM equivalent: a **constant** (`ConstantInt`, `ConstantFP`, `ConstantArray`, ...),
-  materialized by `Value`/`LLVMConst*`.
+Creates an immediate constant edge.
 
-Example: `V(0.0)`, `V(cv::Scalar(102, 61, 51, 255))`, `V(false)`.
+Equivalent conceptually to an LLVM constant.
 
-### 2.2 `R(variable)` — read operand
+Example:
 
 ```cpp
-template<typename T> Edge<T, false, true> R(const T& t)
+V(42)
+V(3.14f)
+V(cv::Size(640, 480))
 ```
-Read-only access to an existing variable. Declares that the consuming node does **not**
-mutate the value. Multiple concurrent readers are allowed.
 
-- LLVM equivalent: a **load with read-only semantics** (or an operand that is
-  `readonly`/`readnone`). Never becomes a definition.
-
-### 2.3 `RW(variable)` — read-write operand
+### 2.2 `R(variable)` — read
 
 ```cpp
-template<typename T> Edge<T, false, false> RW(T& t)
+template<typename T> Edge<T, false, true, false> R(const T& t)
 ```
-Read-**and**-write access to an existing variable. The consuming node both depends on
-the previous writer and defines a new value (a "def" for subsequent nodes).
 
-- LLVM equivalent: a **load + store pair** (read-modify-write), i.e. a new definition in
-  SSA that also writes back. Use for the destination of `ASSIGN`, `DEREF`, `NEG`, and
-  any in-place computation.
+Creates a read-only edge to the current value of a variable.
+
+Use `R` when a node only needs to read a value.
+
+Example:
+
+```cpp
+R(frame_)
+```
+
+LLVM analogue: `load`.
+
+### 2.3 `RW(variable)` — read-write
+
+```cpp
+template<typename T> Edge<T, false, false, false> RW(T& t)
+```
+
+Creates a read-write edge to a variable’s storage.
+
+Use `RW` for destinations and in-place mutation.
+
+Example:
+
+```cpp
+RW(counter_)
+```
+
+LLVM analogue: address operand for `store` or in-place memory operation.
 
 ### 2.4 `RS(variable)` — read shared
 
 ```cpp
 template<typename T> Edge<T, false, true, true> RS(const T& t)
 ```
-Read-only access to a **shared** variable. The variable must have been registered with
-`_shared()`. The node locks the variable's mutex for its duration.
 
-`RS`/`RWS` throw `std::runtime_error` if the variable is a plan member that was not
-registered with `_shared()`. Storage outside the plan object (globals, heap objects) is
-implicitly registered as shared on first shared access.
+Read-only access to a shared variable.
+
+The variable must be registered with `_shared()` if it is a plan member.
+
+The node locks the variable’s mutex for the duration of the access.
+
+Example:
+
+```cpp
+RS(params_)
+```
+
+LLVM analogue: atomic or synchronized load.
 
 ### 2.5 `RWS(variable)` — read-write shared
 
 ```cpp
 template<typename T> Edge<T, false, false, true> RWS(T& t)
 ```
-Read-write access to a **shared** variable (registered with `_shared()`), under the
-variable's mutex.
 
-### 2.6 `CS(variable)` — copy-shared (snapshot)
+Read-write access to a shared variable under its mutex.
+
+Example:
+
+```cpp
+RWS(params_)
+```
+
+LLVM analogue: synchronized read-modify-write or locked store/load pair.
+
+### 2.6 `CS(variable)` — copy shared snapshot
 
 ```cpp
 template<typename T> Edge<T, true, true, true> CS(T& t)
 ```
-A thread-safe **copy** of a shared variable. Reads the variable under its mutex and
-produces a private copy. The result is a new value (like a load that snapshots).
-Throws for non-shared variables (see §2.4).
 
-- LLVM equivalent: a **load followed by a copy** — for data that is produced on one
-  thread (e.g. GUI) and consumed on another without sharing a live definition.
+Creates a thread-safe copy of a shared variable.
+
+The variable is read under its mutex, and a private copy is produced.
+
+This is useful when one thread produces data and another thread should consume a stable snapshot.
+
+Example:
+
+```cpp
+CS(params_)
+```
+
+LLVM analogue: load followed by copy.
 
 ### 2.7 `P<T>(key)` — runtime property
 
 ```cpp
-template<typename Tval> Property<Tval> P(LocalState::Keys::Enum key) // per-thread state
-template<typename Tval> Property<Tval> P(GlobalState::Keys::Enum key)// global state
+template<typename Tval> Property<Tval> P(LocalState::Keys::Enum key);
+template<typename Tval> Property<Tval> P(GlobalState::Keys::Enum key);
 ```
-A property edge is a *shared, read-only* edge (`Edge<const T, false, true, true>`) bound
-to a named value in the global/per-thread state tables (`GlobalState`/`LocalState` in
-`util.hpp`). Core keys are `FRAME_CNT`, `RUN_CNT`, `FPS`, ... (global) and
-`WORKER_INDEX` (per-thread). A runtime may register additional key sets and provide a
-matching `P` overload (e.g. V4D adds `V4D::Keys` with `SIZE`, `VIEWPORT`, ...).
 
-- LLVM equivalent: reading a **global variable** (`@global`) or a fixed runtime feature
-  register.
+Creates a property edge bound to a named value in `LocalState` or `GlobalState`.
+
+Properties are shared read-only edges.
+
+Examples:
+
+```cpp
+P<uint64_t>(GlobalState::Keys::FRAME_CNT)
+P<cv::Size>(V4D::Keys::SIZE)
+P<size_t>(LocalState::Keys::WORKER_INDEX)
+```
+
+Core global keys include:
+
+```cpp
+FRAME_CNT
+CAPTURE_CNT
+FPS_CNT
+RUN_CNT
+START_TIME
+FPS
+WORKERS_READY
+WORKERS_STARTED
+LOCKING
+DISPLAY_READY
+LOCK_CONTENTION_CNT
+LOCK_CONTENTION_RATE
+LCR_CNT
+SHOW_GUI
+SHOW_FRAME_TIME
+TIME_TRACKER
+```
+
+Core local keys include:
+
+```cpp
+WORKER_INDEX
+```
+
+Runtimes may add additional key families, such as `V4D::Keys`.
+
+LLVM analogue: global variable or fixed runtime register.
 
 ### 2.8 `E<T>(...)` — event stream
 
 ```cpp
-template<typename Tclass> Event<Tclass> E()                     // all events
-template<typename Tclass> Event<Tclass> E(Tclass::Type t)       // events of a type
-template<typename Tclass> Event<Tclass> E(Tclass::Type t, Ttrigger tr) // type + trigger
+template<typename Tclass> Event<Tclass> E();
+template<typename Tclass> Event<Tclass> E(Tclass::Type t);
+template<typename Tclass, typename Ttrigger> Event<Tclass> E(Tclass::Type t, Ttrigger tr);
 ```
-An edge that produces a `std::vector<std::shared_ptr<Tclass>>` of input events for the
-iteration. The event class must provide a nested `Type` enum and a `List` container;
-the DSL core itself always produces an empty list — polling actual input devices is the
-job of the runtime, which overrides the fetch callable (V4D's `V4DPlan::Event` fetches
-from the `gwe` event queues each iteration unless `V4D::Keys::DISABLE_INPUT_EVENTS` is
-set; event classes are `Mouse`, `Keyboard`, `Window`, `Joystick`).
 
-- LLVM equivalent: an **external/volatile input channel**; reading it is a call with
-  side effects (the events are polled each iteration).
+Creates an edge that produces a list of input events for the current iteration.
 
-### 2.9 `F(fn, args...)` — call / external function
+Event classes must provide:
+
+* a nested `Type` enum,
+* a `List` container.
+
+The core DSL produces empty lists by default. Runtimes such as V4D provide real event polling.
+
+V4D event classes include:
 
 ```cpp
-template<typename Tfn, typename ... Args> auto F(Tfn src, Args&& ... args)
+Mouse
+Keyboard
+Window
+Joystick
 ```
-Invokes a C++ function/member-function/lambda with the given operand edges. If `fn`
-returns a non-`void` value, `F` returns a new **result edge** (an SSA temporary);
-otherwise it returns `cv::Ptr<Plan>` (a statement). This is the escape hatch for any
-operation without a dedicated operator opcode.
 
-- LLVM equivalent: **`call`** instruction (with/without a return value). For a
-  returning call, the result is a new SSA register.
-- Callables are passed directly — function pointers, member function pointers and
-  lambdas/function objects are all accepted and normalized internally
-  (`wrap_callable`).
+Examples:
 
 ```cpp
-F(&cv::split, R(src), RW(dst));          // free function, no result edge
-auto t = F(&cv::getTickCount);           // call, produces result edge t
-auto w = F(&cv::Size::width, R(sz));     // member function call
+E<Mouse>()
+E<Mouse>(Mouse::Type::PRESS)
+E<Mouse>(Mouse::Type::PRESS, trigger)
 ```
 
-### 2.10 `_(...)` — operand group / tuple
+LLVM analogue: external volatile input channel.
+
+### 2.9 `F(fn, args...)` — call
 
 ```cpp
-template<typename ... Args> auto _(Args&& ... args)
+template<typename Tfn, typename... Args>
+auto F(Tfn src, Args&&... args);
 ```
-Builds a `std::tuple` of operands. Used to (a) feed **n-ary** operators and (b) pass
-multiple edges where a variadic call is expected. With operators it groups the tail
-operands:
+
+Records a call to a C++ callable.
+
+If the callable returns a non-`void` type, `F` returns a result edge.
+
+If the callable returns `void`, `F` behaves as a statement.
+
+Examples:
 
 ```cpp
-auto t = R(a) + _(R(b), R(c));   // one ADD node with 3 operands
+auto t = F(&cv::getTickCount);
+auto w = F(&cv::Size::width, R(sz));
+F(&cv::split, R(src), RW(dst));
 ```
 
-### 2.11 `_shared(var)` / `_safe(var)` — register storage
+Accepted callables include:
+
+* free functions,
+* member functions,
+* lambdas,
+* function objects.
+
+LLVM analogue: `call`.
+
+### 2.10 `_()` — operand group
 
 ```cpp
-template<typename Tvar> void _shared(Tvar& val)  // give var a mutex, make it shareable
-template<typename Tvar> void _safe(Tvar& val)    // mark var as never-shared (opt-out)
+template<typename... Args>
+auto _(Args&&... args);
 ```
-Call once from the plan constructor. `_shared` registers the variable (and any member
-that lives inside its address range) in the global shared-variable table, attaching a
-`std::mutex` used by `RS`/`RWS`/`CS` and `Property`.
 
-- LLVM equivalent: declaring a global with appropriate linkage/atomicity.
+Builds a tuple of operands.
+
+Used for n-ary operators and variadic calls.
+
+Example:
+
+```cpp
+auto t = R(a) + _(R(b), R(c));
+```
+
+### 2.11 `_shared(var)` and `_safe(var)` — storage registration
+
+```cpp
+template<typename Tvar> void _shared(Tvar& val);
+template<typename Tvar> void _safe(Tvar& val);
+```
+
+`_shared` registers a variable as shared and gives it a mutex.
+
+`_safe` marks a variable as never shared.
+
+These should usually be called from the plan constructor.
 
 ---
 
-## 3. Operator Instructions (ALU / memory ops)
+## 3. Operator instructions
 
-Operators are dispatched via the `Operators` enum
-(`cv::plan::detail::Operators`, in `transaction.hpp`) and are applied in four ways:
+Operators are the computational instructions of Plan-DSL.
 
-1. **Symbol form** — C++ operator overloads: `a + b`, `a % b`, `!b`, `b[i]`, `x = y`, ...
-2. **Named form** — member functions on `Plan`: `ADD(a, b)`, `MOD(a, b)`, `NEG(dst, x)`, ...
-3. **Generic form** — `OP<Operators::ADD_>(a, b)`.
-4. **Statement form** — `op<Operators::...>(...)`, `assign(...)`, `construct(...)`
-   (lowercase, return `cv::Ptr<Plan>`, no result edge).
+They are dispatched through the `Operators` enum.
 
-Result rules:
+Operators can be written in four forms:
 
-- **Expression forms** (symbol / named / `OP<>`) return a **new result edge**. The
-  value is recomputed by the node each iteration. Multiple consumers share the node.
-- **Statement forms** (`op<>`, `assign`, `construct`) do not create a result edge.
-
-### 3.1 Arithmetic
-
-| Opcode | Symbol | Named | Arity | Semantics (C++) | LLVM IR |
-|--------|--------|-------|-------|-----------------|---------|
-| `ADD_` | `+` | `ADD` | n-ary | `(a + b) + ...` (binary: `a+b`) | `add` |
-| `SUB_` | `-` | `SUB` | n-ary | `(a - b) - ...` (binary: `a-b`) | `sub` |
-| `MUL_` | `*` | `MUL` | n-ary | `(a * b) * ...` (binary: `a*b`) | `mul` |
-| `DIV_` | `/` | `DIV` | n-ary | `(a / b) / ...` (binary: `a/b`) | `sdiv`/`udiv`/`fdiv` (via C++ `/`) |
-| `MOD_` | `%` | `MOD` | binary | `a % b` (integer remainder) | `srem`/`urem`/`frem` (via C++ `%`) |
-| `NEG_` | — | `NEG` | binary | `dst = -value` (dst first!) | `sub 0, %x` / `fneg` |
-| `INCL_` | `++x` | `INCL` | unary | `++x` (pre-increment) | `add x, 1` + store |
-| `INCR_` | `x++` | `INCR` | unary | `x++` (post-increment) | `add x, 1` + store, old value |
-| `DECL_` | `--x` | `DECL` | unary | `--x` | `sub x, 1` + store |
-| `DECR_` | `x--` | `DECR` | unary | `x--` | `sub x, 1` + store, old value |
-
-**NEG is binary**: `NEG(RW(dst), R(src))` computes `dst = -src`. It has no symbol form.
-The unary `-x` symbol instead expands to `x * (-1)` (`MUL`).
-
-### 3.2 Logical & bitwise
-
-| Opcode | Symbol | Named | Arity | Semantics | LLVM IR |
-|--------|--------|-------|-------|-----------|---------|
-| `AND_` | `&&` | `AND` | n-ary | `(a && b) && ...` | `and i1` (bool logic) |
-| `OR_` | `\|\|` | `OR` | n-ary | `(a \|\| b) \|\| ...` | `or i1` (bool logic) |
-| `NOT_` | `!` | `NOT` | unary | `!a` | `xor i1 a, true` |
-| `XOR_` | `^` | `XOR` | n-ary | `(a ^ b) ^ ...` | `xor` |
-| `BAND_` | `&` | `BAND` | n-ary | `(a & b) & ...` | `and` |
-| `BOR_` | `\|` | `BOR` | n-ary | `(a \| b) \| ...` | `or` |
-| `SHL_` | `<<` | `SHL` | n-ary | `(a << b) << ...` (binary: `a<<b`) | `shl` |
-| `SHR_` | `>>` | `SHR` | n-ary | `(a >> b) >> ...` (binary: `a>>b`) | `lshr`/`ashr` (C++ `>>` on signed = arithmetic) |
-
-### 3.3 Comparison
-
-| Opcode | Symbol | Named | Arity | Semantics | LLVM IR |
-|--------|--------|-------|-------|-----------|---------|
-| `EQ_` | `==` | `EQ` | n-ary | `(a == b) == ...` (binary exact) | `icmp eq` / `fcmp oeq` |
-| `NEQ_` | `!=` | `NEQ` | n-ary | `(a != b) != ...` (binary exact) | `icmp ne` / `fcmp une` |
-| `LT_` | `<` | `LT` | n-ary | `(a < b) < ...` (binary exact) | `icmp slt/ult` / `fcmp olt` |
-| `GT_` | `>` | `GT` | n-ary | `(a > b) > ...` (binary exact) | `icmp sgt/ugt` / `fcmp ogt` |
-| `LE_` | `<=` | `LE` | n-ary | `(a <= b) <= ...` (binary exact) | `icmp sle/ule` / `fcmp ole` |
-| `GE_` | `>=` | `GE` | n-ary | `(a >= b) >= ...` (binary exact) | `icmp sge/uge` / `fcmp oge` |
-
-All comparisons are implemented with the native C++ operators, so signed/unsigned and
-integer/float behavior follow C++ semantics. Emit one op per LLVM `icmp`/`fcmp`.
-
-### 3.4 Select / memory / construction
-
-| Opcode | Symbol | Named | Arity | Semantics | LLVM IR |
-|--------|--------|-------|-------|-----------|---------|
-| `IF_` | — | `IF` | ternary | `cond ? ifTrue : ifFalse` | `select` |
-| `IDX_` | `[]` | `IDX` | binary | `container[index]` | `getelementptr` + `load` |
-| `DEREF_` | — | `DEREF` | binary | `dst = *ptr` (dst first!) | `load` into `dst` |
-| `ASSIGN_` | `=` | `ASSIGN` | binary | `dst = src` | `store` |
-| `CONSTRUCT_` | `()` | (via `operator()`) | variadic | `dst = T(args...)` / `new T(args...)` | `call` to ctor + `alloca` |
-
-Notes:
-
-- `IF(cond, ifTrue, ifFalse)` maps directly to LLVM `select` (all operands are values).
-- `Edge::operator[]` is the symbol form of `IDX_`; the named `IDX(a, i)` form exists too.
-- `DEREF` and `NEG` take the **destination first**: `DEREF(RW(dst), R(ptr))`,
-  `NEG(RW(dst), R(src))`.
-- `ASSIGN` also exists as the statement form `assign(dst, src)` and the symbol `=` on an
-  edge: `RW(x) = R(y)`.
-- `CONSTRUCT_` is reached by calling a plan like a function: `plan(V(a), V(b))` (the
-  `operator()` on `Plan`), or `construct(dst, a, b)`. It creates a value by value
-  construction (or `new`/`makePtr` for smart/raw pointers).
-
-### 3.5 Lowercase statement helpers
+### 3.1 Symbol form
 
 ```cpp
-template<Operators Top, typename ... Edges> cv::Ptr<Plan> op(Edges...);    // op<> as statement
-template<typename ... Edges>                 cv::Ptr<Plan> assign(Edges...);   // ASSIGN_
-template<typename ... Edges>                 cv::Ptr<Plan> construct(Edges...);// CONSTRUCT_
+a + b
+a && b
+a[i]
+x = y
 ```
-These create a node that performs the operation but returns **no result edge** — use
-them when the operation's only effect is its write-back (e.g. `assign(RW(x), R(y))`).
+
+### 3.2 Named form
+
+```cpp
+ADD(a, b)
+MOD(a, b)
+NEG(dst, x)
+```
+
+### 3.3 Generic form
+
+```cpp
+OP<Operators::ADD_>(a, b)
+```
+
+### 3.4 Statement form
+
+```cpp
+op<Operators::ADD_>(a, b)
+assign(dst, src)
+construct(dst, args...)
+```
+
+Expression forms return result edges.
+
+Statement forms do not return result edges.
 
 ---
 
-## 4. Control-Flow Instructions
+## 3.1 Arithmetic operators
 
-Control flow is expressed with **branch regions**, not jumps. A branch region is a
-predicated sub-graph; the predicate is evaluated at runtime each iteration and the
-nodes inside are executed only when it is true.
+| Opcode | Symbol | Named | Arity | Meaning | LLVM analogue |
+|---|---:|---|---:|---|---|
+| `ADD_` | `+` | `ADD` | n-ary | Addition | `add` |
+| `SUB_` | `-` | `SUB` | n-ary | Subtraction | `sub` |
+| `MUL_` | `*` | `MUL` | n-ary | Multiplication | `mul` |
+| `DIV_` | `/` | `DIV` | n-ary | Division | `sdiv` / `udiv` / `fdiv` via C++ |
+| `MOD_` | `%` | `MOD` | binary | Remainder | `srem` / `urem` / `frem` via C++ |
+| `NEG_` | — | `NEG` | binary | `dst = -src` | `fneg` or `sub 0, x` |
+| `INCL_` | `++x` | `INCL` | unary | Pre-increment | `add x, 1` + store |
+| `INCR_` | `x++` | `INCR` | unary | Post-increment | `add x, 1` + store, old value |
+| `DECL_` | `--x` | `DECL` | unary | Pre-decrement | `sub x, 1` + store |
+| `DECR_` | `x--` | `DECR` | unary | Post-decrement | `sub x, 1` + store, old value |
 
-### 4.1 `branch(...)` — enter a predicated region
+`NEG` takes the destination first:
 
 ```cpp
-branch(predEdge)                                       // bool edge predicate (default: PARALLEL)
-branch(fn)                                             // bool-returning callable
-branch(fn, args...)                                    // callable + operand edges
-branch(workerIdx, fn, args...)                         // + restrict to one worker (pinned)
-branch(workerIdx, BranchType::Enum type, fn, args...)  // pinned + explicit branch type
-branch(BranchType::Enum type, predEdge)                // + explicit branch type
+NEG(RW(dst), R(src));
+```
+
+Unary minus written as `-x` is lowered as multiplication by `-1` using `MUL`.
+
+---
+
+## 3.2 Logical and bitwise operators
+
+| Opcode | Symbol | Named | Arity | Meaning | LLVM analogue |
+|---|---:|---|---:|---|---|
+| `AND_` | `&&` | `AND` | n-ary | Logical and | boolean `and` |
+| `OR_` | `||` | `OR` | n-ary | Logical or | boolean `or` |
+| `NOT_` | `!` | `NOT` | unary | Logical not | `xor i1 x, true` |
+| `XOR_` | `^` | `XOR` | n-ary | Bitwise xor | `xor` |
+| `BAND_` | `&` | `BAND` | n-ary | Bitwise and | `and` |
+| `BOR_` | `|` | `BOR` | n-ary | Bitwise or | `or` |
+| `SHL_` | `<<` | `SHL` | n-ary | Left shift | `shl` |
+| `SHR_` | `>>` | `SHR` | n-ary | Right shift | `lshr` or `ashr` depending on C++ type |
+
+---
+
+## 3.3 Comparison operators
+
+| Opcode | Symbol | Named | Arity | Meaning | LLVM analogue |
+|---|---:|---|---:|---|---|
+| `EQ_` | `==` | `EQ` | n-ary | Equality | `icmp eq` / `fcmp oeq` |
+| `NEQ_` | `!=` | `NEQ` | n-ary | Inequality | `icmp ne` / `fcmp une` |
+| `LT_` | `<` | `LT` | n-ary | Less than | `icmp slt/ult` / `fcmp olt` |
+| `GT_` | `>` | `GT` | n-ary | Greater than | `icmp sgt/ugt` / `fcmp ogt` |
+| `LE_` | `<=` | `LE` | n-ary | Less or equal | `icmp sle/ule` / `fcmp ole` |
+| `GE_` | `>=` | `GE` | n-ary | Greater or equal | `icmp sge/uge` / `fcmp oge` |
+
+Comparison semantics follow native C++ operators.
+
+---
+
+## 3.4 Selection, memory, and construction
+
+| Opcode | Symbol | Named | Arity | Meaning | LLVM analogue |
+|---|---:|---|---:|---|---|
+| `IF_` | — | `IF` | ternary | `cond ? a : b` | `select` |
+| `IDX_` | `[]` | `IDX` | binary | Container indexing | `getelementptr` + `load` |
+| `DEREF_` | — | `DEREF` | binary | `dst = *ptr` | `load` into destination |
+| `ASSIGN_` | `=` | `ASSIGN` | binary | Assignment | `store` |
+| `CONSTRUCT_` | `()` | via `operator()` | variadic | Construct value | constructor call / allocation |
+
+Examples:
+
+```cpp
+IF(cond, a, b)
+
+IDX(container, index)
+
+DEREF(RW(dst), R(ptr))
+
+assign(RW(x), R(y))
+
+RW(x) = R(y)
+
+construct(dst, a, b)
+```
+
+`DEREF` and `NEG` take the destination as the first operand.
+
+---
+
+## 3.5 Lowercase statement helpers
+
+```cpp
+template<Operators Top, typename... Edges>
+cv::Ptr<Plan> op(Edges...);
+
+template<typename... Edges>
+cv::Ptr<Plan> assign(Edges...);
+
+template<typename... Edges>
+cv::Ptr<Plan> construct(Edges...);
+```
+
+These create nodes that perform operations but do not return result edges.
+
+Use them when the only meaningful effect is a write-back.
+
+---
+
+## 4. Control-flow instructions
+
+Control flow is structured.
+
+There are no arbitrary jumps.
+
+Control flow is expressed with branch regions.
+
+---
+
+## 4.1 `branch(...)`
+
+```cpp
+branch(predEdge)
+branch(fn)
+branch(fn, args...)
+branch(workerIdx, fn, args...)
+branch(workerIdx, BranchType::Enum type, fn, args...)
+branch(BranchType::Enum type, predEdge)
 branch(BranchType::Enum type, fn, args...)
 branch(BranchType::Enum type, workerIdx, fn, args...)
 ```
-Pushes a region onto the branch stack. Without an explicit type, `BranchType::PARALLEL`
-is used. Returns `cv::Ptr<Plan>` so calls can be chained:
-`branch(...)->plain(...)->endBranch()`.
 
-### 4.2 `elseBranch()` — negate the current condition
+Opens a predicated region.
 
-Toggles the enclosing branch's condition to its complement (like an `else` block).
+Default branch type is `BranchType::PARALLEL`.
 
-### 4.3 `endBranch()` — close a region
+Returns `cv::Ptr<Plan>` and can be chained.
 
-Pops the current region off the branch stack. Every `branch` must be matched by exactly
-one `endBranch`. Both are matched by *source nesting*, giving a structural control-flow
-form:
+Example:
 
 ```cpp
 branch(R(x) == V(0));
-{ ... }
-elseBranch();
-{ ... }
+    plain(doWork);
 endBranch();
 ```
 
-- LLVM equivalent: `br` (conditional) with structured `if/else`. Because the DSL has no
-  `goto`-style edges between arbitrary blocks, irreducible control flow must be
-  restructured into nested regions; loops are expressed as a `branch` on a predicate
-  that is updated by the loop body (the graph is re-evaluated each iteration, so a
-  "while" is naturally a predicated region whose predicate reads a value written by
-  the region body — see the `CountdownPlan` example in §12 of
-  `plan-dsl-programming-guide.markdown`).
+---
 
-### 4.4 Branch types (`BranchType::Enum`)
+## 4.2 `elseBranch()`
+
+```cpp
+elseBranch();
+```
+
+Negates the current branch condition.
+
+Equivalent to an `else` block.
+
+Example:
+
+```cpp
+branch(cond);
+    plain(a);
+elseBranch();
+    plain(b);
+endBranch();
+```
+
+---
+
+## 4.3 `endBranch()`
+
+```cpp
+endBranch();
+```
+
+Closes the current branch region.
+
+Every `branch` must be matched by exactly one `endBranch`.
+
+Branching is determined by source nesting.
+
+---
+
+## 4.4 Branch types
 
 | Value | Name | Semantics |
-|-------|------|-----------|
-| `0` | `NONE` | no branch (plain node) |
-| `1` | `SINGLE` | executed by at most **one worker** (globally locked, serialized) |
-| `2` | `PARALLEL` | executed by every worker when predicate holds (default) |
-| `4` | `ONCE` | executed **once globally** (predicate + global once-semantics) |
-| `8` | `PARALLEL_ONCE` | executed once **per worker** |
-
-### 4.5 Predefined predicates
-
-```cpp
-always_                    // []{ return true; }
-isTrue_   (bool)           // [](const bool& b){ return b; }
-isFalse_  (bool)           // [](const bool& b){ return !b; }
-and_      (bool, bool)     // a && b
-or_       (bool, bool)     // a || b
-```
+|---|---|---|
+| `0` | `NONE` | Plain node behavior |
+| `1` | `SINGLE` | At most one worker executes |
+| `2` | `PARALLEL` | Every worker executes if predicate is true |
+| `4` | `ONCE` | Executes exactly once globally |
+| `8` | `PARALLEL_ONCE` | Executes exactly once per worker |
 
 ---
 
-## 5. Program Structure & Contexts
-
-### 5.1 Plans and sub-plans
-
-A `Plan` is a program (module). A plan can contain **sub-plans** (like a call to another
-function/module). Sub-plans are created with `_sub` and executed with `subInfer` /
-`subSetup` / `subTeardown`, which record the sub-plan's graph and splice its accesses
-and transactions into the parent:
+## 4.5 Predefined predicates
 
 ```cpp
-template<typename TsubPlan, typename Tparent, typename ... Args>
-auto _sub(Tparent* parent, Args&& ... args)      // create sub-plan child
-template<typename TsubPlan, typename TparentPtr, typename ... Args>
-auto _sub(TparentPtr parent, Args&& ... args)    // create sub-plan child (Ptr variant)
-
-subInfer(cv::Ptr<TsubPlan>)      // inline child's infer() graph into the parent
-subSetup(cv::Ptr<TsubPlan>)      // inline child's setup() graph
-subTeardown(cv::Ptr<TsubPlan>)   // inline child's teardown() graph
+always_
+isTrue_(bool)
+isFalse_(bool)
+and_(bool, bool)
+or_(bool, bool)
 ```
 
-- LLVM equivalent: sub-plans ≈ **functions** (`define`), `_sub` ≈ function declaration,
-  `subInfer`/`subSetup`/`subTeardown` ≈ `call` sites. State is passed by closing over
-  the child plan's member variables, which the shared-variable table associates with the
-  parent's address range.
+These are convenience predicates exposed by the DSL.
 
-> **Constructor-only `_sub`.** `_sub<>` must be called **only in the plan constructor**,
-> as the first statement(s) after the initializer list. It must **not** be called from
-> `infer()`, `setup()`, or `teardown()`. This guarantees the sub-plan instance is created
-> exactly once (when the parent is constructed) and persists across frames — calling it
-> from `infer()` would recreate it every frame and break nested sub-plan return-value
-> propagation. `subInfer()` (the per-frame call) remains in `infer()`.
+---
 
-### 5.2 Context calls (side-effecting instructions)
+## 5. Program structure and contexts
 
-Context calls attach a node to a **context** (a specialized execution environment). They
-are the "peripheral instructions" of the ISA. The function is invoked inside that
-context on the appropriate thread/device.
+## 5.1 Plans and sub-plans
 
-The DSL core defines exactly one context — the **plain/CPU context** — and one generic
-attachment mechanism:
+A `Plan` is a module or program.
+
+A plan can contain sub-plans.
+
+Sub-plans are created with `_sub`:
+
+```cpp
+template<typename TsubPlan, typename Tparent, typename... Args>
+auto _sub(Tparent* parent, Args&&... args);
+
+template<typename TsubPlan, typename TparentPtr, typename... Args>
+auto _sub(TparentPtr parent, Args&&... args);
+```
+
+Sub-plans are spliced into the parent graph with:
+
+```cpp
+subInfer(subPlan);
+subSetup(subPlan);
+subTeardown(subPlan);
+```
+
+`_sub` must be called only in the parent constructor.
+
+`subInfer` is normally called from the parent’s `infer()`.
+
+LLVM analogue:
+
+* `_sub` ≈ function declaration/instantiation,
+* sub-plan ≈ function body,
+* `subInfer` ≈ call site.
+
+---
+
+## 5.2 Context calls
+
+Context calls attach nodes to specialized execution contexts.
+
+The core DSL defines the plain CPU context.
+
+### Core context calls
 
 | Call | Context | Purpose |
-|------|---------|---------|
-| `plain(fn, args...)` | CPU | general-purpose code (heavy-weight) |
-| `F(fn, args...)` | CPU | function call (see §2.9) |
+|---|---|---|
+| `plain(fn, args...)` | CPU | General-purpose node |
+| `F(fn, args...)` | CPU | Function-call node |
 
-Both are thin wrappers over the protected helper `add_transaction(ctx, id, fn, args...)`.
+Both are wrappers over the underlying transaction-adding mechanism.
 
-`plain`, `branch`, `elseBranch` and `endBranch` return `cv::Ptr<Plan>`, so they can be
-chained: `branch(...)->plain(...)->endBranch()`. `F` returns a result edge when the
-callee returns a value.
-
-Runtimes expose additional contexts via the `PlanRuntime` accessors (`glCtx`, `fbCtx`,
-`nvgCtx`, `bgfxCtx`, `extCtx`, `sourceCtx`, `sinkCtx`, `imguiCtx`). **V4D-specific**
-attachment calls (all return `cv::Ptr<V4DPlan>`):
+### V4D context calls
 
 | Call | Context | Purpose |
-|------|---------|---------|
-| `gl(fn, args...)` / `gl(idxEdge, fn, args...)` | GL | raw OpenGL commands (optionally on GL context `idx`) |
-| `fb<pos>(fn, args...)` | FrameBuffer | framebuffer access (fb edge auto-inserted at position `pos`) |
-| `nvg(fn, args...)` | NanoVG | vector graphics |
-| `bgfx(fn, args...)` | Bgfx | bgfx rendering |
-| `ext(fn, args...)` / `ext(idxEdge, fn, args...)` | Ext | external renderer contexts |
-| `capture(fn, args...)` / `capture(edge)` / `capture()` | Source | pull the next input frame |
-| `write(fn, args...)` / `write(edge)` / `write()` | Sink | push the finished frame |
-| `set(key, edge)` | CPU | property write node |
-| `imgui(fn, args...)` | ImGui | installs the transaction into the ImGui context instead of the graph |
+|---|---|---|
+| `gl(fn, args...)` | OpenGL | Execute GL commands |
+| `gl(idxEdge, fn, args...)` | OpenGL | Execute GL commands on context index |
+| `fb<pos>(fn, args...)` | Framebuffer | Framebuffer access |
+| `nvg(fn, args...)` | NanoVG | Vector graphics |
+| `bgfx(fn, args...)` | bgfx | bgfx rendering |
+| `ext(fn, args...)` | External | External renderer context |
+| `capture(fn, args...)` | Source | Pull input frame |
+| `capture(edge)` | Source | Pull input frame into edge |
+| `capture()` | Source | Pull input frame |
+| `write(fn, args...)` | Sink | Push output frame |
+| `write(edge)` | Sink | Push output frame |
+| `write()` | Sink | Push output frame |
+| `set(key, edge)` | CPU | Property write node |
+| `imgui(fn, args...)` | ImGui | Install ImGui transaction |
 
-### 5.3 Entry points
+Most context calls return `cv::Ptr<V4DPlan>` and can be chained.
+
+---
+
+## 5.3 Entry points
 
 ```cpp
-static cv::Ptr<Tplan> Plan::make<Tplan>(args...)         // instantiate
-static void          Plan::run<Tplan>(workers, args...)  // full lifecycle (see §1.5)
+static cv::Ptr<Tplan> Plan::make<Tplan>(args...);
+static void Plan::run<Tplan>(workers, args...);
 ```
-Instantiation and the complete run lifecycle live in the core; runtime specifics enter
-through the `PlanRuntime` hooks (`initWorkerThread`, `willGui`, `runFrameLoop`,
-`releaseIo`). `V4DPlan::run` forwards to `Plan::run`; `V4DPlan::make` additionally
-publishes the plan namespace (`V4D::Keys::NAMESPACE`).
+
+`make` instantiates a plan.
+
+`run` starts the full lifecycle.
+
+For V4D:
+
+```cpp
+V4DPlan::make<Tplan>(args...);
+V4DPlan::run<Tplan>(workers, args...);
+```
+
+`V4DPlan::run` forwards to `Plan::run`.
+
+`V4DPlan::make` additionally publishes the plan namespace.
 
 ---
 
-## 6. State Model
+## 6. State model
 
-| Concept | DSL entity | LLVM IR analogue |
-|---------|------------|------------------|
-| Plan member variable | plain C++ member; passed as `R`/`RW` | `alloca` slot in the function |
-| Shared (locked) variable | `_shared(x)` then `RS`/`RWS`/`CS` | global with atomic/ordered access |
-| Safe (never-shared) variable | `_safe(x)` | private, thread-local |
-| Named state value | `GlobalState::get/set/create<V>(key)` + `P<T>(key)` | global variable with optional change callback |
-| Per-worker state | `LocalState::Keys::WORKER_INDEX`, `LocalState::get/set` | thread-id-dependent value |
+| Concept | Plan-DSL entity | LLVM analogue |
+|---|---|---|
+| Plan member variable | Plain C++ member accessed via `R`/`RW` | `alloca` slot |
+| Shared variable | `_shared(x)` + `RS`/`RWS`/`CS` | global with synchronized access |
+| Safe variable | `_safe(x)` | private thread-local storage |
+| Named global state | `GlobalState` + `P<T>(key)` | global variable |
+| Named local state | `LocalState` + `P<T>(key)` | thread-local variable |
 
-`GlobalState::create<V>(key, value, cb)` registers a named value with an optional change
-callback; `GlobalState::set<V>(key, v)` writes it and `GlobalState::apply<V>(key, f)`
-updates it atomically. Edge-bound reads go through `P<T>(key)`. (A runtime may layer a
-node-form property write on top — V4D's `set(key, edge)` does exactly that.)
+`GlobalState` supports:
+
+```cpp
+GlobalState::create<V>(key, value, cb)
+GlobalState::set<V>(key, v)
+GlobalState::apply<V>(key, f)
+```
+
+`P<T>(key)` reads a state value as an edge.
+
+Runtimes may add property write nodes. For example, V4D provides:
+
+```cpp
+set(key, edge)
+```
 
 ---
 
-## 7. LLVM-IR → Plan-DSL Translation Table
+## 7. LLVM IR to Plan-DSL translation
+
+Plan-DSL can be treated as a graph-level ISA.
+
+The following table summarizes the intended lowering from LLVM IR to Plan-DSL.
 
 | LLVM IR | Plan-DSL |
-|---------|----------|
+|---|---|
 | `%r = add i32 %a, %b` | `auto r = ADD(R(a), R(b));` |
-| `sub` / `mul` / `sdiv` / `srem` | `SUB` / `MUL` / `DIV` / `MOD` |
-| `udiv` / `urem` / `fdiv` / `frem` | `DIV` / `MOD` (C++ semantics) |
-| `and` / `or` / `xor` | `BAND` / `BOR` / `XOR` |
+| `sub` | `SUB` |
+| `mul` | `MUL` |
+| `sdiv` | `DIV` |
+| `srem` | `MOD` |
+| `udiv` | `DIV` |
+| `urem` | `MOD` |
+| `fdiv` | `DIV` |
+| `frem` | `F(std::fmod, ...)` |
+| `and` | `BAND` |
+| `or` | `BOR` |
+| `xor` | `XOR` |
 | `shl` | `SHL` |
-| `lshr` / `ashr` | `SHR` (signed operand ⇒ arithmetic via C++ `>>`) |
-| `icmp eq/ne/slt/...` | `EQ` / `NEQ` / `LT` / `GT` / `LE` / `GE` |
-| `fcmp oeq/...` | same comparisons (C++ operators) |
+| `lshr` | `SHR` |
+| `ashr` | `SHR` |
+| `icmp eq` | `EQ` |
+| `icmp ne` | `NEQ` |
+| `icmp slt` | `LT` |
+| `icmp sle` | `LE` |
+| `icmp sgt` | `GT` |
+| `icmp sge` | `GE` |
+| `fcmp oeq` | `EQ` |
+| `fcmp one` | `NEQ` |
+| `fcmp olt` | `LT` |
+| `fcmp ole` | `LE` |
+| `fcmp ogt` | `GT` |
+| `fcmp oge` | `GE` |
 | `select i1 %c, %t, %f` | `IF(R(c), R(t), R(f))` |
-| `alloca` | plan member variable (or `_shared`) |
-| `load` (read) | `R(v)` as an operand |
-| `store` | `RW(v)` as destination + `assign` / `=` |
-| `load`+copy (snapshot) | `CS(v)` |
-| `getelementptr` + `load` | `IDX(RW(container), R(idx))` |
-| `load` from pointer | `DEREF(RW(dst), R(ptr))` |
-| `call` (void) | `F(fn, args...)` / `plain(fn, args...)` / context call |
-| `call` (non-void) | result edge of `F(fn, args...)` |
-| `ret` | end of `infer()`/`setup()`/`teardown()`; values via shared vars |
-| `br` (cond) | `branch(pred) ... elseBranch() ... endBranch()` |
-| `switch` | nested `branch` regions on `EQ` predicates |
-| `phi` | a plain member variable written in each region with `assign` |
-| constant (all types) | `V(value)` |
-| global variable | `_shared` member + `RS`/`RWS`, or `P<T>(key)` |
-| `unreachable` | `CV_Assert(false)` inside a `plain` node |
-| `fneg` / `sub 0,x` | `NEG(RW(dst), R(x))` |
-
-### 7.1 Practical lowering notes
-
-1. **SSA temporaries.** Give each LLVM virtual register a named Plan-local `auto`
-   variable holding the result edge of its producing instruction. A later instruction
-   consumes it with `R(tmp)`. Because a result edge is a value (not storage), use
-   `R(r)` — the DSL reads the computed value.
-2. **Memory, not SSA, for `store`/`load`.** LLVM `alloca`+`store`+`load` chains lower to
-   plan member variables and `R`/`RW`/`assign`. Use the most restrictive intent you can
-   prove (`R` when a value is only read) to maximize parallelism.
-3. **One op per instruction.** Emit binary operators exactly as the IR expresses them;
-   the n-ary form is only useful when you deliberately fuse instructions (e.g. `ADD`
-   of a long constant chain).
-4. **Destination-first ops.** `NEG` and `DEREF` take the destination as their first
-   argument — allocate a storage slot (`RW`) for the result.
-5. **Control flow must be structured.** Loops and conditionals must nest as balanced
-   `branch`/`endBranch` regions. LLVM's CFG must be region-ified (dominator-tree based
-   structuring) before lowering. See §7.2 for the two lowering strategies.
-6. **`select` operands are eager.** LLVM `select` is lazy (only chosen side is
-   evaluated), but `IF` is an operator node whose operands are all computed. For truly
-   lazy branch-on-value semantics use `branch` regions instead.
-7. **Integer widths.** Plan-DSL operates on C++ types; map `iN` to the smallest
-   native type that fits (`i8`→`int8_t`, `i32`→`int32_t`, `i64`→`int64_t`, `i1`→`bool`).
-8. **Pointers.** LLVM pointers map to raw pointers, `cv::Ptr<T>`, or `std::vector`/array
-   indexing (`IDX`). `DEREF` handles the load; pointer values themselves are stored in
-   plan members.
-9. **Floating point.** `DIV`/`MOD` use C++ `/`/`%`; for `frem` use `F(std::fmod, ...)`.
-   `fneg` → `NEG`.
-10. **Edge lifetime.** Result edges produced by `OP<>()`/`F()` are temporary values
-    automatically kept alive by the transaction graph. No explicit `keep()` is needed;
-    the Plan runtime preserves them in the execution graph.
-
-### 7.2 CFG lowering strategies
-
-When lowering LLVM IR to Plan-DSL, the control-flow graph (CFG) must be translated
-into nested `branch`/`endBranch` regions. The `llvm2plan` compiler uses two
-strategies, selected automatically: **structured lowering** (primary) and the
-**PC state machine** (fallback). Before structuring, the translator inlines defined
-internal calls into the entry function, canonicalizes the IR, and rewrites `switch`
-terminators into equality-comparison diamonds.
-
-#### The fundamental constraint
-
-Plan-DSL's execution model is **frame-based**: the graph is built once, then
-`runGraph()` re-executes the same `currentNodes_` list every frame with predicates
-re-evaluated. LLVM IR's CFG is **continuous**: a function call traverses the CFG from
-entry to return within a single execution. Every CFG lowering must force continuous
-semantics into a frame-sequential model. Both strategies achieve this by executing
-**one loop iteration per frame** — a loop with 10 iterations takes 10 frames.
-
-#### A. Structured lowering (preferred)
-
-The structuring pass region-ifies the CFG into a tree of structured regions using
-LLVM's `LoopInfo` and dominator tree. The tree nodes are:
-
-| Region kind | Plan-DSL output |
-|-------------|-----------------|
-| **Seq** | Sequential emission of children (no wrapper) |
-| **Block** | One basic block's instructions + PHI contributions to successors |
-| **If** | Two independent predicated regions: `branch(cond); then; endBranch(); branch(NOT(cond)); else; endBranch();` (an `elseBranch()` pair is deliberately avoided: the runtime's `[else]` handler flips the stacked branch state without consulting enclosing regions, so a disabled outer construct would still fire the else arm) |
-| **While** | Arming gate (`PARALLEL_ONCE`) sets `runN_` and recomputes `condN_`; the body is guarded by `branch(runN_ && !brkN_ && !returned_ && (startN_ \|\| condN_))`, whose predicate clears `startN_` and latches `failN_` when it fails; `condN_` is recomputed after the body |
-| **DoWhile** | Like `While`, but the first iteration bypasses the condition via `startN_` (set by the arming gate, cleared by the first predicate evaluation) |
-| **Return** | `assign(RW(ret_), val)` (or a plain node for inline constants), then `plain(... RW(returned_) ... r_ = true)`, then `plain([this]() { request_finish(); })` |
-| **Break** | PHI contributions along the break edge + `assign(RW(brkN_), V(true))` |
-| **Unreachable** | `plain([this]() { CV_Assert(false); });` |
-| **Empty** | Phi carrier only: control continues at a join/latch without code (emits the recorded PHI contributions) |
-
-**Loop flags** (per loop N, declared automatically as plan members):
-
-| Flag | Purpose |
-|------|---------|
-| `runN_` | Armed once by the `PARALLEL_ONCE` arming gate to start the loop |
-| `brkN_` | Break flag: set `true` by `Break` region; rest of body skipped this frame |
-| `failN_` | Exit flag: latched `true` when the loop predicate fails; opens the post-loop continuation era |
-| `startN_` | First-iteration bypass (DoWhile): initially `false`, set by the arming gate, cleared by every predicate evaluation |
-| `condN_` | Loop condition: recomputed from member-rooted operands before the first test and after each body run |
-| `doneN_` | One-shot latch: gates straight-line statements inside continuation gates to run exactly once |
-
-The structured model generates smaller, cleaner Plan-DSL because it leverages the
-source program's natural nesting. Everything before the first top-level loop is emitted
-inside a `PARALLEL_ONCE` guard (guarded additionally by `!returned_` when the program
-returns). Code between loops chains through a continuation gate `branch(R(failN_))`;
-straight-line statements inside are wrapped in a one-shot latch guarded by
-`!doneN_` (and `!returned_`), which sets `doneN_` after running. Nested loops chain
-through their own gates inside the outer continuation.
-
-**Strengths:** No boot node, no token variables, correct by construction, generates
-the most readable Plan-DSL. Handles all reducible control flow.
-
-**Limitation:** Cannot handle irreducible CFGs (bails to the PC state machine, §7.2C,
-printing the structuring bail reason as a diagnostic).
-
-#### B. Legacy token lowering (removed)
-
-An earlier design kept one `tokN_` bool per basic block (plus `pendN_` pending flags
-for loop headers) and a complex boot node that transferred tokens each frame. It has
-been **removed** from the translator; the PC state machine (§7.2C) replaced it because
-it needs O(1) state, no boot node and no emission-order assumptions. This subsection is
-kept only as a tombstone for older references.
-
-#### C. PC state machine lowering (fallback)
-
-The PC state machine replaces structured control flow with a single `int32_t pc_`
-member. Each basic block becomes a `branch` guarded by `pc == N`; terminators write the
-successor block's index. Back-edges work naturally: the PC value takes effect next
-frame, producing one iteration per frame. Implemented in the `llvm2plan` translator
-(`src/pc_state.cpp` / `src/cfg_emitter.cpp` in that project, not in this module).
-
-```
-// State: int32_t pc_ = 0;  (single plan member, declared automatically)
-
-// Block 0 (entry):
-branch([this](const int32_t& pc) { return pc == 0; }, R(pc_));
-    // ... instructions ...
-    assign(RW(pc_), V(1));               // fall through
-endBranch();
-
-// Block 1 (conditional):
-branch([this](const int32_t& pc) { return pc == 1; }, R(pc_));
-    // ... instructions ...
-    branch(cond);    assign(RW(pc_), V(2)); endBranch();   // true edge
-    branch(!cond);   assign(RW(pc_), V(3)); endBranch();   // false edge
-endBranch();
-
-// Block 2 (loop header):
-branch([this](const int32_t& pc) { return pc == 2; }, R(pc_));
-    // ... instructions ...
-    assign(RW(pc_), V(3));               // enter loop body
-endBranch();
-
-// Block 3 (loop latch -> header):
-branch([this](const int32_t& pc) { return pc == 3; }, R(pc_));
-    // ... instructions ...
-    assign(RW(pc_), V(2));               // back-edge: takes effect next frame
-endBranch();
-```
-
-Details:
-
-- **No boot node.** `pc_` starts at the entry block's index.
-- **Conditional terminators** are emitted as two independent `branch` regions
-  (condition, then negation) rather than an `if/else` expression — matching the
-  structured emitter and avoiding `elseBranch()` ordering issues.
-- **PHI nodes** are written at predecessor tails immediately before the terminator's
-  `pc_` write.
-- **Returns** emit `assign(RW(ret_), val)` followed by `plain([this]() { request_finish(); })`.
-- **Switch** never reaches this stage (pre-lowered into equality diamonds);
-  `unreachable` lowers to `plain([this]() { CV_Assert(false); });`.
-
-Compared to the removed token model (§7.2B), this reduces state from O(N) booleans to
-O(1), eliminates the boot node, removes the reverse-post-order emission-order
-dependency (each block checks its own `pc == N`), and handles arbitrary (including
-irreducible) CFGs.
-
-#### D. CFG lowering comparison
-
-| Aspect | Structured | PC state machine |
-|--------|-----------|------------------|
-| Branch regions | Nested, O(depth) | One per block, O(N) |
-| State variables | Per-loop flags (`run_/brk_/fail_/start_/cond_/done_`) + `returned_` | 1 `int32_t pc_` |
-| Boot node | None | None |
-| Loop handling | Native `branch(pred)` nesting | `pc_ = headerIndex` (next frame) |
-| Ordering | Structural nesting | None needed (each block checks `pc == N`) |
-| Code readability | Best (natural nesting) | Good (explicit PC) |
-| Selection | Primary (reducible CFGs) | Fallback (any CFG) |
+| `alloca` | plan member variable |
+| `load` | `R(v)` |
+| `store` | `assign(RW(dst), R(src))` |
+| load plus copy | `CS(v)` |
+| `getelementptr` + `load` | `IDX(container, index)` |
+| pointer load | `DEREF(RW(dst), R(ptr))` |
+| void call | `F(fn, args...)` or context call |
+| non-void call | result edge from `F(fn, args...)` |
+| `ret` | end of graph; return values via shared state or result members |
+| conditional `br` | `branch(...) ... endBranch()` |
+| `switch` | nested equality branches |
+| `phi` | assignments to a member from predecessor branches |
+| constant | `V(value)` |
+| global variable | `_shared` variable or property |
+| `unreachable` | `CV_Assert(false)` inside `plain` |
+| `fneg` | `NEG(RW(dst), R(x))` |
 
 ---
 
-## 8. Opcode Index
+## 7.1 Practical lowering notes
+
+### SSA temporaries
+
+Each LLVM virtual register can be represented by a Plan-DSL result edge.
+
+Example:
+
+```cpp
+auto r = ADD(R(a), R(b));
+auto s = MUL(r, R(c));
+```
+
+### Memory operations
+
+LLVM `alloca`, `load`, and `store` sequences lower to plan member variables and `R`/`RW` edges.
+
+Use the most restrictive intent possible:
+
+* `R` for reads,
+* `RW` for writes,
+* `RS`/`RWS`/`CS` for shared state.
+
+### One operation per instruction
+
+For faithful lowering, emit one Plan-DSL operator per LLVM instruction.
+
+N-ary forms are useful for deliberate instruction fusion.
+
+### Destination-first operators
+
+`NEG` and `DEREF` take the destination first:
+
+```cpp
+NEG(RW(dst), R(src));
+DEREF(RW(dst), R(ptr));
+```
+
+### Structured control flow
+
+LLVM control flow must be transformed into nested branch regions.
+
+Loops are represented as branch regions whose predicates are updated by the loop body.
+
+Because Plan-DSL executes frame by frame, one loop iteration may correspond to one frame.
+
+### `select` versus branches
+
+`IF` is an operator node. Its operands are computed eagerly as graph nodes.
+
+For lazy execution of whole regions, use `branch`.
+
+### Integer widths
+
+Map LLVM integer types to native C++ types:
+
+| LLVM type | C++ type |
+|---|---|
+| `i1` | `bool` |
+| `i8` | `int8_t` / `uint8_t` |
+| `i16` | `int16_t` / `uint16_t` |
+| `i32` | `int32_t` / `uint32_t` |
+| `i64` | `int64_t` / `uint64_t` |
+
+### Pointers
+
+LLVM pointer values can be represented by:
+
+* raw pointers,
+* `cv::Ptr<T>`,
+* container indices,
+* `DEREF` for loading through pointers.
+
+### Floating point
+
+`DIV` and `MOD` use C++ semantics.
+
+For floating-point remainder, use:
+
+```cpp
+F(std::fmod, R(a), R(b))
+```
+
+---
+
+## 7.2 CFG lowering strategies
+
+Plan-DSL’s execution model is frame-based.
+
+LLVM IR’s control-flow model is continuous.
+
+Therefore, lowering must translate continuous control flow into frame-sequential execution.
+
+Two strategies are used:
+
+1. structured lowering,
+2. program-counter state-machine lowering.
+
+### A. Structured lowering
+
+Structured lowering is preferred for reducible control-flow graphs.
+
+The LLVM CFG is converted into structured regions using loop and dominator information.
+
+Region mapping:
+
+| Region kind | Plan-DSL output |
+|---|---|
+| Sequence | Sequential child emission |
+| Block | Basic block instructions |
+| If | Two predicated regions or branch/else structure |
+| While | Branch region with loop-state members |
+| DoWhile | Branch region with first-iteration bypass |
+| Return | Assignment to return value plus finish request |
+| Break | Assign break flag |
+| Unreachable | `CV_Assert(false)` |
+| Empty | PHI carrier only |
+
+Loop-state flags may include:
+
+| Flag | Purpose |
+|---|---|
+| `runN_` | Arms loop execution |
+| `brkN_` | Break latch |
+| `failN_` | Loop-exit latch |
+| `startN_` | First-iteration bypass |
+| `condN_` | Loop condition |
+| `doneN_` | One-shot continuation latch |
+
+Structured lowering generates cleaner and more readable Plan-DSL.
+
+It cannot handle irreducible control flow.
+
+### B. PC state-machine lowering
+
+The PC state-machine lowering is the fallback.
+
+It replaces control flow with a single program counter:
+
+```cpp
+int32_t pc_ = 0;
+```
+
+Each basic block becomes a branch guarded by:
+
+```cpp
+pc_ == N
+```
+
+Terminators assign the next block index:
+
+```cpp
+assign(RW(pc_), V(nextBlock));
+```
+
+Example:
+
+```cpp
+branch(this { return pc_ == 0; }, R(pc_));
+    // block 0
+    assign(RW(pc_), V(1));
+endBranch();
+
+branch(this { return pc_ == 1; }, R(pc_));
+    // block 1
+    branch(cond);
+        assign(RW(pc_), V(2));
+    endBranch();
+    branch(!cond);
+        assign(RW(pc_), V(3));
+    endBranch();
+endBranch();
+```
+
+Back edges naturally take effect on the next frame.
+
+This strategy handles arbitrary control-flow graphs, including irreducible ones.
+
+It uses `O(1)` control state and avoids boot nodes.
+
+### C. Comparison
+
+| Aspect | Structured lowering | PC state machine |
+|---|---|---|
+| Branch nesting | Natural | One branch per block |
+| State variables | Per-loop flags | One `pc_` |
+| Boot node | No | No |
+| Loop handling | Native structured regions | PC assignment |
+| Readability | Best | Good |
+| Applicability | Reducible CFGs | Any CFG |
+
+---
+
+## 8. Opcode index
 
 | Mnemonic | Opcode | Arity | Symbol | Named | Statement form |
-|----------|--------|-------|--------|-------|----------------|
+|---|---|---:|---|---|---|
 | CONSTRUCT | `CONSTRUCT_` | variadic | `plan(...)` | `operator()` | `construct(...)` |
 | ASSIGN | `ASSIGN_` | 2 | `=` | `ASSIGN` | `assign(...)` |
 | ADD | `ADD_` | n | `+` | `ADD` | `op<ADD_>` |
@@ -793,7 +971,7 @@ irreducible) CFGs.
 | DECL | `DECL_` | 1 | `--x` | `DECL` | `op<DECL_>` |
 | DECR | `DECR_` | 1 | `x--` | `DECR` | `op<DECR_>` |
 | AND | `AND_` | n | `&&` | `AND` | `op<AND_>` |
-| OR | `OR_` | n | `\|\|` | `OR` | `op<OR_>` |
+| OR | `OR_` | n | `||` | `OR` | `op<OR_>` |
 | EQ | `EQ_` | n | `==` | `EQ` | `op<EQ_>` |
 | NEQ | `NEQ_` | n | `!=` | `NEQ` | `op<NEQ_>` |
 | LT | `LT_` | n | `<` | `LT` | `op<LT_>` |
@@ -803,10 +981,11 @@ irreducible) CFGs.
 | NOT | `NOT_` | 1 | `!` | `NOT` | `op<NOT_>` |
 | XOR | `XOR_` | n | `^` | `XOR` | `op<XOR_>` |
 | BAND | `BAND_` | n | `&` | `BAND` | `op<BAND_>` |
-| BOR | `BOR_` | n | `\|` | `BOR` | `op<BOR_>` |
+| BOR | `BOR_` | n | `|` | `BOR` | `op<BOR_>` |
 | SHL | `SHL_` | n | `<<` | `SHL` | `op<SHL_>` |
 | SHR | `SHR_` | n | `>>` | `SHR` | `op<SHR_>` |
 | IF | `IF_` | 3 | — | `IF` | `op<IF_>` |
 | IDX | `IDX_` | 2 | `[]` | `IDX` | `op<IDX_>` |
 | DEREF | `DEREF_` | 2 | — | `DEREF` | `op<DEREF_>` |
 | NEG | `NEG_` | 2 | — | `NEG` | `op<NEG_>` |
+
