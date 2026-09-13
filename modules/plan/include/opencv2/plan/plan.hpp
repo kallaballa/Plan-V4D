@@ -1227,10 +1227,9 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 			}
 			CV_LOG_DEBUG(nullptr, "Main inference finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 			GlobalState::apply<size_t>(GlobalState::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
-		}
-
-		static std::barrier syncPoint(workers);
-		syncPoint.arrive_and_wait();
+		    static std::barrier syncPoint(workers);
+		    syncPoint.arrive_and_wait();
+        	}
 
 		try {
 			plan->runtime()->runFrameLoop([plan]() {
