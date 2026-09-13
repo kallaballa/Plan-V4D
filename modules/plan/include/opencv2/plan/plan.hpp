@@ -1134,10 +1134,10 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 	static void run(int32_t extra_workers, Args&& ... args) {
 		CV_Assert(extra_workers >= -1);
 		// Contract:
-		//   extra_workers == -1 -> 1 worker + display thread, cv::setNumThreads(0)
-		//   extra_workers ==  0 -> 1 worker + display thread, cv::setNumThreads(-1)
+		//   extra_workers == -1 -> 1 worker + display thread, cv::setNumThreads(-1)
+		//   extra_workers ==  0 -> 1 worker + display thread, cv::setNumThreads(0)
 		//   extra_workers ==  n -> n workers + display thread, cv::setNumThreads(0)
-		const int32_t workers = (extra_workers <= 0) ? 1 : extra_workers;
+		const int32_t workers = (extra_workers <= 0) ? 1 : extra_workers + 1;
 
 		cv::Ptr<Tplan> plan;
 		std::vector<std::thread*> threads;
@@ -1147,7 +1147,7 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 
 			GlobalState::init_keys();
 			LocalState::init_keys();
-			cv::setNumThreads(extra_workers == 0 ? -1 : 0);
+			cv::setNumThreads(extra_workers == -1 ? -1 : 0);
 
 
 			if(GlobalState::isFirstRun()) {
@@ -1229,7 +1229,7 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 			GlobalState::apply<size_t>(GlobalState::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
 		}
 
-		static std::barrier syncPoint(std::ptrdiff_t(workers + 1));
+		static std::barrier syncPoint(workers);
 		syncPoint.arrive_and_wait();
 
 		try {
