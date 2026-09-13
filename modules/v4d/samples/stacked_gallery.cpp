@@ -34,14 +34,14 @@ class StackedImageGalleryPlan : public V4DPlan {
     };
 
     struct Params {
-        float rotationY = 0.0f;         ///< Current Y rotation (smoothed)
-        float targetRotationY = 0.0f;   ///< Target Y rotation
-        float tiltX = 0.0f;             ///< Current X tilt (smoothed)
-        float targetTiltX = 0.0f;       ///< Target X tilt
+        float rotationY = 0.0f;         ///< Current Y rotation
+        float velocityY = 0.0f;         ///< Y rotation velocity (for friction)
+        float tiltX = 0.0f;             ///< Current X tilt
+        float velocityX = 0.0f;         ///< X tilt velocity (for friction)
         float cardSpacing = 35.0f;      ///< Vertical spacing between cards
         float cardScale = 0.8f;         ///< Image scale within a card
         int currentIndex = 0;           ///< Index of the front-most card
-        bool autoRotate = true;         ///< Slowly rotate when idle
+        bool dragging = false;          ///< Whether mouse is currently dragging
     };
 
     static Params params_;
@@ -50,6 +50,7 @@ class StackedImageGalleryPlan : public V4DPlan {
 
     Event<Mouse> dragEvents_ = E<Mouse>(Mouse::DRAG, Mouse::LEFT);
     Event<Mouse> scrollEvents_ = E<Mouse>(Mouse::SCROLL);
+    Event<Mouse> releaseEvents_ = E<Mouse>(Mouse::RELEASE, Mouse::LEFT);
     Event<Keyboard> keyEvents_ = E<Keyboard>(Keyboard::PRESS);
 
     /** @brief Collect image paths from a file or directory. */
@@ -105,13 +106,22 @@ public:
 
     /** @brief Handle input events and update gallery state. */
     void infer() override {
-        // Drag to rotate the stack
+        // Track drag state for velocity-based rotation
+        branch([](const Mouse::List& releases) { return !releases.empty(); }, releaseEvents_)
+            ->plain([](Params& p) {
+                p.dragging = false;
+            }, RWS(params_))
+        ->endBranch();
+
         branch([](const Mouse::List& drags) { return !drags.empty(); }, dragEvents_)
             ->plain([](Params& p, const Mouse::List& drags) {
+                p.dragging = true;
                 for (const auto& e : drags) {
-                    p.targetRotationY += e->data().x * 0.008f;
-                    p.targetTiltX += e->data().y * 0.005f;
-                    p.targetTiltX = std::clamp(p.targetTiltX, -0.5f, 0.5f);
+                    p.velocityY = e->data().x * 0.008f;
+                    p.velocityX = e->data().y * 0.005f;
+                    p.rotationY += p.velocityY;
+                    p.tiltX += p.velocityX;
+                    p.tiltX = std::clamp(p.tiltX, -0.5f, 0.5f);
                 }
             }, RWS(params_), dragEvents_)
         ->endBranch();
@@ -129,25 +139,49 @@ public:
             }, RWS(params_), scrollEvents_, R(cards_))
         ->endBranch();
 
-        // R key resets the view
+        // R key resets the view, S key shuffles the deck
         branch([](const Keyboard::List& keys) {
             return std::any_of(keys.begin(), keys.end(),
                 [](const std::shared_ptr<Keyboard>& k) { return k->key() == Keyboard::R; });
         }, keyEvents_)
             ->plain([](Params& p) {
-                p.targetRotationY = 0.0f;
-                p.targetTiltX = 0.0f;
+                p.rotationY = 0.0f;
+                p.velocityY = 0.0f;
+                p.tiltX = 0.0f;
+                p.velocityX = 0.0f;
                 p.currentIndex = 0;
             }, RWS(params_))
         ->endBranch();
 
-        // Smooth interpolation and optional idle rotation
+        branch([](const Keyboard::List& keys) {
+            return std::any_of(keys.begin(), keys.end(),
+                [](const std::shared_ptr<Keyboard>& k) { return k->key() == Keyboard::S; });
+        }, keyEvents_)
+            ->plain([](Params& p, std::vector<ImageCard>& cards) {
+                // Fisher-Yates shuffle
+                std::random_device rd;
+                std::mt19937 g(rd());
+                for (size_t i = cards.size() - 1; i > 0; --i) {
+                    std::uniform_int_distribution<size_t> dist(0, i);
+                    std::swap(cards[i], cards[dist(g)]);
+                }
+                p.currentIndex = 0;
+            }, RWS(params_), RW(cards_))
+        ->endBranch();
+
+        // Apply friction when not dragging
         plain([](Params& p) {
-            if (p.autoRotate) {
-                p.targetRotationY += 0.002f;
+            if (!p.dragging) {
+                p.velocityY *= 0.92f;  // friction
+                p.velocityX *= 0.92f;
+                p.rotationY += p.velocityY;
+                p.tiltX += p.velocityX;
+                // Clamp tilt
+                p.tiltX = std::clamp(p.tiltX, -0.5f, 0.5f);
+                // Stop very small velocities
+                if (std::abs(p.velocityY) < 0.0001f) p.velocityY = 0.0f;
+                if (std::abs(p.velocityX) < 0.0001f) p.velocityX = 0.0f;
             }
-            p.rotationY += (p.targetRotationY - p.rotationY) * 0.1f;
-            p.tiltX += (p.targetTiltX - p.tiltX) * 0.1f;
         }, RWS(params_));
 
         // Render the stacked card gallery
@@ -181,8 +215,7 @@ public:
             const int stackDepth = std::min(7, (int)cards.size());
             for (int i = stackDepth - 1; i >= 0; --i) {
                 int cardIdx = idx - i;
-                if (cardIdx < 0) cardIdx = 0;
-                if (cardIdx >= (int)cards.size()) continue;
+                if (cardIdx < 0 || cardIdx >= (int)cards.size()) continue;
 
                 const ImageCard& card = cards[cardIdx];
                 if (!card.loaded) continue;
@@ -232,7 +265,7 @@ public:
             textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
             char buf[256];
             snprintf(buf, sizeof(buf),
-                "%d / %d  |  Drag to rotate  |  Scroll to switch  |  R to reset",
+                "%d / %d  |  Drag to rotate  |  Scroll to switch  |  S to shuffle  |  R to reset",
                 idx + 1, (int)cards.size());
             text(16, 16, buf, buf + strlen(buf));
         }, size_, R(params_), R(cards_));
