@@ -180,15 +180,16 @@ I/O (`custom_source_and_sink`), and more.
 
 Both modules build as standard OpenCV extra modules:
 
+### Plan-DSL
+
 ```bash
-mkdir build && cd build
-cmake -DOPENCV_EXTRA_MODULES_PATH=../modules \
-      -DBUILD_opencv_plan=ON \
-      -DBUILD_opencv_v4d=ON \
-      -DBUILD_EXAMPLES=ON \
-      ../..
-cmake --build . --target example_v4d_video_editing
-./bin/example_v4d_video_editing in.mp4 out.mkv
+./build_plan.sh
+```
+
+### Plan-V4D
+
+```bash
+./build_plan_and_v4d.sh
 ```
 
 | CMake option                    | Effect                                       |
