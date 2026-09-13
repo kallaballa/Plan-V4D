@@ -1180,7 +1180,7 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 							if(!PlanRuntime::current())
 								PlanRuntime::current() = rt;
 							LocalState::set(LocalState::Keys::WORKER_INDEX, size_t(i));
-							std::apply([](Args&& ... unpacked) {
+							std::apply([](auto&& ... unpacked) {
 								Plan::run<Tplan>(0, std::forward<decltype(unpacked)>(unpacked)...);
 							}, std::move(argsTuple));
 						})
