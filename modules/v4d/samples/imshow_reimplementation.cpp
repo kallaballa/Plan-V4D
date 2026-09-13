@@ -6,6 +6,8 @@
 #include <sstream>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <vector>
 
 using namespace cv;
 using namespace cv::v4d;
@@ -51,6 +53,21 @@ class ImshowReimplementation : public V4DPlan {
         char  saveBuf_[1024]     = {};
         int   saveFormat_        = 0; // 0=PNG, 1=JPG, 2=BMP
 
+        // File browser state
+        bool  showFileDialog_    = false;
+        char  fileDialogPath_[1024] = {};
+        char  fileDialogSelected_[256] = {};
+        int   fileDialogSelectedIdx_ = -1;
+        std::vector<std::pair<std::string, bool>> fileDialogEntries_;
+        static constexpr const char* kImageExts[] = {
+            ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".gif", ".webp", ".pnm", ".ppm", ".pgm", ".pbm"
+        };
+
+        // Reload request from GUI
+        bool  reloadRequested_   = false;
+        std::string newFilename_;
+        std::string fileDialogErrorMsg_;
+
         // Cached filename for the status bar (avoids capturing 'this').
         std::string filenameCopy_;
     };
@@ -76,6 +93,8 @@ public:
         }
         tmp.copyTo(image_);
         state_.filenameCopy_ = filename;
+        std::snprintf(state_.fileDialogPath_, sizeof(state_.fileDialogPath_),
+                      "%s", std::filesystem::path(filename).parent_path().string().c_str());
     }
 
     void setup() override {
@@ -122,6 +141,48 @@ public:
     void infer() override {
         set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(30, 30, 30, 255)));
         clear();
+
+        branch(RWS(state_.reloadRequested_))
+            ->plain([this](UMat& image, UMat& bgra, UMat& rgba, State& state) {
+                cv::Mat tmp = cv::imread(state.newFilename_, cv::IMREAD_UNCHANGED);
+                if (!tmp.empty()) {
+                    if (tmp.cols != image.cols || tmp.rows != image.rows) {
+                        state.lastSaveOk_ = false;
+                        state.lastSaveMsg_ = "Cannot load image of different size ("
+                                           + std::to_string(tmp.cols) + "x"
+                                           + std::to_string(tmp.rows)
+                                           + " vs current " + std::to_string(image.cols) + "x"
+                                           + std::to_string(image.rows) + ")";
+                    } else {
+                        tmp.copyTo(image);
+                        if (image.channels() == 1) {
+                            cvtColor(image, rgba, COLOR_GRAY2RGBA);
+                        } else if (image.channels() == 3) {
+                            cvtColor(image, rgba, COLOR_BGR2RGBA);
+                        } else if (image.channels() == 4) {
+                            cvtColor(image, rgba, COLOR_BGRA2RGBA);
+                        }
+                        cvtColor(rgba, bgra, COLOR_RGBA2BGRA);
+                        filename_ = state.newFilename_;
+                        state.filenameCopy_ = state.newFilename_;
+                    }
+                }
+                state.reloadRequested_ = false;
+            }, RW(image_), RW(bgra_), RW(rgba_), RWS(state_))
+            ->nvg([this](const UMat& rgba, const UMat& image, State& state) {
+                using namespace cv::v4d::nvg;
+                if (state.imageHandle_ > 0) {
+                    deleteImage(state.imageHandle_);
+                    state.imageHandle_ = -1;
+                }
+                state.imageHandle_ = createImageRGBA(rgba.cols, rgba.rows,
+                                                     NVG_IMAGE_NEAREST,
+                                                     rgba.getMat(cv::ACCESS_READ).data);
+                state.imageWidth_  = rgba.cols;
+                state.imageHeight_ = rgba.rows;
+                state.channels_    = image.channels();
+            }, R(rgba_), R(image_), RWS(state_))
+        ->endBranch();
 
         // -- Input handling --------------------------------------------------
         plain([](const Mouse::List& scrollEvents,
@@ -439,6 +500,12 @@ public:
                                   "%s", filename_.c_str());
                     state.showSaveDialog_ = true;
                 }
+                if (IsKeyPressed(ImGuiKey_O)) {
+                    state.showFileDialog_ = true;
+                    state.fileDialogSelectedIdx_ = -1;
+                    state.fileDialogSelected_[0] = '\0';
+                    refreshFileDialogEntries(state);
+                }
                 if (IsKeyPressed(ImGuiKey_C)) {
                     // Copy the original image (not the viewport) to clipboard
                     // via xclip on Linux. Best-effort, no GUI feedback.
@@ -461,12 +528,19 @@ public:
                 if (state.showProperties_)         state.showProperties_         = false;
                 else if (state.showSaveDialog_)    state.showSaveDialog_         = false;
                 else if (state.showSaveViewDialog_)state.showSaveViewDialog_     = false;
+                else if (state.showFileDialog_)    state.showFileDialog_         = false;
                 else if (state.showHelp_)          state.showHelp_               = false;
             }
 
             // ---------- Main menu bar ----------
             if (BeginMainMenuBar()) {
                 if (BeginMenu("File")) {
+                    if (MenuItem("Open image...", "Ctrl+O")) {
+                        state.showFileDialog_ = true;
+                        state.fileDialogSelectedIdx_ = -1;
+                        state.fileDialogSelected_[0] = '\0';
+                        refreshFileDialogEntries(state);
+                    }
                     if (MenuItem("Save image as...", "Ctrl+S")) {
                         std::snprintf(state.saveBuf_, sizeof(state.saveBuf_),
                                       "%s", filename_.c_str());
@@ -513,6 +587,97 @@ public:
                     EndMenu();
                 }
                 EndMainMenuBar();
+            }
+
+            // ---------- File browser dialog (Open image...) ----------
+            if (state.showFileDialog_) {
+                SetNextWindowSize(ImVec2(560, 420), ImGuiCond_Appearing);
+                Begin("Open image", &state.showFileDialog_);
+                Text("Current directory: %s", state.fileDialogPath_);
+                SameLine();
+                if (!state.fileDialogErrorMsg_.empty()) {
+                    TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                "Error: %s", state.fileDialogErrorMsg_.c_str());
+                    if (Button("Clear error")) state.fileDialogErrorMsg_.clear();
+                    SameLine();
+                }
+                if (Button("Up")) {
+                    std::error_code ec;
+                    std::filesystem::path p(state.fileDialogPath_);
+                    if (p.has_parent_path()) {
+                        p = p.parent_path();
+                        if (std::filesystem::is_directory(p, ec)) {
+                            std::snprintf(state.fileDialogPath_, sizeof(state.fileDialogPath_),
+                                          "%s", p.string().c_str());
+                            state.fileDialogSelectedIdx_ = -1;
+                            state.fileDialogSelected_[0] = '\0';
+                            refreshFileDialogEntries(state);
+                        }
+                    }
+                }
+                Separator();
+
+                float entryH = GetTextLineHeightWithSpacing() + 4.0f;
+                float listH = 10 * entryH;
+                if (BeginListBox("##files", ImVec2(-1, listH))) {
+                    for (int i = 0; i < (int)state.fileDialogEntries_.size(); ++i) {
+                        const auto& entry = state.fileDialogEntries_[i];
+                        bool isDir = entry.second;
+                        const char* label = isDir ? "[DIR]  " : "       ";
+                        std::string display = label + entry.first;
+                        if (Selectable(display.c_str(), state.fileDialogSelectedIdx_ == i)) {
+                            state.fileDialogSelectedIdx_ = i;
+                            std::snprintf(state.fileDialogSelected_, sizeof(state.fileDialogSelected_),
+                                          "%s", entry.first.c_str());
+                        }
+                        if (IsItemHovered() && IsMouseDoubleClicked(0)) {
+                            state.fileDialogSelectedIdx_ = i;
+                            std::snprintf(state.fileDialogSelected_, sizeof(state.fileDialogSelected_),
+                                          "%s", entry.first.c_str());
+                            if (isDir) {
+                                std::error_code ec;
+                                std::filesystem::path newPath =
+                                    std::filesystem::path(state.fileDialogPath_) / entry.first;
+                                if (std::filesystem::is_directory(newPath, ec)) {
+                                    std::snprintf(state.fileDialogPath_, sizeof(state.fileDialogPath_),
+                                                  "%s", newPath.string().c_str());
+                                    state.fileDialogSelectedIdx_ = -1;
+                                    state.fileDialogSelected_[0] = '\0';
+                                    refreshFileDialogEntries(state);
+                                }
+                            } else {
+                                state.showFileDialog_ = false;
+                                openFileDialogSelection(state);
+                            }
+                        }
+                    }
+                    EndListBox();
+                }
+
+                InputText("Selected", state.fileDialogSelected_, sizeof(state.fileDialogSelected_));
+                SetItemDefaultFocus();
+                if (IsWindowAppearing()) SetKeyboardFocusHere(-1);
+
+                if (Button("Open") && state.fileDialogSelected_[0] != '\0') {
+                    std::error_code ec;
+                    std::filesystem::path sel(state.fileDialogSelected_);
+                    std::filesystem::path full = std::filesystem::path(state.fileDialogPath_) / sel;
+                    if (std::filesystem::is_directory(full, ec)) {
+                        std::snprintf(state.fileDialogPath_, sizeof(state.fileDialogPath_),
+                                      "%s", full.string().c_str());
+                        state.fileDialogSelectedIdx_ = -1;
+                        state.fileDialogSelected_[0] = '\0';
+                        refreshFileDialogEntries(state);
+                    } else if (isImageFile(sel.string())) {
+                        state.showFileDialog_ = false;
+                        openFileDialogSelection(state);
+                    }
+                }
+                SameLine();
+                if (Button("Cancel")) {
+                    state.showFileDialog_ = false;
+                }
+                End();
             }
 
             // ---------- Save dialog (Save image as...) ----------
@@ -653,6 +818,7 @@ public:
                 BulletText("Ctrl+X:             deep zoom");
                 BulletText("Ctrl+S:             save image as...");
                 BulletText("Ctrl+Shift+S:       save view as...");
+                BulletText("Ctrl+O:             open image...");
                 BulletText("Ctrl+C:             copy to clipboard");
                 BulletText("Esc:                close dialogs");
                 Separator();
@@ -704,6 +870,51 @@ private:
         state.pan_.x = (sz.width  - state.imageWidth_  * state.zoom_) * 0.5f;
         state.pan_.y = (sz.height - state.imageHeight_ * state.zoom_) * 0.5f;
     }
+
+    static bool isImageFile(const std::string& name) {
+        std::error_code ec;
+        std::string lower = name;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        size_t dot = lower.rfind('.');
+        if (dot == std::string::npos) return false;
+        std::string ext = lower.substr(dot);
+        for (const char* e : State::kImageExts) {
+            if (ext == e) return true;
+        }
+        return false;
+    }
+
+    static void refreshFileDialogEntries(State& state) {
+        state.fileDialogEntries_.clear();
+        std::error_code ec;
+        std::filesystem::path dir(state.fileDialogPath_);
+        if (!std::filesystem::is_directory(dir, ec)) return;
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+            if (ec) break;
+            std::string name = entry.path().filename().string();
+            if (entry.is_directory(ec)) {
+                state.fileDialogEntries_.emplace_back(name, true);
+            } else if (isImageFile(name)) {
+                state.fileDialogEntries_.emplace_back(name, false);
+            }
+        }
+        std::sort(state.fileDialogEntries_.begin(), state.fileDialogEntries_.end(),
+            [](const auto& a, const auto& b) {
+                if (a.second != b.second) return a.second > b.second;
+                return a.first < b.first;
+            });
+    }
+
+    static void openFileDialogSelection(State& state) {
+        if (state.fileDialogSelected_[0] == '\0') return;
+        std::error_code ec;
+        std::filesystem::path full =
+            std::filesystem::path(state.fileDialogPath_) / state.fileDialogSelected_;
+        if (std::filesystem::is_regular_file(full, ec)) {
+            state.newFilename_ = full.string();
+            state.reloadRequested_ = true;
+        }
+    }
 };
 
 int main(int argc, char** argv) {
@@ -716,7 +927,8 @@ int main(int argc, char** argv) {
     }
     cv::Ptr<V4D> runtime = V4D::init(viewport, "V4D imshow Reimplementation",
                                      AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-    V4DPlan::run<ImshowReimplementation>(2, std::move(filename));
+    //IMPORTANT This demo has no use for additional workers.
+    V4DPlan::run<ImshowReimplementation>(0, std::move(filename));
     return 0;
 }
 

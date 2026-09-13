@@ -12,8 +12,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = {
-    "Readme": REPO_ROOT / "README.md",
-    "V4D Application Programming Guide": REPO_ROOT / "modules/v4d/doc/v4d-application-programming-guide.markdown",
+#    "Readme": REPO_ROOT / "README.md",
+#    "V4D Application Programming Guide": REPO_ROOT / "modules/v4d/doc/v4d-application-programming-guide.markdown",
     "Plan-DSL Programming Guide": REPO_ROOT / "modules/plan/doc/plan-dsl-programming-guide.markdown",
     "Plan-DSL Reference (ISA)": REPO_ROOT / "modules/plan/doc/plan-dsl-reference.markdown",
 }
