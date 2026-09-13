@@ -302,6 +302,7 @@ if(NOT (TARGET ${the_module}))
       add_binary_sample(example_v4d_bgfx-demo2 samples/bgfx-demo2.cpp)
     endif()
     add_binary_sample(example_v4d_montage-demo samples/montage-demo.cpp)
+    add_binary_sample(example_v4d_stacked_gallery samples/stacked_gallery.cpp)
   endif()
 
   if(OPENCV_V4D_ENABLE_ES3)
