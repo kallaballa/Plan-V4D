@@ -24,3 +24,7 @@ obs/home:elchaschab:Plan-V4D:Raspbian_12/
 web/__pycache__/generate.cpython-313.pyc
 web/v4d.html
 .aider*
+
+.expertmcp/
+.expertmcp/
+.kilo/
