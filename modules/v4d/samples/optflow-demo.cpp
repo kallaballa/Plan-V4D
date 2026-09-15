@@ -266,7 +266,10 @@ public:
 	        if (area > 0) {
 	            float density = (detectedPoints.size() / area);
 	            //stroke size is biased by the area of the point cloud
-	            float strokeSize = maxStroke * pow(area / (nextGrey.cols * nextGrey.rows), 0.33f);
+	            float strokeSize = maxStroke * pow(area / (nextGrey.cols * nextGrey.rows), 0.001);
+
+
+
 	            //max points is biased by the densitiy of the point cloud
 	            size_t currentMaxPoints = ceil(density * maxPoints);
 
@@ -355,13 +358,13 @@ private:
 
 	static struct Params {
 
-		PostProcessor::Modes postProcMode_ = PostProcessor::DISABLED;
+		PostProcessor::Modes postProcMode_ = PostProcessor::GLOW;
 		//the framebuffer size
         cv::Size size_;
 		// Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
-		int kernelSize_;
+		int kernelSize_ = 63;
 		//The intensity of the glow or bloom filter
-		int gain_ = 70;
+		int gain_ = 100;
 		//Convert the background to greyscale
 		BackgroundStyle::Modes backgroundMode_ = BackgroundStyle::GREY;
 		// Peak thresholds for the scene change detection. Lowering them makes the detection more sensitive but
@@ -375,7 +378,7 @@ private:
 		float pointLoss_ = 5;
 		// The theoretical maximum size of the drawing stroke which is scaled by the area of the convex hull
 		// of tracked points and therefor is usually much smaller.
-		int maxStroke_ = 2;
+		int maxStroke_ = 3;
 		// Red, green, blue and alpha. All from 0.0f to 1.0f
 		cv::Scalar_<float> effectColor_ = {1.0f, 0.5f, 0.0f, 0.8f};
 		//display on-screen FPS
@@ -537,14 +540,17 @@ public:
 OptflowDemoPlan::Params OptflowDemoPlan::params_;
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::cerr << "Usage: optflow-demo <input-video-file>" << endl;
-        exit(1);
-    }
+  cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
 
-        cv::Rect viewport(0, 0, 1920, 1080);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-	auto src = Source::make(runtime, argv[1]);
+  std::string videoFile = (argc > 1) ? argv[1] : cv::samples::findFile("videos/dance.mp4");
+  if (videoFile.empty()) {
+      std::cerr << "Usage: optflow-demo <input-video-file>" << endl;
+      return 1;
+  }
+
+  cv::Rect viewport(0, 0, 1920, 1080);
+  cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+  auto src = Source::make(runtime, videoFile);
 //	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280, 720));
 	runtime->setSource(src);
 //	runtime->setSink(sink);

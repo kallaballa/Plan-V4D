@@ -923,7 +923,7 @@ int main(int argc, char** argv) {
     if (argc > 1) {
         filename = argv[1];
     } else {
-        filename = samples::findFile("lena.jpg");
+        filename = samples::findFile("lena.png");
     }
     cv::Ptr<V4D> runtime = V4D::init(viewport, "V4D imshow Reimplementation",
                                      AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);

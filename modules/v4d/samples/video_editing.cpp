@@ -30,18 +30,23 @@ public:
 };
 
 int main(int argc, char** argv) {
-	if (argc != 3) {
-        std::cerr << "Usage: video_editing <input-video-file> <output-video-file>" << std::endl;
-        exit(1);
-    }
-    cv::Rect viewport(0, 0, 960, 960);
+  cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
+
+  std::string inputVideo = (argc > 1) ? argv[1] : cv::samples::findFile("videos/bunny.mp4");
+  std::string outputVideo = (argc > 2) ? argv[2] : "video_editing_out.mkv";
+  if (inputVideo.empty()) {
+      std::cerr << "Usage: video_editing <input-video-file> <output-video-file>" << std::endl;
+      return 1;
+  }
+
+  cv::Rect viewport(0, 0, 960, 960);
     Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 
     //Make the video source
-    auto src = Source::make(runtime, argv[1]);
+    auto src = Source::make(runtime, inputVideo);
 
     //Make the video sink
-    auto sink = Sink::make(runtime, argv[2], src->fps(), viewport.size());
+    auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
 
     //Attach source and sink
     runtime->setSource(src);

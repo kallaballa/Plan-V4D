@@ -66,5 +66,5 @@ int main() {
     Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 
     // Run the Plan with the specified image file
-    V4DPlan::run<DisplayImageNVG>(2, samples::findFile("lena.jpg"));
+    V4DPlan::run<DisplayImageNVG>(2, samples::findFile("lena.png"));
 }

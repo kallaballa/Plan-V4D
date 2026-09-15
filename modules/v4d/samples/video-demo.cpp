@@ -32,14 +32,17 @@ public:
 
 
 int main(int argc, char** argv) {
-	if (argc != 2) {
-        cerr << "Usage: video-demo <video-file>" << endl;
-        exit(1);
-    }
+  cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
 
-	cv::Rect viewport(0,0,1280,720);
+  std::string videoFile = (argc > 1) ? argv[1] : cv::samples::findFile("videos/bunny.mp4");
+  if (videoFile.empty()) {
+      cerr << "Usage: video-demo <video-file>" << endl;
+      return 1;
+  }
+
+  cv::Rect viewport(0,0,1280,720);
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Video Demo", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-    auto src = Source::make(runtime, argv[1]);
+    auto src = Source::make(runtime, videoFile);
     auto sink = Sink::make(runtime, "video-demo.mkv", src->fps(), viewport.size());
     runtime->setSource(src);
     runtime->setSink(sink);

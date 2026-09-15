@@ -116,6 +116,7 @@ macro(add_binary_sample sample source)
     endif()
     target_compile_features(${sample} PRIVATE cxx_std_20)
     target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
+    target_compile_definitions(${sample} PRIVATE "V4D_ASSETS_PATH=\"${CMAKE_CURRENT_BINARY_DIR}/assets\"")
     if(OPENCV_V4D_ENABLE_BGFX)
       set(BGFX_INC_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
     endif()
@@ -248,6 +249,16 @@ if(NOT (TARGET ${the_module}))
   add_custom_command(TARGET ${the_module} PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
     "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts")
+
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/videos"
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/videos")
+
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/samples/data"
+    "${CMAKE_CURRENT_BINARY_DIR}/samples/data")
 
   add_custom_command(TARGET ${the_module} PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy

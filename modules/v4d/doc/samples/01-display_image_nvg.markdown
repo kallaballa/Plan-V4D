@@ -77,7 +77,7 @@ int main() {
     // Run the Plan with the specified image file.
     // The image is resolved via OpenCV's samples finder; for non-installed builds
     // you may need to pass an absolute path.
-    V4DPlan::run<DisplayImageNVG>(7, samples::findFile("lena.jpg"));
+    V4DPlan::run<DisplayImageNVG>(7, samples::findFile("lena.png"));
 }
 ```
 
@@ -160,12 +160,12 @@ The `main` function sets up the V4D runtime and executes our `Plan`.
 int main() {
     cv::Rect viewport(0, 0, 960, 960);
     Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    V4DPlan::run<DisplayImageNVG>(7, samples::findFile("lena.jpg"));
+    V4DPlan::run<DisplayImageNVG>(7, samples::findFile("lena.png"));
 }
 ```
 
 - **`V4D::init(…)`**: Initializes the V4D runtime with a specified window size and title. We also pass flags to enable the `NANOVG` and `IMGUI` subsystems.
-- **`V4DPlan::run<DisplayImageNVG>(…)`**: This static method creates an instance of our `DisplayImageNVG` plan, passes the filename "lena.jpg" to its constructor, and starts the execution loop. The first argument (`7`) selects the worker count; `-1` resolves to a sensible default.
+- **`V4DPlan::run<DisplayImageNVG>(…)`**: This static method creates an instance of our `DisplayImageNVG` plan, passes the filename "lena.png" to its constructor, and starts the execution loop. The first argument (`7`) selects the worker count; `-1` resolves to a sensible default.
 
 ## Summary
 

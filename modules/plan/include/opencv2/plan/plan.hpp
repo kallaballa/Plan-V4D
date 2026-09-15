@@ -1227,8 +1227,6 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 			}
 			CV_LOG_DEBUG(nullptr, "Main inference finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 			GlobalState::apply<size_t>(GlobalState::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
-		    static std::barrier syncPoint(workers);
-		    syncPoint.arrive_and_wait();
         	}
 
                 static std::barrier syncPoint(workers);
@@ -1253,18 +1251,8 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 			} catch(std::exception& ex) {
 				CV_Error_(cv::Error::StsError, ("Pipeline teardown failed: %s", ex.what()));
 			}
-			plan->runtime()->releaseIo();
-			plan->release(); // break Edge->Plan + self_ cycles; frees this worker's plan+graph
 			CV_LOG_DEBUG(nullptr, "Teardown complete on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-		} else {
-			for(auto& t : threads) {
-				t->join();
-				delete t; // was leaked
-			}
-			CV_LOG_INFO(nullptr, "All threads terminated.");
-			plan->runtime()->releaseIo();
-			plan->release(); // break Edge->Plan + self_ cycles; frees main's plan+graph
-		}
+		} 
 	}
 
     cv::Ptr<PlanRuntime> runtime() const { return runtime_; }

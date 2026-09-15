@@ -158,14 +158,17 @@ public:
 };
 
 int main(int argc, char **argv) {
-	if (argc != 2) {
-        std::cerr << "Usage: nanovg-demo <video-file>" << std::endl;
-        exit(1);
-	}
+  cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
 
-    cv::Rect viewport(0, 0, 1920, 1080);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "NanoVG Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-    auto src = Source::make(runtime, argv[1]);
+  std::string videoFile = (argc > 1) ? argv[1] : cv::samples::findFile("videos/bunny.mp4");
+  if (videoFile.empty()) {
+      std::cerr << "Usage: nanovg-demo <video-file>" << std::endl;
+      return 1;
+  }
+
+  cv::Rect viewport(0, 0, 1920, 1080);
+  cv::Ptr<V4D> runtime = V4D::init(viewport, "NanoVG Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+  auto src = Source::make(runtime, videoFile);
     runtime->setSource(src);
 
     V4DPlan::run<NanoVGDemoPlan>(2);
