@@ -142,7 +142,7 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 	$(MAKE) -C build DESTDIR=$(CURDIR)/debian/tmp install
-	rm -f debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libnanovg.so*
+	rm -f debian/tmp/usr/lib/libnanovg.so*
 	install -d debian/tmp/usr/bin
 	cp -a build/bin/example_v4d_* debian/tmp/usr/bin/ 2>/dev/null || true
 	install -d debian/tmp/usr/share/doc/plan-v4d
