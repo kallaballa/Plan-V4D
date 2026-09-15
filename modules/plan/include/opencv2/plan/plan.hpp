@@ -1231,7 +1231,10 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 		    syncPoint.arrive_and_wait();
         	}
 
-		try {
+                static std::barrier syncPoint(workers);
+                syncPoint.arrive_and_wait();
+
+                try {
 			plan->runtime()->runFrameLoop([plan]() {
 				plan->runGraph();
 			});
