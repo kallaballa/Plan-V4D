@@ -87,15 +87,17 @@ public:
             fillColor(cv::Scalar(32, 32, 32, 255));
             fill();
 
-            gloss = radialGradient(lx - ex * 0.25f, ly - ey * 0.5f, ex * 0.1f, ex * 0.75f,
-                    cv::Scalar(255, 255, 255, 128), cv::Scalar(255, 255, 255, 0));
+            gloss = radialGradient(lx - ex * 0.25f, ly - ey * 0.5f,
+                    ex * 0.1f, ex * 0.75f, cv::Scalar(255, 255, 255, 128),
+                    cv::Scalar(255, 255, 255, 0));
             beginPath();
             ellipse(lx, ly, ex, ey);
             fillPaint(gloss);
             fill();
 
-            gloss = radialGradient(rx - ex * 0.25f, ry - ey * 0.5f, ex * 0.1f, ex * 0.75f,
-                    cv::Scalar(255, 255, 255, 128), cv::Scalar(255, 255, 255, 0));
+            gloss = radialGradient(rx - ex * 0.25f, ry - ey * 0.5f,
+                    ex * 0.1f, ex * 0.75f, cv::Scalar(255, 255, 255, 128),
+                    cv::Scalar(255, 255, 255, 0));
             beginPath();
             ellipse(rx, ry, ex, ey);
             fillPaint(gloss);

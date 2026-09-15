@@ -86,7 +86,7 @@ int main() {
 
 The key design pattern here is the separation of OpenGL logic (`CubeScene`) from the application flow (`CubeDemoPlan`). This makes the code much cleaner:
 
-- `CubeDemoPlan` doesn't need to know *how* the cube is drawn; it only needs to know that it should call `init`, `render`, and `destroy` at the appropriate times.
+- `CubeDemoPlan` does not need to know *how* the cube is drawn; it only needs to know that it should call `init`, `render`, and `destroy` at the appropriate times.
 - `CubeScene` is a self-contained, reusable component that could be used in other `V4DPlan`s.
 
 ### 2. The `V4DPlan` Lifecycle: `setup`, `infer`, `teardown`
@@ -110,7 +110,7 @@ void infer() override {
 ```
 
 - **`set(V4D::Keys::CLEAR_COLOR, …)`**: This is a V4D function that sets an internal property. Here, we set the clear color.
-- **`clear()`**: This function clears the screen using the color we just set. It's a higher-level alternative to calling `glClearColor` and `glClear` in `gl` contexts.
+- **`clear()`**: This function clears the screen using the color we just set. It is a higher-level alternative to calling `glClearColor` and `glClear` in `gl` contexts.
 
 ## Summary
 

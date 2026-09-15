@@ -1,6 +1,6 @@
 # Tutorial: Advanced Font Effects Demo
 
-This tutorial breaks down a complex, "Star Wars"-style opening crawl effect. It's an excellent example of how to structure a high-performance application in Plan-V4D by separating logic into reusable components and using conditional execution to avoid unnecessary work.
+This tutorial breaks down a complex, "Star Wars"-style opening crawl effect. It is an excellent example of how to structure a high-performance application in Plan-V4D by separating logic into reusable components and using conditional execution to avoid unnecessary work.
 
 This demo showcases:
 
@@ -75,7 +75,7 @@ public:
 
         // Reset the animation when the text scrolls off-screen.
         branch(-CS(text_.textOffsetY_) > CS(text_.height_))
-            ->assign(RWS(timeOffset_), F(seconds))
+            ->assign(RW(timeOffset_), F(seconds))
         ->endBranch();
 
         // Remember the current viewport size for next-frame's change detection.
@@ -111,7 +111,7 @@ branch(CS(stars_.update_) || RW(lastVpSize_) != F(&cv::Rect::size, vp_))
 ```
 
 - Each renderer (`Warp`, `StarsRenderer`) has an `update_` flag that is set to `true` in the `gui()` method whenever one of its sliders is moved.
-- The `branch` condition checks this flag. The code inside the branch — the expensive part — only runs if the flag is true. The comparison against `lastVpSize_` also re-runs the branches when the viewport changes size.
+- The `branch` condition checks this flag. The code inside the branch — the expensive part — only runs if the flag is `true`. The comparison against `lastVpSize_` also re-runs the branches when the viewport changes size.
 - This ensures we are not doing unnecessary work on static frames.
 
 The scrolling text, however, is always moving, so it is drawn on every frame outside of a branch.

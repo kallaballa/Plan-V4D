@@ -64,7 +64,7 @@ The key to this demo is a new syntax for the `gl` context call.
 gl<-1>(V(i), …);
 ```
 
-- **`gl<-1>`**: The template argument `-1` tells V4D that we want to use one of its worker OpenGL contexts (declared by `v4d.hpp:584`), rather than the main one.
+- **`gl<-1>`**: The template argument `-1` tells V4D that we want to use one of its worker OpenGL contexts (see `v4d.hpp:584`), rather than the main one.
 - **`V(i)`**: The first argument is now an integer that specifies the **index** of the worker context to use. V4D currently manages up to a small pool of these contexts; pick an index within that range and stay below it.
 
 By looping from `i = 0` to `9` and using `V(i)` as the context index, we are creating ten separate nodes in our task graph, each targeting a different, independent OpenGL context.
@@ -77,7 +77,7 @@ By looping from `i = 0` to `9` and using `V(i)` as the context index, we are cre
 
 ### 3. Shared Resources
 
-It's important to note that all ten parallel contexts are operating on the *same* `CubeScene` object.
+It is important to note that all ten parallel contexts are operating on the *same* `CubeScene` object.
 
 - In `setup`, we use `RW(scene_)` because `init()` modifies the `scene_` object by populating its OpenGL handles.
 - In `infer` and `teardown`, we use `R(scene_)` because `render()` and `destroy()` only need to read the handles that were created during setup.

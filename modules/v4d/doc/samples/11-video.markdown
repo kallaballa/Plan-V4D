@@ -28,8 +28,7 @@ public:
         // 1. Load video frame into the framebuffer.
         capture();
         // 2. Render the 3D cube on top of the video frame.
-        //    (CubeScene::render takes two doubles; the source currently has
-        //     a leftover V(false) here — pass V(0.0), V(0.0) to compile.)
+        //    (CubeScene::render takes two doubles; pass V(0.0), V(0.0) to compile.)
         gl(&CubeScene::render, R(scene_), V(0.0), V(0.0));
         // 3. Write the composited frame to the sink.
         write();

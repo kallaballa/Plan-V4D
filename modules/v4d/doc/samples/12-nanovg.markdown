@@ -96,7 +96,7 @@ fb<1>(cv::cvtColor, R(frame_), V(cv::COLOR_RGB2BGRA), V(0), V(cv::ALGO_HINT_DEFA
 nvg(draw_color_wheel, size_, R(hue_));
 ```
 
-- **`fb<1>(…)`**: The `fb` context is used to copy the final processed `frame_` to the display. It's converted back to BGRA format, which the display expects.
+- **`fb<1>(…)`**: The `fb` context is used to copy the final processed `frame_` to the display. It is converted back to BGRA format, which the display expects.
 - **`nvg(…)`**: The `nvg` context then draws the `draw_color_wheel` widget on top of the processed video frame.
 
 ## Summary

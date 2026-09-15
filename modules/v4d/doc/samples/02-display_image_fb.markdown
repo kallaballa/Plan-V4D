@@ -1,6 +1,6 @@
 # Tutorial: Displaying an Image via Framebuffer
 
-This tutorial explains how to display an image by writing its data directly to the window's framebuffer. This method offers a more direct way to put pixels on the screen compared to using a graphics library like NanoVG. It's particularly useful when you are already manipulating image data in `cv::Mat` or `cv::UMat` and want a straightforward way to visualize it.
+This tutorial explains how to display an image by writing its data directly to the window's framebuffer. This method offers a more direct way to put pixels on the screen compared to using a graphics library like NanoVG. It is particularly useful when you are already manipulating image data in `cv::Mat` or `cv::UMat` and want a straightforward way to visualize it.
 
 ## The Code
 
@@ -57,7 +57,7 @@ int main() {
 
 ### 1. The `DisplayImageFB` Plan
 
-We define a `V4DPlan` named `DisplayImageFB`. It holds two `UMat` objects: `image_` for the original image and `converted_` for the version that's been resized and color-converted for display.
+We define a `V4DPlan` named `DisplayImageFB`. It holds two `UMat` objects: `image_` for the original image and `converted_` for the version that has been resized and color-converted for display.
 
 ```cpp
 class DisplayImageFB : public V4DPlan {
@@ -89,7 +89,7 @@ void setup() override {
 }
 ```
 
-- **`plain([…])`**: This is a **plain context**. It's a general-purpose context for running standard CPU-side code, like OpenCV functions. It doesn't have any specific graphics state (like OpenGL or NanoVG).
+- **`plain([…])`**: This is a **plain context**. It is a general-purpose context for running standard CPU-side code, like OpenCV functions. It does not have any specific graphics state (like OpenGL or NanoVG).
 - **`resize(…)`**: We resize the original image to match the window's size (`sz`).
 - **`cvtColor(…)`**: We convert the image's color format to BGRA, which is what the framebuffer expects.
 

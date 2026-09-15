@@ -110,7 +110,7 @@ static bool process_events(…, const Mouse::List& scrollEvents, const Mouse::Li
 }
 ```
 
-- **`E<Mouse>(…)`**: This creates an `Event` edge. It's similar to `P<T>` but specifically for capturing event data. We create two: one for scroll events and one for mouse button release events.
+- **`E<Mouse>(…)`**: This creates an `Event` edge. It is similar to `P<T>` but specifically for capturing event data. We create two: one for scroll events and one for mouse button release events.
 - **`process_events(…)`**: This function is used as the condition for a `branch`. It receives lists of any scroll or release events that occurred in the last frame. If the lists are not empty, it updates the camera position/zoom and disables the `autoZoom_` flag. The function's return value determines if the branch's body will execute.
 
 ### 3. The `infer()` Pipeline
@@ -132,7 +132,7 @@ void infer() override {
 ```
 
 1. **`capture()`**: Loads a video frame to use as a background.
-2. **`branch(process_events, …)`**: This is the core of the interaction logic. The `process_events` function runs. If the user has interacted with the mouse, it updates the camera and returns `false`. If there's no interaction, it returns the current state of the `autoZoom_` flag.
+2. **`branch(process_events, …)`**: This is the core of the interaction logic. The `process_events` function runs. If the user has interacted with the mouse, it updates the camera and returns `false`. If there is no interaction, it returns the current state of the `autoZoom_` flag.
 3. **`->plain(&Camera2D::updateAutoZoom, …)`**: The body of the branch only executes if `process_events` returns `true`. This means the automatic zoom animation only runs when the user is not interacting via the mouse *and* the "Auto Zoom" checkbox in the GUI is checked.
 4. **`gl(&MandelbrotScene::render, …)`**: Renders the fractal using the current state of the shared `params_` (which may have been updated by the GUI, mouse events, or the auto-zoom logic).
 5. **`write()`**: Writes the final composited frame to the sink.

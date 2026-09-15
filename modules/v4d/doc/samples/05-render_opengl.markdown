@@ -20,16 +20,7 @@ public:
     // Setup phase of inference: Creates graph nodes that run once at the start of the algorithm's lifetime
     void setup() override {
         // Sets the clear color to blue by creating a graph node with an OpenGL context (provided by V4D).
-        // "gl" is a context-call that provides resources to the graph node.
-        // These resources may be shared, requiring locking.
-        // V4D can create multiple OpenGL contexts in parallel via an overload of "gl".
-        // "V" is an edge-call that provides constants to the algorithm.
-        // Other edge-calls provide read access (R), read-write access (RW), and access by copy (C).
-        // There are variants of these edge-calls for shared data (RS, RWS, CS).
-        // Fine-grained definition of edge-calls (using R over RW where possible,
-        // breaking down code into shared and non-shared sections) helps Plan build an optimal graph.
-        // Edge-calls have special support for smart pointers and cv::UMat objects.
-        gl(glClearColor, V(0), V(0), V(1), V(1));
+        gl(glClearColor, V(0.0f), V(0.0f), V(1.0f), V(1.0f));
     }
 
     // Main phase of inference: Creates graph nodes that run in a loop after the nodes created by the setup phase have run
@@ -40,12 +31,12 @@ public:
 };
 
 int main() {
-    // The viewport may be changed at runtime by creating a set node (via a "set" call)
+    // The viewport may be changed at runtime by creating a set node
     cv::Rect viewport(0, 0, 960, 960);
     // Initialization of the V4D runtime must be invoked before V4DPlan::run is called.
     // There are AllocateFlags for selective initialization of subsystems, ConfigFlags, and DebugFlags.
     Ptr<V4D> runtime = V4D::init(viewport, "GL Blue Screen", AllocateFlags::IMGUI);
-    // Build (infer) and run the graph. The number denotes the number of workers (0 meaning auto, which currently resolves to 1).
+    // Build (infer) and run the graph. The number denotes the number of workers (0 meaning one worker plus the main thread).
     V4DPlan::run<RenderOpenGLPlan>(0);
 }
 ```
@@ -54,12 +45,12 @@ int main() {
 
 ### 1. The `gl` Context
 
-The `gl` context is the gateway to the OpenGL API. It's designed to be a lightweight wrapper that integrates standard OpenGL functions into the Plan task graph.
+The `gl` context is the gateway to the OpenGL API. It is designed to be a lightweight wrapper that integrates standard OpenGL functions into the Plan task graph.
 
 Its usage is very straightforward:
 
 ```cpp
-gl(openGL_function_name, arg1, arg2, …);
+gl(openGLFunction, arg1, arg2, …);
 ```
 
 The two-argument form `gl<-1>(V(idx), …)` (see `v4d.hpp:584`) routes the call to one of V4D's worker OpenGL contexts for parallel execution.
@@ -70,7 +61,7 @@ In the `setup()` method, we set the desired clear color. This only needs to be d
 
 ```cpp
 void setup() override {
-    gl(glClearColor, V(0), V(0), V(1), V(1));
+    gl(glClearColor, V(0.0f), V(0.0f), V(1.0f), V(1.0f));
 }
 ```
 
@@ -90,17 +81,6 @@ void infer() override {
 ```
 
 This creates a graph node that calls `glClear` with the `GL_COLOR_BUFFER_BIT` flag, which clears the color buffer to the blue color we set in `setup()`.
-
-### A Note on Edge-Calls
-
-The `V` edge-call is the simplest one, used for constants. Plan provides others for more complex data handling (full table in `00-intro.markdown`):
-
-- **`R(variable)`**: Read-only access to a variable.
-- **`RW(variable)`**: Read-write access to a variable.
-- **`C(variable)`**: Access by copy.
-- **`RS`, `RWS`, `CS`**: Variants for data that is explicitly marked as `shared` between different threads or Plans.
-
-Using the most restrictive edge-call possible (e.g., `R` instead of `RW` if you don't modify the data) helps the Plan engine to build a more optimal and parallelized task graph.
 
 ## Summary
 

@@ -44,7 +44,7 @@ public:
 
             // Create a NanoVG paint object using the loaded image
             img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f / 180.0f * NVG_PI, handle, 1.0);
-        }, RW(image_)); // `RW` denotes read-write access to the shared image data
+        }, RW(image_));
     }
 
     // Inference phase: Render the loaded image to the screen
@@ -63,7 +63,7 @@ public:
             // Fill the rectangle with the loaded image pattern
             fillPaint(img.paint_);
             fill();
-        }, size_, RW(image_)); // Pass viewport and image data to the graph node
+        }, size_, R(image_));
     }
 };
 
@@ -77,7 +77,7 @@ int main() {
     // Run the Plan with the specified image file.
     // The image is resolved via OpenCV's samples finder; for non-installed builds
     // you may need to pass an absolute path.
-    V4DPlan::run<DisplayImageNVG>(7, samples::findFile("lena.png"));
+    V4DPlan::run<DisplayImageNVG>(0, samples::findFile("lena.png"));
 }
 ```
 
@@ -142,11 +142,11 @@ void infer() override {
         roundedRect(0, 0, img.w_, img.h_, 50);
         fillPaint(img.paint_);
         fill();
-    }, size_, RW(image_));
+    }, size_, R(image_));
 }
 ```
 
-- **`nvg([…], size_, RW(image_))`**: Again, we use a NanoVG context. This time, we also request access to `size_`, a `Property` that holds the current dimensions of the V4D window.
+- **`nvg([…], size_, R(image_))`**: Again, we use a NanoVG context. This time, we also request access to `size_`, a `Property` that holds the current dimensions of the V4D window.
 - **`scale(…)`**: We scale the rendering context to make the image fit the window.
 - **`roundedRect(…)`**: We create a rounded rectangle shape with the same dimensions as our image.
 - **`fillPaint(img.paint_)`**: We set the fill style to our image pattern.
@@ -160,12 +160,12 @@ The `main` function sets up the V4D runtime and executes our `Plan`.
 int main() {
     cv::Rect viewport(0, 0, 960, 960);
     Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    V4DPlan::run<DisplayImageNVG>(7, samples::findFile("lena.png"));
+    V4DPlan::run<DisplayImageNVG>(0, samples::findFile("lena.png"));
 }
 ```
 
 - **`V4D::init(…)`**: Initializes the V4D runtime with a specified window size and title. We also pass flags to enable the `NANOVG` and `IMGUI` subsystems.
-- **`V4DPlan::run<DisplayImageNVG>(…)`**: This static method creates an instance of our `DisplayImageNVG` plan, passes the filename "lena.png" to its constructor, and starts the execution loop. The first argument (`7`) selects the worker count; `-1` resolves to a sensible default.
+- **`V4DPlan::run<DisplayImageNVG>(…)`**: This static method creates an instance of our `DisplayImageNVG` plan, passes the filename "lena.png" to its constructor, and starts the execution loop. The first argument (`0`) selects the worker count; `0` means one worker plus the main thread.
 
 ## Summary
 

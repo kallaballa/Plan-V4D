@@ -99,7 +99,7 @@ static struct Params {
 } params_;
 ```
 
-It's declared `static` so that there is only one instance of it, which can be accessed from both the GUI and rendering logic. The `gui()` method writes to this struct, and the `infer()` method reads from it.
+It is declared `static` so that there is only one instance of it, which can be accessed from both the GUI and rendering logic. The `gui()` method writes to this struct, and the `infer()` method reads from it.
 
 ### 3. The `infer()` Method
 
@@ -117,7 +117,7 @@ void infer() override {
 }
 ```
 
-- **`CS(params_)`**: This is the **C**opy **S**hared edge-call. It's used because `params_` is a shared resource, modified in the GUI context and read in this rendering context. Using `CS` provides the rendering thread with a consistent snapshot of the parameters for the duration of the frame, preventing visual artifacts that could happen if the GUI changed the values mid-render.
+- **`CS(params_)`**: This is the **C**opy **S**hared edge-call. It is used because `params_` is a shared resource, modified in the GUI context and read in this rendering context. Using `CS` provides the rendering thread with a consistent snapshot of the parameters for the duration of the frame, preventing visual artifacts that could happen if the GUI changed the values mid-render.
 
 ## Summary
 

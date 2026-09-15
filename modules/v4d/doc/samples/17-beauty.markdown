@@ -123,7 +123,7 @@ The key architectural pattern here is the use of sub-plans.
 - **`_sub<T>(…)`**: This function, called in the main plan's constructor, creates an instance of a sub-plan (see `plan.hpp:979`).
 - **`subInfer(…)`**: This function, called within the main plan's `infer()` method, executes the entire `infer()` graph of the specified sub-plan as if it were a single node in the main graph (see `v4d.hpp:531`).
 
-This creates a clean hierarchy. The main plan doesn't need to know the details of mask generation or image blending; it just needs to know when to execute those logical blocks of work.
+This creates a clean hierarchy. The main plan does not need to know the details of mask generation or image blending; it just needs to know when to execute those logical blocks of work.
 
 ### 2. The Pipeline Data Flow
 
