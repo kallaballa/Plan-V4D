@@ -1,4 +1,4 @@
-usr/lib/*/libopencv*.so.* usr/lib/
-usr/lib/*/libnanovg.so* usr/lib/
+usr/lib/${DEB_HOST_MULTIARCH}/libopencv*.so.* usr/lib/${DEB_HOST_MULTIARCH}/
+usr/lib/${DEB_HOST_MULTIARCH}/libnanovg.so* usr/lib/${DEB_HOST_MULTIARCH}/
 usr/share/doc/plan-v4d/LICENSE usr/share/doc/plan-v4d/
 usr/share/doc/plan-v4d/CONTRIBUTING.md usr/share/doc/plan-v4d/

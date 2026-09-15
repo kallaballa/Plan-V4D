@@ -81,10 +81,19 @@ do_rebuild() {
         exit 1
     fi
 
+    # Map target names to the actual OBS repository names (from 'osc results')
+    declare -A TARGET_REPO=(
+        [openSUSE_Tumbleweed]="openSUSE_Tumbleweed"
+        [Fedora]="standard"
+        [Ubuntu_24.04]="Ubuntu_24.04"
+        [Raspbian_12]="Debian_12"
+    )
+
     for proj in "${PROJECTS[@]}"; do
         if [[ "$proj" == *":$target" ]]; then
+            local repo="${TARGET_REPO[$target]:-$target}"
             echo "=== Triggering rebuild: ${proj}/${PACKAGE} ==="
-            osc -A "$OBS_API" rebuild "$proj/$PACKAGE" "$target" 2>/dev/null
+            osc -A "$OBS_API" rebuild "$proj/$PACKAGE" "$repo" 2>/dev/null
             echo "  Rebuild triggered."
             return 0
         fi

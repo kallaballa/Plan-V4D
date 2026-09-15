@@ -376,8 +376,7 @@ install -m 0644 %{_builddir}/extra_modules/v4d/samples/fonts/*.ttf \
 %fdupes %{buildroot}%{_prefix}
 %endif
 
-%post -n plan-v4d-libs -p /sbin/ldconfig
-%postun -n plan-v4d-libs -p /sbin/ldconfig
+%ldconfig_scriptlets -n plan-v4d-libs
 
 # ====================================================================
 # Files
@@ -413,11 +412,17 @@ install -m 0644 %{_builddir}/extra_modules/v4d/samples/fonts/*.ttf \
 %{_libdir}/pkgconfig/opencv*.pc
 %{_libdir}/cmake/opencv4/
 %dir %{_datadir}/%{name}
+%dir %{_datadir}/%{name}/plan
 %{_datadir}/%{name}/plan/test/
+%dir %{_datadir}/%{name}/v4d
+%dir %{_datadir}/%{name}/v4d/samples
+%{_datadir}/%{name}/v4d/samples/*.cpp
+%{_datadir}/%{name}/v4d/samples/*.hpp
 
 %files -n plan-v4d-samples
 %{_bindir}/example_v4d_*
-%{_datadir}/%{name}/v4d/samples/
+%dir %{_datadir}/%{name}/v4d/samples/fonts
+%{_datadir}/%{name}/v4d/samples/fonts/
 
 %changelog
 * Tue Sep 01 2026 elchaschab <elchaschab@users.noreply.github.com> - 4.13.0~beta~kallaballa-1

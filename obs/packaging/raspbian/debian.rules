@@ -1,5 +1,7 @@
 #!/usr/bin/make -f
 
+include /usr/share/dpkg/architecture.mk
+
 export DH_VERBOSE := 1
 
 %:
@@ -142,7 +144,12 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 	$(MAKE) -C build DESTDIR=$(CURDIR)/debian/tmp install
-	rm -f debian/tmp/usr/lib/libnanovg.so*
+	# nanovg's own CMakeLists hardcodes `LIBRARY DESTINATION lib`, so its
+	# only copy lands in plain /usr/lib (never the multiarch path). Relocate
+	# it into the multiarch dir with the OpenCV libs so the packaged copy
+	# survives (single file, so no dev/libs duplication) and ldconfig finds it.
+	install -d debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)
+	mv -f debian/tmp/usr/lib/libnanovg.so* debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/
 	install -d debian/tmp/usr/bin
 	cp -a build/bin/example_v4d_* debian/tmp/usr/bin/ 2>/dev/null || true
 	install -d debian/tmp/usr/share/doc/plan-v4d

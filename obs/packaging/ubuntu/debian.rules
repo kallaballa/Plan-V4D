@@ -1,5 +1,7 @@
 #!/usr/bin/make -f
 
+include /usr/share/dpkg/architecture.mk
+
 export DH_VERBOSE := 1
 
 %:
@@ -8,7 +10,7 @@ export DH_VERBOSE := 1
 override_dh_auto_configure:
 	export CL_TARGET_OPENCL_VERSION=120 && cmake -B build \
 	    -DCMAKE_INSTALL_PREFIX=/usr \
-	    -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
+	    -DCMAKE_INSTALL_LIBDIR=lib/$(DEB_HOST_MULTIARCH) \
 	    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 	    -DOPENCV_EXTRA_MODULES_PATH=$(CURDIR)/extra_modules \
 	    -DOPENCV_V4D_ENABLE_ES3=OFF \
@@ -142,10 +144,12 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 	$(MAKE) -C build DESTDIR=$(CURDIR)/debian/tmp install
-	# nanovg's own CMake installs a duplicate library into /usr/lib on
-	# multilib systems; drop the stray copy so it is not flagged as an
-	# unpackaged file. The lib/x86_64-linux-gnu copy is the packaged one.
-	rm -f debian/tmp/usr/lib/libnanovg.so*
+	# nanovg's own CMakeLists hardcodes `LIBRARY DESTINATION lib`, so its
+	# only copy lands in plain /usr/lib (never the multiarch path). Relocate
+	# it into the multiarch dir with the OpenCV libs so the packaged copy
+	# survives and ldconfig finds it.
+	install -d debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)
+	mv -f debian/tmp/usr/lib/libnanovg.so* debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/
 	# OpenCV does not install the C++ example binaries by default; copy them
 	# so the plan-v4d-samples package gets its files.
 	install -d debian/tmp/usr/bin

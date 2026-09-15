@@ -258,7 +258,7 @@ echo ""
 # ====================================================================
 get_working_copy() {
     local project="$1"
-    local target_name="${project##*:}"
+    local found=""
 
     # Known stable working copy paths (matching current layout with colons)
     local wc_path="$OBS_DIR/$project/$PACKAGE"
@@ -282,17 +282,19 @@ get_working_copy() {
     fi
 
     # Fallback: search for .osc dir matching THIS project specifically
-    local found
-    found=$(find "$OBS_DIR" -maxdepth 5 -type d -name .osc -path "*/$project/$PACKAGE/.osc" 2>/dev/null | head -1 | sed 's#/\.osc$##')
-    if [[ -n "$found" && -d "$found/.osc" ]]; then
-        echo "$found"
-        return 0
+    found=$(find "$OBS_DIR" -maxdepth 5 -type d -name .osc -path "*/$project/$PACKAGE/.osc" 2>/dev/null | head -1)
+    if [[ -n "$found" ]]; then
+        found="${found%/.osc}"
+        if [[ -d "$found/.osc" ]]; then
+            echo "$found"
+            return 0
+        fi
     fi
 
     # Not found - create new checkout
-    echo "  No working copy found for $project, checking out..."
+    echo "  No working copy found for $project, checking out..." >&2
     mkdir -p "$OBS_DIR"
-    (cd "$OBS_DIR" && osc -A "$OBS_API" checkout "$project" "$PACKAGE" >/dev/null)
+    (cd "$OBS_DIR" && osc -A "$OBS_API" checkout "$project" "$PACKAGE" >/dev/null 2>&1)
     local new_wc="$OBS_DIR/$project/$PACKAGE"
     if [[ -d "$new_wc/.osc" ]]; then
         echo "$new_wc"
@@ -320,9 +322,17 @@ get_working_copy() {
 # ====================================================================
 TARGETS=("openSUSE_Tumbleweed" "Fedora" "Ubuntu_24.04" "Raspbian_12")
 
+# Map target names to the actual OBS repository names (from 'osc results')
+declare -A TARGET_REPO=(
+    [openSUSE_Tumbleweed]="openSUSE_Tumbleweed"
+    [Fedora]="standard"
+    [Ubuntu_24.04]="Ubuntu_24.04"
+    [Raspbian_12]="Debian_12"
+)
+
 for target in "${TARGETS[@]}"; do
     PROJECT="${TOP_PROJECT}:Plan-V4D:${target}"
-    REPO="$target"
+    REPO="${TARGET_REPO[$target]:-$target}"
     echo "=== ${target} ==="
 
     WORK_DIR=$(get_working_copy "$PROJECT")
