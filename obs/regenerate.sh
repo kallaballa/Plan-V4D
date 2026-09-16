@@ -16,6 +16,7 @@ set -euo pipefail
 #   ./regenerate.sh myobsuser                 # explicit OBS username
 #   OPENCV_DIR=/path/to/opencv ./regenerate.sh   # override OpenCV checkout
 #   ./regenerate.sh --no-rebuild user         # regenerate+commit but skip 'osc rebuild'
+#   ./regenerate.sh --build user              # also run a local opencv build first
 #   VERSION=... REVISION=2 ./regenerate.sh    # override version/revision
 #
 # Prerequisites:
@@ -37,11 +38,13 @@ PLANV4D_REPO_URL="${PLANV4D_REPO_URL:-https://github.com/kallaballa/Plan-V4D.git
 OBS_API="${OBS_API:-https://api.opensuse.org}"
 OBS_USER=""
 NO_REBUILD=false
+BUILD_LOCAL=false
 
 # ---- Parse args ----
 for arg in "$@"; do
     case "$arg" in
         --no-rebuild) NO_REBUILD=true ;;
+        --build|-b) BUILD_LOCAL=true ;;
         *)
             if [[ -z "$OBS_USER" ]]; then
                 OBS_USER="$arg"
@@ -118,6 +121,20 @@ echo "REVISION:   $REVISION"
 echo "OpenCV dir: $OPENCV_DIR (branch $OPENCV_CUR_BRANCH)"
 echo "Plan-V4D:   $PROJECT_DIR (branch $PLANV4D_CUR_BRANCH)"
 echo "Rebuild:    $([ "$NO_REBUILD" = true ] && echo skip || echo yes)"
+echo "Local build: $([ "$BUILD_LOCAL" = true ] && echo yes || echo skip)"
+echo ""
+
+# ====================================================================
+# Optional local opencv/plan-v4d build (only with --build)
+# ====================================================================
+# Must run from the project root: build_plan_and_v4d.sh resolves its
+# opencv checkout relative to the current directory (../opencv).
+if [[ "$BUILD_LOCAL" == true ]]; then
+    echo "--- Running local build (build_plan_and_v4d.sh) ---"
+    (cd "$PROJECT_DIR" && ./build_plan_and_v4d.sh)
+else
+    echo "(skipping local build; use --build to run build_plan_and_v4d.sh)"
+fi
 echo ""
 
 # Verify osc

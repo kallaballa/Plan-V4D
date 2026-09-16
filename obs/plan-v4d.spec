@@ -388,6 +388,7 @@ install -m 0644 %{_builddir}/extra_modules/v4d/samples/fonts/*.ttf \
 %{_datadir}/opencv4/lbpcascades/
 %{_datadir}/opencv4/models/
 %{_datadir}/opencv4/fonts/
+%{_datadir}/opencv4/videos/
 %{_datadir}/opencv4/valgrind.supp
 %{_datadir}/opencv4/valgrind_3rdparty.supp
 %{_licensedir}/opencv4/
