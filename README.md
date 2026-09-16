@@ -162,6 +162,7 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 | `beauty-demo.cpp` | the kitchen sink: shared state, sub-plans, `IF`, events, NanoVG, ImGui |
 | `font_rendering.cpp` | the smallest visible program (32 lines) |
 | `imshow_reimplementation.cpp` | a full GUI image viewer |
+| `image_carousel.cpp` | a glossy animated image carousel |
 
 Plus: raw OpenGL (`render_opengl`, `cube-demo`, `shader-demo`), vector graphics
 (`nanovg-demo`, `font-demo`), video processing (`optflow-demo`,
