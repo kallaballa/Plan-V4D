@@ -46,11 +46,13 @@ static bool isImageExt(const std::string& ext) {
 }
 
 struct CarouselState {
-    int   current_    = 0;
-    float animOffset_ = 0.0f;   // fractional offset for smooth animation
-    bool  autoPlay_   = false;
-    float autoTimer_  = 0.0f;
-    float prevTime_   = 0.0f;
+    int   current_          = 0;
+    float animOffset_       = 0.0f;   // fractional offset for smooth animation
+    bool  autoPlay_         = false;
+    float autoTimer_        = 0.0f;
+    float prevTime_         = 0.0f;
+    float autoPlayInterval_ = 1.0f;   // seconds between auto-advance
+    float animSpeed_        = 8.0f;   // exponential interpolation speed
 };
 
 class ImageCarousel : public V4DPlan {
@@ -69,8 +71,6 @@ class ImageCarousel : public V4DPlan {
     static constexpr float kMaxCardWidthFrac = 0.50f;
     static constexpr float kSideScale       = 0.55f;
     static constexpr float kFarScale        = 0.30f;
-    static constexpr float kAnimSpeed       = 8.0f;
-    static constexpr float kAutoPlaySec    = 5.0f;
     static constexpr int   kRadius          = 18;
 
     Event<Keyboard> pressKey_ = E<Keyboard>(Keyboard::PRESS);
@@ -81,6 +81,7 @@ public:
     ImageCarousel() { }
 
     explicit ImageCarousel(const std::vector<std::string>& paths) {
+	_shared(state_);
         for (const auto& p : paths) {
             std::error_code ec;
             std::filesystem::path fsPath(p);
@@ -190,7 +191,7 @@ public:
             // Auto-play
             if (st.autoPlay_) {
                 st.autoTimer_ += dt;
-                if (st.autoTimer_ >= kAutoPlaySec) {
+                if (st.autoTimer_ >= st.autoPlayInterval_) {
                     st.autoTimer_ = 0.0f;
                     st.current_ = (st.current_ + 1) % N;
                 }
@@ -202,7 +203,7 @@ public:
             // wrap for shortest path
             if (diff > N / 2.0f)  diff -= N;
             if (diff < -N / 2.0f) diff += N;
-            float t = 1.0f - std::exp(-kAnimSpeed * dt);
+            float t = 1.0f - std::exp(-st.animSpeed_ * dt);
             st.animOffset_ += diff * t;
 
             float cx = sz.width * 0.5f;
@@ -436,20 +437,20 @@ public:
                 fill();
             }
 
-            // --- Keyboard hint ---
+            // --- Controls hint ---
             {
                 fontSize(11.0f);
                 fontFace("sans");
                 fillColor(cv::Scalar(120, 120, 140, 120));
                 textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_BOTTOM);
-                const char* hint = "Arrow keys: navigate | Space: auto-play";
+                const char* hint = "Panel or arrows: navigate | Space: auto-play | Scroll/click: navigate";
                 text(12.0f, static_cast<float>(sz.height) - 12.0f, hint,
                      hint + std::strlen(hint));
             }
 
         }, R(cards_), size_,
            pressKey_, scroll_, click_,
-           RW(state_));
+           RWS(state_));
     }
 
     void gui() override {
@@ -461,15 +462,66 @@ public:
                   ImGuiWindowFlags_NoResize |
                   ImGuiWindowFlags_AlwaysAutoResize |
                   ImGuiWindowFlags_NoTitleBar);
-            if (!cards.empty()) {
+
+            int N = static_cast<int>(cards.size());
+            bool hasCards = N > 0;
+
+            if (hasCards) {
                 const auto& c = cards[st.current_];
                 Text("%s", c.name_.c_str());
                 Text("%d x %d", c.w_, c.h_);
+            } else {
+                Text("No images loaded");
             }
+
             Separator();
+
+            // Navigation
+            if (Button("First")) {
+                if (hasCards) st.current_ = 0;
+            }
+            SameLine();
+            if (Button("Prev")) {
+                if (hasCards) st.current_ = (st.current_ - 1 + N) % N;
+            }
+            SameLine();
+            if (Button("Next")) {
+                if (hasCards) st.current_ = (st.current_ + 1) % N;
+            }
+            SameLine();
+            if (Button("Last")) {
+                if (hasCards) st.current_ = N - 1;
+            }
+
+            if (hasCards && N > 1) {
+                SliderInt("Index", &st.current_, 0, N - 1);
+            }
+
+            Separator();
+
+            // Auto-play
             Checkbox("Auto-play", &st.autoPlay_);
+            if (st.autoPlay_) {
+                SameLine();
+                TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "(active)");
+            }
+            SliderFloat("Interval (s)", &st.autoPlayInterval_, 1.0f, 30.0f, "%.1f s");
+
+            Separator();
+
+            // Animation
+            SliderFloat("Anim speed", &st.animSpeed_, 1.0f, 20.0f, "%.1f");
+
+            Separator();
+
+            Text("Keyboard / mouse:");
+            BulletText("Arrows: navigate");
+            BulletText("Space: auto-play");
+            BulletText("Home/End: first/last");
+            BulletText("Scroll / click: navigate");
+
             End();
-        }, R(cards_), RW(state_), size_);
+        }, R(cards_), RWS(state_), size_);
     }
 
     void teardown() override {
