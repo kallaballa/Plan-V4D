@@ -334,14 +334,16 @@ public:
 				while(keep_running()) {
 					bool result = true;
 					TimeTracker::getInstance()->execute("display", [&result, runtime](){
-					if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-						frame_sync_sema_swap.acquire();
+				if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
+					event::poll();
+					frame_sync_sema_swap.acquire();
 						if(!runtime->display()) {
 							result = false;
 						} else {
 							frame_sync_render.release();
 						}
 					} else {
+						event::poll();
 						if(!runtime->display()) {
 							result = false;
 						}

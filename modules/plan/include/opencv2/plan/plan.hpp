@@ -1252,7 +1252,17 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 				CV_Error_(cv::Error::StsError, ("Pipeline teardown failed: %s", ex.what()));
 			}
 			CV_LOG_DEBUG(nullptr, "Teardown complete on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-		} 
+		}
+
+		if(GlobalState::isMain()) {
+			for(std::thread* t : threads) {
+				if(t) {
+					t->join();
+					delete t;
+				}
+			}
+			threads.clear();
+		}
 	}
 
     cv::Ptr<PlanRuntime> runtime() const { return runtime_; }

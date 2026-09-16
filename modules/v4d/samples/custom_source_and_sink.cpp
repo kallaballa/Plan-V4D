@@ -28,11 +28,8 @@ public:
 
 
 		if(lastColor_ != pix && isPureColor) {
-			std::cerr << pix << std::endl;
 			cv::Vec4b binarized = convert_pix<-1, Scalar, cv::Vec4b, true>(pix, 1.0/255.0);
-			std::cerr << binarized << std::endl;
 			uchar key = binarized[0] | binarized[1] << 1 | binarized[2] << 2;
-			std::cerr << key - 1 << std::endl;
 			foundName_ = binarizedBGRIndex_[key - 1];
 			found_ = true;
 			lastColor_ = pix;
