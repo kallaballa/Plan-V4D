@@ -296,7 +296,9 @@ public:
     }
 
     void runFrameLoop(std::function<void()> frameFn) override {
-        try {
+	if(!keep_running())
+		return;
+	try {
             if(GlobalState::isMain()) {
                 instance()->printSystemInfo();
                 CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");

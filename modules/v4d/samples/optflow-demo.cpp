@@ -266,7 +266,7 @@ public:
 	        if (area > 0) {
 	            float density = (detectedPoints.size() / area);
 	            //stroke size is biased by the area of the point cloud
-	            float strokeSize = maxStroke * pow(area / (nextGrey.cols * nextGrey.rows), 0.001);
+	            float strokeSize = maxStroke * pow(area / (nextGrey.cols * nextGrey.rows), 0.0001);
 
 
 
@@ -381,8 +381,6 @@ private:
 		int maxStroke_ = 3;
 		// Red, green, blue and alpha. All from 0.0f to 1.0f
 		cv::Scalar_<float> effectColor_ = {1.0f, 0.5f, 0.0f, 0.8f};
-		//display on-screen FPS
-		bool showFps_ = true;
 
 		bool fullscreen_ = false;
 	} params_;
@@ -439,9 +437,6 @@ public:
 	        End();
 
 			Begin("Window");
-//			if(Checkbox("Show FPS", &params.showFps_)) {
-//
-//			}
 
 			if(Button("Fullscreen")) {
 			    params.fullscreen_ = !params.fullscreen_;
@@ -521,19 +516,19 @@ public:
         ->endBranch();
 
 		fb<4>(&Compositor::perform, RW(compositor_),
-		                                R(frames_.background_),
-                                        RW(frames_.oldForeground_),
-		                                RW(frames_.foreground_),
-		                                RW(frames_.composed_),
-		                                CS(params_.backgroundMode_),
-		                                CS(params_.postProcMode_),
-		                                CS(params_.kernelSize_),
-		                                CS(params_.gain_)
+									R(frames_.background_),
+									RW(frames_.oldForeground_),
+									RW(frames_.foreground_),
+									RW(frames_.composed_),
+									CS(params_.backgroundMode_),
+									CS(params_.postProcMode_),
+									CS(params_.kernelSize_),
+									CS(params_.gain_)
 		);
 
 		plain(UMAT_COPY_TO_, R(frames_.nextGrey_), RW(frames_.prevGrey_));
 
-        write(R(frames_.composed_));
+		write(R(frames_.composed_));
 	}
 };
 

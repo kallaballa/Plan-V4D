@@ -29,28 +29,31 @@ public:
 	}
 };
 
-int main(int argc, char** argv) {
-  cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
+int main(int argc, char **argv) {
+	cv::samples::addSamplesDataSearchPath (V4D_ASSETS_PATH);
 
-  std::string inputVideo = (argc > 1) ? argv[1] : cv::samples::findFile("videos/bunny.mp4");
-  std::string outputVideo = (argc > 2) ? argv[2] : "video_editing_out.mkv";
-  if (inputVideo.empty()) {
-      std::cerr << "Usage: video_editing <input-video-file> <output-video-file>" << std::endl;
-      return 1;
-  }
+	std::string inputVideo =
+			(argc > 1) ? argv[1] : cv::samples::findFile("videos/bunny.mp4");
+	std::string outputVideo = (argc > 2) ? argv[2] : "video_editing_out.mkv";
+	if (inputVideo.empty()) {
+		std::cerr
+				<< "Usage: video_editing <input-video-file> <output-video-file>"
+				<< std::endl;
+		return 1;
+	}
 
-  cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+	cv::Rect viewport(0, 0, 960, 960);
+	Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
 
-    //Make the video source
-    auto src = Source::make(runtime, inputVideo);
+	//Make the video source
+	auto src = Source::make(runtime, inputVideo);
 
-    //Make the video sink
-    auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
+	//Make the video sink
+	auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
 
-    //Attach source and sink
-    runtime->setSource(src);
-    runtime->setSink(sink);
+	//Attach source and sink
+	runtime->setSource(src);
+	runtime->setSink(sink);
 
-    V4DPlan::run<VideoEditingPlan>(2);
+	V4DPlan::run<VideoEditingPlan>(2);
 }

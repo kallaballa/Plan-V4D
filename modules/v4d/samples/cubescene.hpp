@@ -19,19 +19,17 @@ class CubeScene {
 
 	//Cube vertices, colors and indices
 	constexpr static float VERTICES_[24] = {
-			// Front face
+	// Front face
 			0.5, 0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5,
 			// Back face
-			0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5
-	};
+			0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5 };
 
-	constexpr static float VERTEX_COLORS_[24] = {
-			1.0, 0.4, 0.6, 1.0, 0.9, 0.2, 0.7, 0.3, 0.8, 0.5, 0.3, 1.0,
-			0.2, 0.6, 1.0, 0.6, 1.0, 0.4, 0.6, 0.8, 0.8, 0.4, 0.8, 0.8
-	};
+	constexpr static float VERTEX_COLORS_[24] = { 1.0, 0.4, 0.6, 1.0, 0.9, 0.2,
+			0.7, 0.3, 0.8, 0.5, 0.3, 1.0, 0.2, 0.6, 1.0, 0.6, 1.0, 0.4, 0.6,
+			0.8, 0.8, 0.4, 0.8, 0.8 };
 
 	constexpr static unsigned short TRIANGLE_INDICES_[36] = {
-			// Front
+	// Front
 			0, 1, 2, 2, 3, 0,
 
 			// Right
@@ -47,13 +45,12 @@ class CubeScene {
 			4, 7, 6, 6, 5, 4,
 
 			// Top
-			5, 1, 0, 0, 4, 5
-	};
+			5, 1, 0, 0, 4, 5 };
 
 	struct Handles {
 		GLuint vao_ = 0;
 		GLuint program_ = 0;
-		GLuint uniform_= 0;
+		GLuint uniform_ = 0;
 		GLuint trianglesEbo_ = 0;
 		GLuint verticesVbo_ = 0;
 		GLuint colorsVbo_ = 0;
@@ -64,7 +61,8 @@ class CubeScene {
 		//Shader versions "330" and "300 es" are very similar.
 		//If you are careful you can write the same code for both versions.
 
-		const string vert = R"(
+		const string vert =
+				R"(
 		precision lowp float;
 		layout(location = 0) in vec3 pos;
 		layout(location = 1) in vec3 vertex_color;
@@ -78,7 +76,8 @@ class CubeScene {
 		}
 	)";
 
-		const string frag = R"(
+		const string frag =
+				R"(
 		precision lowp float;
 		in vec3 color;
 		
@@ -98,24 +97,27 @@ class CubeScene {
 public:
 	//Initializes objects, buffers, shaders and uniforms
 	void init() {
-		glEnable (GL_DEPTH_TEST);
+		glEnable(GL_DEPTH_TEST);
 
 		glGenVertexArrays(1, &handles_.vao_);
 		glBindVertexArray(handles_.vao_);
 
 		glGenBuffers(1, &handles_.trianglesEbo_);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, handles_.trianglesEbo_);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof TRIANGLE_INDICES_, TRIANGLE_INDICES_,
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof TRIANGLE_INDICES_,
+				TRIANGLE_INDICES_,
 				GL_STATIC_DRAW);
 		glGenBuffers(1, &handles_.verticesVbo_);
 		glBindBuffer(GL_ARRAY_BUFFER, handles_.verticesVbo_);
-		glBufferData(GL_ARRAY_BUFFER, sizeof VERTICES_, VERTICES_, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, sizeof VERTICES_, VERTICES_,
+				GL_STATIC_DRAW);
 
 		glVertexAttribPointer(VERTICES_INDEX_, 3, GL_FLOAT, GL_FALSE, 0, NULL);
 		glEnableVertexAttribArray(VERTICES_INDEX_);
 		glGenBuffers(1, &handles_.colorsVbo_);
 		glBindBuffer(GL_ARRAY_BUFFER, handles_.colorsVbo_);
-		glBufferData(GL_ARRAY_BUFFER, sizeof VERTEX_COLORS_, VERTEX_COLORS_, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, sizeof VERTEX_COLORS_, VERTEX_COLORS_,
+				GL_STATIC_DRAW);
 
 		glVertexAttribPointer(COLOR_INDEX_, 3, GL_FLOAT, GL_FALSE, 0, NULL);
 		glEnableVertexAttribArray(COLOR_INDEX_);
@@ -125,7 +127,8 @@ public:
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 		handles_.program_ = load_shader();
-		handles_.uniform_ = glGetUniformLocation(handles_.program_, "transform");
+		handles_.uniform_ = glGetUniformLocation(handles_.program_,
+				"transform");
 	}
 
 	//Renders a rotating rainbow-colored cube on a blueish background
@@ -139,28 +142,25 @@ public:
 				2 * M_PI);
 		float scale = 0.25;
 
-		cv::Matx44f scaleMat(scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0,
-				scale, 0.0, 0.0, 0.0, 0.0, 1.0);
+		cv::Matx44f scaleMat(scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0,
+				0.0, scale, 0.0, 0.0, 0.0, 0.0, 1.0);
 
-		cv::Matx44f rotXMat(1.0, 0.0, 0.0, 0.0,
-				0.0, cos(angle), -sin(angle), 0.0,
-				0.0, sin(angle), cos(angle), 0.0,
-				0.0, 0.0, 0.0, 1.0);
+		cv::Matx44f rotXMat(1.0, 0.0, 0.0, 0.0, 0.0, cos(angle), -sin(angle),
+				0.0, 0.0, sin(angle), cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0);
 
-		cv::Matx44f rotYMat(cos(angle), 0.0, sin(angle), 0.0, 0.0, 1.0, 0.0, 0.0,
-				-sin(angle), 0.0, cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0);
+		cv::Matx44f rotYMat(cos(angle), 0.0, sin(angle), 0.0, 0.0, 1.0, 0.0,
+				0.0, -sin(angle), 0.0, cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0);
 
 		cv::Matx44f rotZMat(cos(angle), -sin(angle), 0.0, 0.0, sin(angle),
 				cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
 
-		cv::Matx44f transMat(1.0, 0.0, 0.0, 0,
-				0.0, 1.0, 0.0, 0,
-				0.0, 0.0, 1.0, 0.0,
-				xpos, ypos, 0.0, 1.0);
+		cv::Matx44f transMat(1.0, 0.0, 0.0, 0, 0.0, 1.0, 0.0, 0, 0.0, 0.0, 1.0,
+				0.0, xpos, ypos, 0.0, 1.0);
 
 		//calculate the transform
-		cv::Matx44f transform = scaleMat * rotXMat * rotYMat * rotZMat * transMat;
-        glClear(GL_DEPTH_BUFFER_BIT);
+		cv::Matx44f transform = scaleMat * rotXMat * rotYMat * rotZMat
+				* transMat;
+		glClear(GL_DEPTH_BUFFER_BIT);
 		//set the corresponding uniform
 		glUniformMatrix4fv(handles_.uniform_, 1, GL_FALSE, transform.val);
 		//Bind the prepared vertex array object

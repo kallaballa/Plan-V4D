@@ -4,7 +4,7 @@ using namespace cv;
 using namespace cv::v4d;
 
 class VectorGraphicsPlan: public V4DPlan {
-Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
+	Property<cv::Size> sz_ = P < cv::Size > (V4D::Keys::SIZE);
 public:
 	void infer() override {
 		//Creates a NanoVG context and draws googly eyes that occasionally blink.
@@ -21,7 +21,7 @@ public:
 			float y = 0;
 			float w = sz.width / 4;
 			float h = sz.height / 4;
-			translate((sz.width / 2.0f) - (w / 2.0f), (sz.height / 2.0f) - (h / 2.0f));
+			translate((sz.width / 2.0f) - (w / 2.0f), (sz.height / 2.0f) - (h /2.0f ));
 			float mx = w / 2.0;
 			float my = h / 2.0;
 			Paint gloss, bg;
@@ -82,16 +82,16 @@ public:
 			fillColor(cv::Scalar(32, 32, 32, 255));
 			fill();
 
-			gloss = radialGradient(lx - ex * 0.25f, ly - ey * 0.5f,
-					ex * 0.1f, ex * 0.75f, cv::Scalar(255, 255, 255, 128),
+			gloss = radialGradient(lx - ex * 0.25f, ly - ey * 0.5f, ex * 0.1f,
+					ex * 0.75f, cv::Scalar(255, 255, 255, 128),
 					cv::Scalar(255, 255, 255, 0));
 			beginPath();
 			ellipse(lx, ly, ex, ey);
 			fillPaint(gloss);
 			fill();
 
-			gloss = radialGradient(rx - ex * 0.25f, ry - ey * 0.5f,
-					ex * 0.1f, ex * 0.75f, cv::Scalar(255, 255, 255, 128),
+			gloss = radialGradient(rx - ex * 0.25f, ry - ey * 0.5f, ex * 0.1f,
+					ex * 0.75f, cv::Scalar(255, 255, 255, 128),
 					cv::Scalar(255, 255, 255, 0));
 			beginPath();
 			ellipse(rx, ry, ex, ey);
@@ -102,8 +102,10 @@ public:
 };
 
 int main() {
-    cv::Rect viewport(0,0, 960, 960);
-	Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-    V4DPlan::run<VectorGraphicsPlan>(2);
+	cv::Rect viewport(0, 0, 960, 960);
+	Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics",
+			AllocateFlags::NANOVG | AllocateFlags::IMGUI,
+			ConfigFlags::DISPLAY_MODE);
+	V4DPlan::run<VectorGraphicsPlan>(2);
 }
 
