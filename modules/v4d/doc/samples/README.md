@@ -40,7 +40,7 @@ Welcome to the Plan-V4D tutorial series. Before we dive into the code, it's impo
 
 ## What is V4D?
 
-V4D (Visualization for Video and Data) is a runtime built on top of Plan-DSL, a small graph-recording language embedded in C++. Plan-DSL is the core; V4D adds four things on top of it:
+V4D is a runtime built on top of Plan-DSL, a small graph-recording language embedded in C++. Plan-DSL is the core; V4D adds four things on top of it:
 
 1. A **window and event loop** built on GLFW + OpenGL, with optional NanoVG (2D vector graphics) and ImGui (immediate-mode GUI) layers.
 2. A **Source / Sink abstraction** — a `Plan` can read frames from a video file, a webcam, or any functor (`Source`), and write them to a file, a stream, or anything else (`Sink`).
