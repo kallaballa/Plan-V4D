@@ -1,5 +1,7 @@
 # Tutorial: Custom Source and Sink
 
+> **← [Simple Video Editing](07-video_editing.markdown) | [Next: Font Rendering with a GUI](09-font_with_gui.markdown) →**
+
 While Plan-V4D provides convenient `Source` and `Sink` objects for file I/O, you can also create your own from scratch. This gives you complete control over where your video data comes from (e.g., a procedural generator, a network stream) and where it goes (e.g., a custom analysis pipeline, multiple outputs).
 
 This tutorial will demonstrate how to:
@@ -10,7 +12,7 @@ This tutorial will demonstrate how to:
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in `modules/v4d/samples/custom_source_and_sink.cpp`.
+Here is the complete source code for this example. You can find it in [modules/v4d/samples/custom_source_and_sink.cpp](../../samples/custom_source_and_sink.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>

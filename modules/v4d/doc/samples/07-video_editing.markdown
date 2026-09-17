@@ -1,12 +1,14 @@
 # Tutorial: Simple Video Editing
 
+> **← [Font Rendering](06-font_rendering.markdown) | [Next: Custom Source and Sink](08-custom_source_and_sink.markdown) →**
+
 Plan-V4D provides a simple yet powerful source/sink architecture for building video processing pipelines. This allows you to read from a video source (like a file or a camera), perform processing and rendering on each frame, and then write the result to a video sink (like an output file or a display window).
 
 This tutorial demonstrates how to build a simple video editor that reads from a video file, renders text on top of each frame, and saves the result to a new video file.
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in `modules/v4d/samples/video_editing.cpp`.
+Here is the complete source code for this example. You can find it in [modules/v4d/samples/video_editing.cpp](../../samples/video_editing.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>

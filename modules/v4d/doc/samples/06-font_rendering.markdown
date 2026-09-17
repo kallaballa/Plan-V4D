@@ -1,10 +1,12 @@
 # Tutorial: Font Rendering
 
+> **← [Direct OpenGL Rendering](05-render_opengl.markdown) | [Next: Simple Video Editing](07-video_editing.markdown) →**
+
 Text is a fundamental part of most graphical applications. Plan-V4D makes font rendering easy by leveraging the capabilities of NanoVG. This tutorial will show you how to load fonts and draw text to the screen.
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in `modules/v4d/samples/font_rendering.cpp`.
+Here is the complete source code for this example. You can find it in [modules/v4d/samples/font_rendering.cpp](../../samples/font_rendering.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
@@ -84,7 +86,7 @@ void infer() override {
 
 ### Loading Custom Fonts
 
-While this example uses a built-in font, you can easily load your own TrueType (`.ttf`) fonts. To do this, you would typically call `createFont` in your `setup()` phase. The TTF files in `modules/v4d/samples/fonts/` (`Roboto-Bold.ttf`, `Roboto-Light.ttf`, `Roboto-Regular.ttf`, `entypo.ttf`) are copied into the build directory at `assets/fonts/` by the `v4d` CMake module.
+While this example uses a built-in font, you can easily load your own TrueType (`.ttf`) fonts. To do this, you would typically call `createFont` in your `setup()` phase. The TTF files in [modules/v4d/samples/fonts/](../../samples/fonts/) (`Roboto-Bold.ttf`, `Roboto-Light.ttf`, `Roboto-Regular.ttf`, `entypo.ttf`) are copied into the build directory at `assets/fonts/` by the `v4d` CMake module.
 
 ```cpp
 // In your Plan class

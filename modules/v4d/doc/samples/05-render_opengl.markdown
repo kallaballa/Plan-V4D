@@ -1,12 +1,14 @@
 # Tutorial: Direct OpenGL Rendering
 
+> **← [Combining Vector Graphics and Framebuffer Processing](04-vector_graphics_and_fb.markdown) | [Next: Font Rendering](06-font_rendering.markdown) →**
+
 While V4D provides high-level contexts like `nvg` and `fb`, it also gives you direct access to the underlying OpenGL API for custom rendering. This is done through the `gl` context, which allows you to execute raw OpenGL commands within your `V4DPlan`.
 
 This tutorial demonstrates the most basic use of the `gl` context: clearing the screen to a solid blue color.
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in `modules/v4d/samples/render_opengl.cpp`.
+Here is the complete source code for this example. You can find it in [modules/v4d/samples/render_opengl.cpp](../../samples/render_opengl.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>

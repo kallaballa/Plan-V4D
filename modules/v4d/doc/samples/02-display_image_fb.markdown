@@ -1,10 +1,12 @@
 # Tutorial: Displaying an Image via Framebuffer
 
+> **← [Displaying an Image with NanoVG](01-display_image_nvg.markdown) | [Next: 2D Vector Graphics with NanoVG](03-vector_graphics.markdown) →**
+
 This tutorial explains how to display an image by writing its data directly to the window's framebuffer. This method offers a more direct way to put pixels on the screen compared to using a graphics library like NanoVG. It is particularly useful when you are already manipulating image data in `cv::Mat` or `cv::UMat` and want a straightforward way to visualize it.
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in `modules/v4d/samples/display_image_fb.cpp`.
+Here is the complete source code for this example. You can find it in [modules/v4d/samples/display_image_fb.cpp](../../samples/display_image_fb.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>

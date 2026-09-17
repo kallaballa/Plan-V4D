@@ -1,5 +1,7 @@
 # Tutorial: Pedestrian Detection and Tracking Demo
 
+> **← [Advanced Font Effects Demo](14-font.markdown) | [Next: Sparse Optical Flow Demo](16-optflow.markdown) →**
+
 This tutorial breaks down a classic computer vision application: detecting an object in a video and then tracking it frame-by-frame. We will implement a "detect-then-track" strategy for finding pedestrians, a common and efficient pattern for real-time object tracking.
 
 This demo showcases how to structure a complex computer vision pipeline in Plan-V4D:
@@ -11,7 +13,7 @@ This demo showcases how to structure a complex computer vision pipeline in Plan-
 
 ## The Code
 
-The source code in `modules/v4d/samples/pedestrian-demo.cpp` is a complete application. For clarity, we will focus on the overall structure and the `V4DPlan`'s `infer()` method, which orchestrates the pipeline. The low-level logic is encapsulated in helper classes (`HOG`, `Tracking`, `ObjectMarker`, `NonMaxSupression`).
+The source code in [modules/v4d/samples/pedestrian-demo.cpp](../../samples/pedestrian-demo.cpp) is a complete application. For clarity, we will focus on the overall structure and the `V4DPlan`'s `infer()` method, which orchestrates the pipeline. The low-level logic is encapsulated in helper classes (`HOG`, `Tracking`, `ObjectMarker`, `NonMaxSupression`).
 
 ```cpp
 // Abridged for clarity.

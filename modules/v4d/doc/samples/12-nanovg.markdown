@@ -1,5 +1,7 @@
 # Tutorial: Advanced NanoVG and Processing Pipelines
 
+> **← [Compositing 3D Graphics on Video](11-video.markdown) | [Next: Interactive Custom Shaders](13-shader.markdown) →**
+
 This tutorial dives into a more advanced example, showcasing how to build a complex, multi-stage image processing pipeline using Plan-V4D. We will create an application that reads a video, applies a real-time, color-shifting effect to it, and then overlays a custom NanoVG widget on top.
 
 This example highlights several advanced features:
@@ -11,7 +13,7 @@ This example highlights several advanced features:
 
 ## The Code
 
-The source code for this demo can be found in `modules/v4d/samples/nanovg-demo.cpp`. It is more complex than previous examples, so we will focus on the structure of the `V4DPlan` and its `infer` method. A helper function `draw_color_wheel` contains the detailed NanoVG drawing code and is omitted here for brevity.
+The source code for this demo can be found in [modules/v4d/samples/nanovg-demo.cpp](../../samples/nanovg-demo.cpp). It is more complex than previous examples, so we will focus on the structure of the `V4DPlan` and its `infer` method. A helper function `draw_color_wheel` contains the detailed NanoVG drawing code and is omitted here for brevity.
 
 ```cpp
 // Abridged for clarity

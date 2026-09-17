@@ -1,5 +1,7 @@
 # Tutorial: Sparse Optical Flow Demo
 
+> **← [Pedestrian Detection and Tracking Demo](15-pedestrian.markdown) | [Next: Real-Time "Beauty Filter" Demo](17-beauty.markdown) →**
+
 This tutorial explores a highly advanced computer vision and visualization demo that creates a stylized representation of sparse optical flow in a video. It is a masterclass in structuring a complex, real-time application with Plan-V4D.
 
 This demo brings together numerous advanced concepts:
@@ -13,7 +15,7 @@ This demo brings together numerous advanced concepts:
 
 ## The Code
 
-The source code in `modules/v4d/samples/optflow-demo.cpp` is extensive. We will focus on the high-level structure of the `V4DPlan` and the `infer()` pipeline that orchestrates the various components.
+The source code in [modules/v4d/samples/optflow-demo.cpp](../../samples/optflow-demo.cpp) is extensive. We will focus on the high-level structure of the `V4DPlan` and the `infer()` pipeline that orchestrates the various components.
 
 The application is broken down into these key helper classes:
 

@@ -1,13 +1,15 @@
 # Tutorial: Rendering a 3D Cube
 
+> **← [Font Rendering with a GUI](09-font_with_gui.markdown) | [Next: Compositing 3D Graphics on Video](11-video.markdown) →**
+
 This tutorial demonstrates how to structure a more complex rendering application by separating the low-level OpenGL logic from the main application `V4DPlan`. We will create a `V4DPlan` that renders a rotating 3D cube, showcasing a clean way to organize your code and introducing the `teardown` phase of a `V4DPlan`'s lifecycle.
 
 ## The Code
 
 This example is split into two files:
 
-1. `modules/v4d/samples/cubescene.hpp`: Contains a `CubeScene` class that encapsulates all the low-level OpenGL code for creating and drawing the cube.
-2. `modules/v4d/samples/cube-demo.cpp`: Contains the `CubeDemoPlan` and the `main` function.
+1. [modules/v4d/samples/cubescene.hpp](../../samples/cubescene.hpp): Contains a `CubeScene` class that encapsulates all the low-level OpenGL code for creating and drawing the cube.
+2. [modules/v4d/samples/cube-demo.cpp](../../samples/cube-demo.cpp): Contains the `CubeDemoPlan` and the `main` function.
 
 ### `cubescene.hpp` (Abridged)
 

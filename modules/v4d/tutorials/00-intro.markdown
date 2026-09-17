@@ -89,6 +89,8 @@ The goal of the demos is to show how to use V4D to the fullest. Also they show h
 * \ref v4d_pedestrian
 * \ref v4d_optflow
 * \ref v4d_beauty
+* \ref v4d_image_carousel
+* \ref v4d_imshow_reimplementation
 
 # Instructions for Ubuntu 22.04.2 LTS
 You need to build OpenCV with V4D

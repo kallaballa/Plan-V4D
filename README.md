@@ -234,7 +234,7 @@ detector and the LBF landmark model ship in
   the canonical edge-by-edge, operator-by-operator reference.
 * [V4D Application Programming Tutorial](modules/v4d/doc/v4d-application-programming-guide.markdown) —
   the V4D tutorial, milestone by milestone.
-* [Sample walkthroughs](modules/v4d/doc/samples/) — annotated `00-intro` through `18-many-cubes`.
+* [Sample walkthroughs](modules/v4d/doc/samples/) — annotated `00-intro` through `18-many-cubes`, plus `19-image-carousel`.
 
 ## Packaging
 

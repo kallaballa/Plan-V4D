@@ -29,6 +29,20 @@ TOP_PROJECT="home:${OBS_USER}"
 PACKAGE="plan-v4d"
 PROJECTS=("${TOP_PROJECT}:Plan-V4D:openSUSE_Tumbleweed" "${TOP_PROJECT}:Plan-V4D:Fedora" "${TOP_PROJECT}:Plan-V4D:Ubuntu_24.04" "${TOP_PROJECT}:Plan-V4D:Raspbian_12")
 
+# OBS repository names and architectures per target (project path suffix)
+declare -A REPO_NAME=(
+    [openSUSE_Tumbleweed]="openSUSE_Tumbleweed"
+    [Fedora]="standard"
+    [Ubuntu_24.04]="Ubuntu_24.04"
+    [Raspbian_12]="Debian_12"
+)
+declare -A REPO_ARCHS=(
+    [openSUSE_Tumbleweed]="x86_64"
+    [Fedora]="x86_64"
+    [Ubuntu_24.04]="x86_64"
+    [Raspbian_12]="aarch64 armv7l"
+)
+
 ACTION="${1:-monitor}"
 
 # ---- Helper: short repo name from full project path ----
@@ -67,7 +81,11 @@ do_results() {
         mkdir -p "$outdir"
 
         echo "=== Downloading packages for ${short} ==="
-        osc -A "$OBS_API" getbinaries "$proj/$PACKAGE" "$outdir" 2>/dev/null || echo "  (no binaries yet)"
+        local repo arch
+        repo="${REPO_NAME[$short]:-$short}"
+        for arch in ${REPO_ARCHS[$short]}; do
+            osc -A "$OBS_API" getbinaries "$proj/$PACKAGE" "$repo" "$arch" -d "$outdir" 2>/dev/null || echo "  (no binaries for arch $arch yet)"
+        done
         echo "  Output: $outdir"
         echo ""
     done

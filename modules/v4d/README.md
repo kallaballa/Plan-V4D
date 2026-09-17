@@ -194,7 +194,8 @@ modules/v4d/
 │   ├── pedestrian-demo.cpp        HOG detection + KCF tracking
 │   ├── optflow-demo.cpp           Farneback optical flow
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
-│   └── imshow_reimplementation.cpp   full GUI image viewer
+│   ├── imshow_reimplementation.cpp   full GUI image viewer
+│   └── image_carousel.cpp         animated glossy image carousel
 ├── src/
 │   ├── v4d.cpp                    V4D runtime lifecycle
 │   ├── nvg.cpp                    NanoVG wrapper
@@ -223,6 +224,8 @@ modules/v4d/
    with `IF`, mouse events, NanoVG, framebuffer writes, ImGui GUI.
 5. [`samples/imshow_reimplementation.cpp`](samples/imshow_reimplementation.cpp)
    — a full GUI image viewer; a tour de force.
+6. [`samples/image_carousel.cpp`](samples/image_carousel.cpp) — animated
+   glossy cards with reflections, keyboard/mouse navigation, and an ImGui HUD.
 
 For the language itself (edges, operators, control flow,
 properties, events), read the

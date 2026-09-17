@@ -1,5 +1,7 @@
 # Tutorial: Real-Time "Beauty Filter" Demo
 
+> **← [Sparse Optical Flow Demo](16-optflow.markdown) | [Next: Parallel Rendering with Multiple OpenGL Contexts](18-many-cubes.markdown) →**
+
 This final tutorial explores the most architecturally complex demo: a real-time "beauty filter." This application detects facial landmarks in a video and applies different image adjustments to the skin, eyes, and lips independently, seamlessly blending them back together.
 
 This demo introduces a powerful new concept: **sub-plans**. It showcases how to build a hierarchical application by creating a main `V4DPlan` that orchestrates other, more specialized `V4DPlan`s.
@@ -13,7 +15,7 @@ This demo highlights:
 
 ## The Code
 
-The source code in `modules/v4d/samples/beauty-demo.cpp` is extensive. It is structured into a main `BeautyDemoPlan` and two sub-plans: `FaceFeatureMasksPlan` and `BeautyFilterPlan`. We will focus on this high-level architecture.
+The source code in [modules/v4d/samples/beauty-demo.cpp](../../samples/beauty-demo.cpp) is extensive. It is structured into a main `BeautyDemoPlan` and two sub-plans: `FaceFeatureMasksPlan` and `BeautyFilterPlan`. We will focus on this high-level architecture.
 
 ```cpp
 // Abridged for clarity.
@@ -140,4 +142,4 @@ This demo illustrates the pinnacle of application design in Plan-V4D.
 - Data can be passed between plans using shared objects and `UMat`s.
 - This architecture allows for a clean separation of high-level application logic from the low-level implementation details of each processing stage.
 
-This concludes the tutorial series. You are encouraged to explore the remaining demos to see these concepts applied in different ways.
+This concludes the sub-plan part of the tutorial series. You are encouraged to explore the remaining demos to see these concepts applied in different ways.

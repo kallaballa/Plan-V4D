@@ -1,10 +1,12 @@
 # Tutorial: 2D Vector Graphics with NanoVG
 
+> **← [Displaying an Image via Framebuffer](02-display_image_fb.markdown) | [Next: Combining Vector Graphics and Framebuffer Processing](04-vector_graphics_and_fb.markdown) →**
+
 Plan-V4D provides a powerful 2D vector graphics API through its integration with NanoVG. This tutorial demonstrates how to use the `nvg` context to draw shapes, apply gradients, and create simple animations. We will walk through an example that draws a pair of animated googly eyes.
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in `modules/v4d/samples/vector_graphics.cpp`.
+Here is the complete source code for this example. You can find it in [modules/v4d/samples/vector_graphics.cpp](../../samples/vector_graphics.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>

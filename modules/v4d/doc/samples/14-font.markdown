@@ -1,5 +1,7 @@
 # Tutorial: Advanced Font Effects Demo
 
+> **← [Interactive Custom Shaders](13-shader.markdown) | [Next: Pedestrian Detection and Tracking Demo](15-pedestrian.markdown) →**
+
 This tutorial breaks down a complex, "Star Wars"-style opening crawl effect. It is an excellent example of how to structure a high-performance application in Plan-V4D by separating logic into reusable components and using conditional execution to avoid unnecessary work.
 
 This demo showcases:
@@ -11,7 +13,7 @@ This demo showcases:
 
 ## The Code
 
-The source code in `modules/v4d/samples/font-demo.cpp` is broken into three main helper structs (`TextRenderer`, `StarsRenderer`, `Warp`) and the `FontDemoPlan` itself. We will focus on the structure and the `V4DPlan`.
+The source code in [modules/v4d/samples/font-demo.cpp](../../samples/font-demo.cpp) is broken into three main helper structs (`TextRenderer`, `StarsRenderer`, `Warp`) and the `FontDemoPlan` itself. We will focus on the structure and the `V4DPlan`.
 
 ```cpp
 // Abridged for clarity.

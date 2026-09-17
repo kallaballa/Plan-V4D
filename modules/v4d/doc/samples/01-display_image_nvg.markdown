@@ -1,10 +1,12 @@
 # Tutorial: Displaying an Image with NanoVG
 
+> **← [Introduction](00-intro.markdown) | [Next: Displaying an Image via Framebuffer](02-display_image_fb.markdown) →**
+
 This tutorial demonstrates how to load and display an image using Plan-V4D's NanoVG context. We will create a simple `V4DPlan` that loads an image during its setup phase and then renders it to the screen in a continuous loop.
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in `modules/v4d/samples/display_image_nvg.cpp`.
+Here is the complete source code for this example. You can find it in [modules/v4d/samples/display_image_nvg.cpp](../../samples/display_image_nvg.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>

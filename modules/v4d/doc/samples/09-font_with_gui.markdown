@@ -1,12 +1,14 @@
 # Tutorial: Font Rendering with a GUI
 
+> **← [Custom Source and Sink](08-custom_source_and_sink.markdown) | [Next: Rendering a 3D Cube](10-cube.markdown) →**
+
 A key feature of a graphical application is user interaction. Plan-V4D integrates the popular [Dear ImGui](https://github.com/ocornut/imgui) library to make creating user interfaces simple and efficient.
 
 This tutorial demonstrates how to add a GUI to our font rendering example, allowing the user to change the font size and color in real-time.
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in `modules/v4d/samples/font_with_gui.cpp`.
+Here is the complete source code for this example. You can find it in [modules/v4d/samples/font_with_gui.cpp](../../samples/font_with_gui.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>

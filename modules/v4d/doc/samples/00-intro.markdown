@@ -1,5 +1,7 @@
 # Tutorial: An Introduction to Plan-V4D
 
+> **→ [Next Tutorial](01-display_image_nvg.markdown)**
+
 Welcome to the Plan-V4D tutorial series. Before we dive into the code, it's important to understand the core philosophy behind the framework, as it is different from traditional, sequential programming. This introduction gives you the mental model you need to get the most out of the examples that follow.
 
 ## What is V4D?
@@ -109,6 +111,27 @@ A `V4DPlan` (see `v4d.hpp:422`) inherits from `Plan` and adds four virtual hooks
 
 ## Getting Started
 
-This series of tutorials will guide you from the basics to advanced applications. Each tutorial builds on the concepts of the last, so it is recommended to follow them in order.
+This series of tutorials will guide you from the basics to advanced applications. Each tutorial builds on the concepts of the last, so it is recommended to follow them in order. Every tutorial links to its complete source sample in the [samples directory](../../samples/); all source files are also installed to `/usr/share/plan-v4d/v4d/samples/` on packaged builds.
+
+1. [Tutorial 01 — Displaying an Image with NanoVG](01-display_image_nvg.markdown) (`display_image_nvg.cpp`)
+2. [Tutorial 02 — Displaying an Image via Framebuffer](02-display_image_fb.markdown) (`display_image_fb.cpp`)
+3. [Tutorial 03 — 2D Vector Graphics with NanoVG](03-vector_graphics.markdown) (`vector_graphics.cpp`)
+4. [Tutorial 04 — Combining Vector Graphics and Framebuffer Processing](04-vector_graphics_and_fb.markdown) (`vector_graphics_and_fb.cpp`)
+5. [Tutorial 05 — Direct OpenGL Rendering](05-render_opengl.markdown) (`render_opengl.cpp`)
+6. [Tutorial 06 — Font Rendering](06-font_rendering.markdown) (`font_rendering.cpp`)
+7. [Tutorial 07 — Simple Video Editing](07-video_editing.markdown) (`video_editing.cpp`)
+8. [Tutorial 08 — Custom Source and Sink](08-custom_source_and_sink.markdown) (`custom_source_and_sink.cpp`)
+9. [Tutorial 09 — Font Rendering with a GUI](09-font_with_gui.markdown) (`font_with_gui.cpp`)
+10. [Tutorial 10 — Rendering a 3D Cube](10-cube.markdown) (`cube-demo.cpp`, `cubescene.hpp`)
+11. [Tutorial 11 — Compositing 3D Graphics on Video](11-video.markdown) (`video-demo.cpp`)
+12. [Tutorial 12 — Advanced NanoVG and Processing Pipelines](12-nanovg.markdown) (`nanovg-demo.cpp`)
+13. [Tutorial 13 — Interactive Custom Shaders](13-shader.markdown) (`shader-demo.cpp`)
+14. [Tutorial 14 — Advanced Font Effects Demo](14-font.markdown) (`font-demo.cpp`)
+15. [Tutorial 15 — Pedestrian Detection and Tracking Demo](15-pedestrian.markdown) (`pedestrian-demo.cpp`)
+16. [Tutorial 16 — Sparse Optical Flow Demo](16-optflow.markdown) (`optflow-demo.cpp`)
+17. [Tutorial 17 — Real-Time "Beauty Filter" Demo](17-beauty.markdown) (`beauty-demo.cpp`)
+18. [Tutorial 18 — Parallel Rendering with Multiple OpenGL Contexts](18-many-cubes.markdown) (`many_cubes-demo.cpp`)
+19. [Tutorial 19 — An Interactive Image Carousel](19-image_carousel.markdown) (`image_carousel.cpp`)
+20. [Tutorial 20 — Reimplementing OpenCV's imshow](20-imshow_reimplementation.markdown) (`imshow_reimplementation.cpp`)
 
 Ready to dive in? Let's start by displaying a simple image.

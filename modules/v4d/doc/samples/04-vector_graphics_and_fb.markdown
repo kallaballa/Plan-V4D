@@ -1,12 +1,14 @@
 # Tutorial: Combining Vector Graphics and Framebuffer Processing
 
+> **← [2D Vector Graphics with NanoVG](03-vector_graphics.markdown) | [Next: Direct OpenGL Rendering](05-render_opengl.markdown) →**
+
 A powerful feature of Plan-V4D is the ability to chain different contexts together to create sophisticated rendering and processing pipelines. In this tutorial, we will extend the previous vector graphics example by adding a framebuffer processing step.
 
 First, we will draw the animated googly eyes using the `nvg` context. Then, we will immediately access the resulting image in the framebuffer using the `fb` context and apply a blur effect to it using a standard OpenCV function.
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in `modules/v4d/samples/vector_graphics_and_fb.cpp`.
+Here is the complete source code for this example. You can find it in [modules/v4d/samples/vector_graphics_and_fb.cpp](../../samples/vector_graphics_and_fb.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>

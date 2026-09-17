@@ -1,12 +1,14 @@
 # Tutorial: Parallel Rendering with Multiple OpenGL Contexts
 
+> **← [Real-Time "Beauty Filter" Demo](17-beauty.markdown) | [Next: An Interactive Image Carousel](19-image_carousel.markdown) →**
+
 This tutorial demonstrates one of Plan-V4D's most powerful features for high-performance graphics: the ability to use multiple OpenGL contexts in parallel. By default, all `gl` calls operate on a single context. However, you can instruct V4D to create and manage a pool of contexts, allowing you to execute independent OpenGL commands simultaneously on different worker threads.
 
 We will modify the 3D cube demo to render ten cubes at once, arranged in a circle, with each cube being rendered in its own parallel context.
 
 ## The Code
 
-This example uses the same `cubescene.hpp` from the previous 3D cube tutorials. The main application logic is in `modules/v4d/samples/many_cubes-demo.cpp`.
+This example uses the same [cubescene.hpp](../../samples/cubescene.hpp) from the previous 3D cube tutorials. The main application logic is in [modules/v4d/samples/many_cubes-demo.cpp](../../samples/many_cubes-demo.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>

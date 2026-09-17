@@ -1,5 +1,7 @@
 # Tutorial: Interactive Custom Shaders
 
+> **← [Advanced NanoVG and Processing Pipelines](12-nanovg.markdown) | [Next: Advanced Font Effects Demo](14-font.markdown) →**
+
 This tutorial showcases a complete, interactive application built with Plan-V4D. We will create a Mandelbrot fractal explorer that renders the fractal using a custom GLSL shader, composites it over a video background, and allows for full user control via a GUI and direct mouse interaction (clicking to center, scrolling to zoom).
 
 This example brings together nearly all the concepts covered so far:
@@ -12,7 +14,7 @@ This example brings together nearly all the concepts covered so far:
 
 ## The Code
 
-The source code for this demo is in `modules/v4d/samples/shader-demo.cpp`. It is quite large, so we will focus on the structure of the `V4DPlan` and how it orchestrates the different components. The low-level OpenGL and shader code is encapsulated in a `MandelbrotScene` class, and camera logic is in a `Camera2D` struct, both of which are omitted here for brevity.
+The source code for this demo is in [modules/v4d/samples/shader-demo.cpp](../../samples/shader-demo.cpp). It is quite large, so we will focus on the structure of the `V4DPlan` and how it orchestrates the different components. The low-level OpenGL and shader code is encapsulated in a `MandelbrotScene` class, and camera logic is in a `Camera2D` struct, both of which are omitted here for brevity.
 
 ```cpp
 // Abridged for clarity
@@ -146,4 +148,4 @@ This tutorial demonstrated how to build a complex, fully-featured interactive ap
 - `BranchType::ONCE` lets you emit a one-shot sub-graph in `setup()` for first-frame initialization.
 - The `gui()`, event handlers, and `infer()` methods can all work together on a shared data structure to create a responsive application.
 
-This concludes the main tutorial series. The remaining demos (`font`, `pedestrian`, `optflow`, `beauty`, `many-cubes`) use the concepts you have learned here in various combinations to create more complex applications. You are encouraged to explore their source code to see more examples of Plan-V4D in action.
+This concludes the main tutorial series. The remaining demos (`font`, `pedestrian`, `optflow`, `beauty`, `many-cubes`, `image-carousel`, `imshow-reimplementation`) use the concepts you have learned here in various combinations to create more complex applications. You are encouraged to explore their source code to see more examples of Plan-V4D in action.

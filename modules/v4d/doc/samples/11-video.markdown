@@ -1,10 +1,12 @@
 # Tutorial: Compositing 3D Graphics on Video
 
+> **← [Rendering a 3D Cube](10-cube.markdown) | [Next: Advanced NanoVG and Processing Pipelines](12-nanovg.markdown) →**
+
 This tutorial demonstrates a powerful capability of Plan-V4D: compositing. We will combine the concepts from the video processing and 3D rendering tutorials to create a pipeline that reads a video, renders a rotating 3D cube on top of it, and saves the result to a new file.
 
 ## The Code
 
-This example uses the same `cubescene.hpp` from the previous tutorial to manage the low-level OpenGL rendering. The main application logic is in `modules/v4d/samples/video-demo.cpp`.
+This example uses the same [cubescene.hpp](../../samples/cubescene.hpp) from the previous tutorial to manage the low-level OpenGL rendering. The main application logic is in [modules/v4d/samples/video-demo.cpp](../../samples/video-demo.cpp).
 
 ```cpp
 // modules/v4d/samples/video-demo.cpp
