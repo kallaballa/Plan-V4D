@@ -8,33 +8,33 @@
 
 | # | Tutorial | Topics |
 |---|----------|--------|
-| 00 | [An Introduction to Plan-V4D](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/00-intro.markdown) | Core philosophy, Record Once/Replay Forever, edge-calls, contexts |
-| 01 | [Displaying an Image with NanoVG](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/01-display_image_nvg.markdown) | `V4DPlan`, `setup()`/`infer()`, `nvg` context, NanoVG image loading |
-| 02 | [Displaying an Image via Framebuffer](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/02-display_image_fb.markdown) | `plain` context, `fb` context, direct framebuffer access, `DISPLAY_MODE` |
-| 03 | [2D Vector Graphics with NanoVG](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/03-vector_graphics.markdown) | NanoVG drawing API, gradients, time-based animation |
-| 04 | [Combining Vector Graphics and Framebuffer Processing](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/04-vector_graphics_and_fb.markdown) | Context chaining, `boxFilter` on framebuffer |
-| 05 | [Direct OpenGL Rendering](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/05-render_opengl.markdown) | `gl` context, `V()` edge-call, OpenGL state preservation |
-| 06 | [Font Rendering](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/06-font_rendering.markdown) | `R()` edge-call, NanoVG text API, custom font loading |
-| 07 | [Simple Video Editing](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/07-video_editing.markdown) | `Source`/`Sink`, `capture()`, `write()` |
-| 08 | [Custom Source and Sink](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/08-custom_source_and_sink.markdown) | Lambda sources/sinks, `branch()` conditional logic |
-| 09 | [Font Rendering with a GUI](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/09-font_with_gui.markdown) | `gui()` method, `imgui` context, `RWS`/`CS` shared edges |
-| 10 | [Rendering a 3D Cube](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/10-cube.markdown) | `teardown()`, separation of concerns, `set()`/`clear()` |
-| 11 | [Compositing 3D Graphics on Video](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/11-video.markdown) | Compositing pipeline, `capture()` as background |
-| 12 | [Advanced NanoVG and Processing Pipelines](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/12-nanovg.markdown) | `assign()`, `F()`, function wrappers, hue-shifting chain |
-| 13 | [Interactive Custom Shaders](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/13-shader.markdown) | `E<T>` events, GLSL shaders, `branch` stateful control flow |
-| 14 | [Advanced Font Effects Demo](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/14-font.markdown) | Render-to-texture, conditional execution, performance optimization |
-| 15 | [Pedestrian Detection and Tracking Demo](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/15-pedestrian.markdown) | HOG detection, KCF tracking, `branch`/`elseBranch` |
-| 16 | [Sparse Optical Flow Demo](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/16-optflow.markdown) | FAST features, Lucas-Kanade, multi-layer compositing |
-| 17 | [Real-Time "Beauty Filter" Demo](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/17-beauty.markdown) | Sub-plans (`_sub`/`subInfer`), DNN models, `MultiBandBlender` |
-| 18 | [Parallel Rendering with Multiple OpenGL Contexts](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/18-many-cubes.markdown) | `gl<-1>` multi-context, parallel OpenGL execution |
-| 19 | [An Interactive Image Carousel](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/19-image_carousel.markdown) | `createImageRGBA`, `_shared`, event lists, perspective layout |
-| 20 | [Reimplementing OpenCV's imshow](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/20-imshow_reimplementation.markdown) | Full-featured viewer, deep zoom, ImGui menus, file dialogs |
+| 00 | [An Introduction to Plan-V4D](#tutorial-00--an-introduction-to-plan-v4d) | Core philosophy, Record Once/Replay Forever, edge-calls, contexts |
+| 01 | [Displaying an Image with NanoVG](#tutorial-01--displaying-an-image-with-nanovg) | `V4DPlan`, `setup()`/`infer()`, `nvg` context, NanoVG image loading |
+| 02 | [Displaying an Image via Framebuffer](#tutorial-02--displaying-an-image-via-framebuffer) | `plain` context, `fb` context, direct framebuffer access, `DISPLAY_MODE` |
+| 03 | [2D Vector Graphics with NanoVG](#tutorial-03--2d-vector-graphics-with-nanovg) | NanoVG drawing API, gradients, time-based animation |
+| 04 | [Combining Vector Graphics and Framebuffer Processing](#tutorial-04--combining-vector-graphics-and-framebuffer-processing) | Context chaining, `boxFilter` on framebuffer |
+| 05 | [Direct OpenGL Rendering](#tutorial-05--direct-opengl-rendering) | `gl` context, `V()` edge-call, OpenGL state preservation |
+| 06 | [Font Rendering](#tutorial-06--font-rendering) | `R()` edge-call, NanoVG text API, custom font loading |
+| 07 | [Simple Video Editing](#tutorial-07--simple-video-editing) | `Source`/`Sink`, `capture()`, `write()` |
+| 08 | [Custom Source and Sink](#tutorial-08--custom-source-and-sink) | Lambda sources/sinks, `branch()` conditional logic |
+| 09 | [Font Rendering with a GUI](#tutorial-09--font-rendering-with-a-gui) | `gui()` method, `imgui` context, `RWS`/`CS` shared edges |
+| 10 | [Rendering a 3D Cube](#tutorial-10--rendering-a-3d-cube) | `teardown()`, separation of concerns, `set()`/`clear()` |
+| 11 | [Compositing 3D Graphics on Video](#tutorial-11--compositing-3d-graphics-on-video) | Compositing pipeline, `capture()` as background |
+| 12 | [Advanced NanoVG and Processing Pipelines](#tutorial-12--advanced-nanovg-and-processing-pipelines) | `assign()`, `F()`, function wrappers, hue-shifting chain |
+| 13 | [Interactive Custom Shaders](#tutorial-13--interactive-custom-shaders) | `E<T>` events, GLSL shaders, `branch` stateful control flow |
+| 14 | [Advanced Font Effects Demo](#tutorial-14--advanced-font-effects-demo) | Render-to-texture, conditional execution, performance optimization |
+| 15 | [Pedestrian Detection and Tracking Demo](#tutorial-15--pedestrian-detection-and-tracking-demo) | HOG detection, KCF tracking, `branch`/`elseBranch` |
+| 16 | [Sparse Optical Flow Demo](#tutorial-16--sparse-optical-flow-demo) | FAST features, Lucas-Kanade, multi-layer compositing |
+| 17 | [Real-Time "Beauty Filter" Demo](#tutorial-17--real-time-beauty-filter-demo) | Sub-plans (`_sub`/`subInfer`), DNN models, `MultiBandBlender` |
+| 18 | [Parallel Rendering with Multiple OpenGL Contexts](#tutorial-18--parallel-rendering-with-multiple-opengl-contexts) | `gl<-1>` multi-context, parallel OpenGL execution |
+| 19 | [An Interactive Image Carousel](#tutorial-19--an-interactive-image-carousel) | `createImageRGBA`, `_shared`, event lists, perspective layout |
+| 20 | [Reimplementing OpenCV's imshow](#tutorial-20--reimplementing-opencvs-imshow) | Full-featured viewer, deep zoom, ImGui menus, file dialogs |
 
 ---
 
 # Tutorial 00 — An Introduction to Plan-V4D
 
-> **Source:** [`00-intro.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/00-intro.markdown) | **Next:** [Displaying an Image with NanoVG](#tutorial-01--displaying-an-image-with-nanovg)
+> **Next:** [Displaying an Image with NanoVG](#tutorial-01--displaying-an-image-with-nanovg)
 
 Welcome to the Plan-V4D tutorial series. Before we dive into the code, it's important to understand the core philosophy behind the framework, as it is different from traditional, sequential programming. This introduction gives you the mental model you need to get the most out of the examples that follow.
 
@@ -174,7 +174,7 @@ Ready to dive in? Let's start by displaying a simple image.
 
 # Tutorial 01 — Displaying an Image with NanoVG
 
-> **Source:** [`01-display_image_nvg.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/01-display_image_nvg.markdown) | [Introduction](#tutorial-00--an-introduction-to-plan-v4d) | [Next: Displaying an Image via Framebuffer](#tutorial-02--displaying-an-image-via-framebuffer)
+> [Introduction](#tutorial-00--an-introduction-to-plan-v4d) | [Next: Displaying an Image via Framebuffer](#tutorial-02--displaying-an-image-via-framebuffer)
 
 This tutorial demonstrates how to load and display an image using Plan-V4D's NanoVG context. We will create a simple `V4DPlan` that loads an image during its setup phase and then renders it to the screen in a continuous loop.
 
@@ -278,7 +278,7 @@ In this tutorial, we've seen how to:
 
 # Tutorial 02 — Displaying an Image via Framebuffer
 
-> **Source:** [`02-display_image_fb.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/02-display_image_fb.markdown) | [Displaying an Image with NanoVG](#tutorial-01--displaying-an-image-with-nanovg) | [Next: 2D Vector Graphics with NanoVG](#tutorial-03--2d-vector-graphics-with-nanovg)
+> [Displaying an Image with NanoVG](#tutorial-01--displaying-an-image-with-nanovg) | [Next: 2D Vector Graphics with NanoVG](#tutorial-03--2d-vector-graphics-with-nanovg)
 
 This tutorial explains how to display an image by writing its data directly to the window's framebuffer. This method offers a more direct way to put pixels on the screen compared to using a graphics library like NanoVG.
 
@@ -349,7 +349,7 @@ This flag tells V4D that we intend to use it primarily for direct framebuffer re
 
 # Tutorial 03 — 2D Vector Graphics with NanoVG
 
-> **Source:** [`03-vector_graphics.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/03-vector_graphics.markdown) | [Displaying an Image via Framebuffer](#tutorial-02--displaying-an-image-via-framebuffer) | [Next: Combining Vector Graphics and Framebuffer Processing](#tutorial-04--combining-vector-graphics-and-framebuffer-processing)
+> [Displaying an Image via Framebuffer](#tutorial-02--displaying-an-image-via-framebuffer) | [Next: Combining Vector Graphics and Framebuffer Processing](#tutorial-04--combining-vector-graphics-and-framebuffer-processing)
 
 Plan-V4D provides a powerful 2D vector graphics API through its integration with NanoVG. This tutorial demonstrates how to use the `nvg` context to draw shapes, apply gradients, and create simple animations. We will walk through an example that draws a pair of animated googly eyes.
 
@@ -457,7 +457,7 @@ A simple time-based animation is created using a `static` variable `start` that 
 
 # Tutorial 04 — Combining Vector Graphics and Framebuffer Processing
 
-> **Source:** [`04-vector_graphics_and_fb.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/04-vector_graphics_and_fb.markdown) | [2D Vector Graphics with NanoVG](#tutorial-03--2d-vector-graphics-with-nanovg) | [Next: Direct OpenGL Rendering](#tutorial-05--direct-opengl-rendering)
+> [2D Vector Graphics with NanoVG](#tutorial-03--2d-vector-graphics-with-nanovg) | [Next: Direct OpenGL Rendering](#tutorial-05--direct-opengl-rendering)
 
 A powerful feature of Plan-V4D is the ability to chain different contexts together. We will draw animated googly eyes using the `nvg` context, then immediately access the resulting image in the framebuffer using the `fb` context and apply a blur effect.
 
@@ -498,7 +498,7 @@ The magic happens within the `infer()` method. Two contexts are called in sequen
 
 # Tutorial 05 — Direct OpenGL Rendering
 
-> **Source:** [`05-render_opengl.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/05-render_opengl.markdown) | [Combining Vector Graphics and Framebuffer Processing](#tutorial-04--combining-vector-graphics-and-framebuffer-processing) | [Next: Font Rendering](#tutorial-06--font-rendering)
+> [Combining Vector Graphics and Framebuffer Processing](#tutorial-04--combining-vector-graphics-and-framebuffer-processing) | [Next: Font Rendering](#tutorial-06--font-rendering)
 
 While V4D provides high-level contexts like `nvg` and `fb`, it also gives you direct access to the underlying OpenGL API through the `gl` context. This tutorial demonstrates the most basic use: clearing the screen to a solid blue color.
 
@@ -570,7 +570,7 @@ This creates a graph node that calls `glClear` with the `GL_COLOR_BUFFER_BIT` fl
 
 # Tutorial 06 — Font Rendering
 
-> **Source:** [`06-font_rendering.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/06-font_rendering.markdown) | [Direct OpenGL Rendering](#tutorial-05--direct-opengl-rendering) | [Next: Simple Video Editing](#tutorial-07--simple-video-editing)
+> [Direct OpenGL Rendering](#tutorial-05--direct-opengl-rendering) | [Next: Simple Video Editing](#tutorial-07--simple-video-editing)
 
 Text is a fundamental part of most graphical applications. Plan-V4D makes font rendering easy by leveraging NanoVG. This tutorial shows how to load fonts and draw text to the screen.
 
@@ -645,7 +645,7 @@ void setup() override {
 
 # Tutorial 07 — Simple Video Editing
 
-> **Source:** [`07-video_editing.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/07-video_editing.markdown) | [Font Rendering](#tutorial-06--font-rendering) | [Next: Custom Source and Sink](#tutorial-08--custom-source-and-sink)
+> [Font Rendering](#tutorial-06--font-rendering) | [Next: Custom Source and Sink](#tutorial-08--custom-source-and-sink)
 
 Plan-V4D provides a simple yet powerful source/sink architecture for building video processing pipelines. This tutorial demonstrates how to build a simple video editor that reads from a video file, renders text on top of each frame, and saves the result to a new video file.
 
@@ -725,7 +725,7 @@ The three-step process:
 
 # Tutorial 08 — Custom Source and Sink
 
-> **Source:** [`08-custom_source_and_sink.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/08-custom_source_and_sink.markdown) | [Simple Video Editing](#tutorial-07--simple-video-editing) | [Next: Font Rendering with a GUI](#tutorial-09--font-rendering-with-a-gui)
+> [Simple Video Editing](#tutorial-07--simple-video-editing) | [Next: Font Rendering with a GUI](#tutorial-09--font-rendering-with-a-gui)
 
 While Plan-V4D provides convenient `Source` and `Sink` objects for file I/O, you can also create your own from scratch. This tutorial demonstrates creating a procedural rainbow source, a pass-through sink, and conditional branching within a `V4DPlan`.
 
@@ -776,7 +776,7 @@ void infer() override {
 
 # Tutorial 09 — Font Rendering with a GUI
 
-> **Source:** [`09-font_with_gui.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/09-font_with_gui.markdown) | [Custom Source and Sink](#tutorial-08--custom-source-and-sink) | [Next: Rendering a 3D Cube](#tutorial-10--rendering-a-3d-cube)
+> [Custom Source and Sink](#tutorial-08--custom-source-and-sink) | [Next: Rendering a 3D Cube](#tutorial-10--rendering-a-3d-cube)
 
 This tutorial demonstrates how to add a GUI to our font rendering example, allowing the user to change the font size and color in real-time using [Dear ImGui](https://github.com/ocornut/imgui).
 
@@ -852,7 +852,7 @@ A `static struct` ensures a single instance shared between the GUI and rendering
 
 # Tutorial 10 — Rendering a 3D Cube
 
-> **Source:** [`10-cube.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/10-cube.markdown) | [Font Rendering with a GUI](#tutorial-09--font-rendering-with-a-gui) | [Next: Compositing 3D Graphics on Video](#tutorial-11--compositing-3d-graphics-on-video)
+> [Font Rendering with a GUI](#tutorial-09--font-rendering-with-a-gui) | [Next: Compositing 3D Graphics on Video](#tutorial-11--compositing-3d-graphics-on-video)
 
 This tutorial demonstrates how to structure a more complex rendering application by separating the low-level OpenGL logic from the main application `V4DPlan`, and introduces the `teardown` phase.
 
@@ -944,7 +944,7 @@ clear();
 
 # Tutorial 11 — Compositing 3D Graphics on Video
 
-> **Source:** [`11-video.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/11-video.markdown) | [Rendering a 3D Cube](#tutorial-10--rendering-a-3d-cube) | [Next: Advanced NanoVG and Processing Pipelines](#tutorial-12--advanced-nanovg-and-processing-pipelines)
+> [Rendering a 3D Cube](#tutorial-10--rendering-a-3d-cube) | [Next: Advanced NanoVG and Processing Pipelines](#tutorial-12--advanced-nanovg-and-processing-pipelines)
 
 This tutorial demonstrates compositing: reading a video, rendering a rotating 3D cube on top of it, and saving the result.
 
@@ -981,7 +981,7 @@ The sequential execution of contexts is the foundation of building complex effec
 
 # Tutorial 12 — Advanced NanoVG and Processing Pipelines
 
-> **Source:** [`12-nanovg.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/12-nanovg.markdown) | [Compositing 3D Graphics on Video](#tutorial-11--compositing-3d-graphics-on-video) | [Next: Interactive Custom Shaders](#tutorial-13--interactive-custom-shaders)
+> [Compositing 3D Graphics on Video](#tutorial-11--compositing-3d-graphics-on-video) | [Next: Interactive Custom Shaders](#tutorial-13--interactive-custom-shaders)
 
 This tutorial showcases a complex, multi-stage image processing pipeline: reading video, applying a real-time color-shifting effect, and overlaying a custom NanoVG widget.
 
@@ -1052,7 +1052,7 @@ The core is a chain of `plain` contexts:
 
 # Tutorial 13 — Interactive Custom Shaders
 
-> **Source:** [`13-shader.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/13-shader.markdown) | [Advanced NanoVG and Processing Pipelines](#tutorial-12--advanced-nanovg-and-processing-pipelines) | [Next: Advanced Font Effects Demo](#tutorial-14--advanced-font-effects-demo)
+> [Advanced NanoVG and Processing Pipelines](#tutorial-12--advanced-nanovg-and-processing-pipelines) | [Next: Advanced Font Effects Demo](#tutorial-14--advanced-font-effects-demo)
 
 This tutorial showcases a complete, interactive application: a Mandelbrot fractal explorer that renders the fractal using a custom GLSL shader, composites it over a video background, and allows full user control via a GUI and mouse interaction.
 
@@ -1137,7 +1137,7 @@ public:
 
 # Tutorial 14 — Advanced Font Effects Demo
 
-> **Source:** [`14-font.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/14-font.markdown) | [Interactive Custom Shaders](#tutorial-13--interactive-custom-shaders) | [Next: Pedestrian Detection and Tracking Demo](#tutorial-15--pedestrian-detection-and-tracking-demo)
+> [Interactive Custom Shaders](#tutorial-13--interactive-custom-shaders) | [Next: Pedestrian Detection and Tracking Demo](#tutorial-15--pedestrian-detection-and-tracking-demo)
 
 This tutorial breaks down a complex, "Star Wars"-style opening crawl effect. It demonstrates how to structure a high-performance application by separating logic into reusable components and using conditional execution to avoid unnecessary work.
 
@@ -1230,7 +1230,7 @@ fb<3>(&Warp::perform, RWS(warp_), RS(text_.rendering_), RS(stars_.rendering_));
 
 # Tutorial 15 — Pedestrian Detection and Tracking Demo
 
-> **Source:** [`15-pedestrian.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/15-pedestrian.markdown) | [Advanced Font Effects Demo](#tutorial-14--advanced-font-effects-demo) | [Next: Sparse Optical Flow Demo](#tutorial-16--sparse-optical-flow-demo)
+> [Advanced Font Effects Demo](#tutorial-14--advanced-font-effects-demo) | [Next: Sparse Optical Flow Demo](#tutorial-16--sparse-optical-flow-demo)
 
 This tutorial implements a classic "detect-then-track" strategy for finding pedestrians: an efficient pattern for real-time object tracking using HOG detection and KCF tracking.
 
@@ -1286,7 +1286,7 @@ A final chain composites the visualization: `Tracking::save` (smoothing), `Objec
 
 # Tutorial 16 — Sparse Optical Flow Demo
 
-> **Source:** [`16-optflow.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/16-optflow.markdown) | [Pedestrian Detection and Tracking Demo](#tutorial-15--pedestrian-detection-and-tracking-demo) | [Next: Real-Time "Beauty Filter" Demo](#tutorial-17--real-time-beauty-filter-demo)
+> [Pedestrian Detection and Tracking Demo](#tutorial-15--pedestrian-detection-and-tracking-demo) | [Next: Real-Time "Beauty Filter" Demo](#tutorial-17--real-time-beauty-filter-demo)
 
 This tutorial explores a stylized representation of sparse optical flow in a video — a masterclass in structuring a complex real-time application.
 
@@ -1341,7 +1341,7 @@ The `branch` with `BranchType::SINGLE` skips the expensive visualization when a 
 
 # Tutorial 17 — Real-Time "Beauty Filter" Demo
 
-> **Source:** [`17-beauty.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/17-beauty.markdown) | [Sparse Optical Flow Demo](#tutorial-16--sparse-optical-flow-demo) | [Next: Parallel Rendering with Multiple OpenGL Contexts](#tutorial-18--parallel-rendering-with-multiple-opengl-contexts)
+> [Sparse Optical Flow Demo](#tutorial-16--sparse-optical-flow-demo) | [Next: Parallel Rendering with Multiple OpenGL Contexts](#tutorial-18--parallel-rendering-with-multiple-opengl-contexts)
 
 This is the most architecturally complex demo: a real-time "beauty filter" that detects facial landmarks and applies different image adjustments to the skin, eyes, and lips, then blends them back together. It introduces **sub-plans**.
 
@@ -1415,7 +1415,7 @@ public:
 
 # Tutorial 18 — Parallel Rendering with Multiple OpenGL Contexts
 
-> **Source:** [`18-many-cubes.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/18-many-cubes.markdown) | [Real-Time "Beauty Filter" Demo](#tutorial-17--real-time-beauty-filter-demo) | [Next: An Interactive Image Carousel](#tutorial-19--an-interactive-image-carousel)
+> [Real-Time "Beauty Filter" Demo](#tutorial-17--real-time-beauty-filter-demo) | [Next: An Interactive Image Carousel](#tutorial-19--an-interactive-image-carousel)
 
 This tutorial demonstrates one of Plan-V4D's most powerful high-performance features: the ability to use multiple OpenGL contexts in parallel. We render ten cubes at once, each in its own parallel context.
 
@@ -1489,7 +1489,7 @@ All ten contexts operate on the *same* `CubeScene` object. The `RW(scene_)` (in 
 
 # Tutorial 19 — An Interactive Image Carousel
 
-> **Source:** [`19-image_carousel.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/19-image_carousel.markdown) | [Parallel Rendering with Multiple OpenGL Contexts](#tutorial-18--parallel-rendering-with-multiple-opengl-contexts) | [Next: Reimplementing OpenCV's imshow](#tutorial-20--reimplementing-opencvs-imshow)
+> [Parallel Rendering with Multiple OpenGL Contexts](#tutorial-18--parallel-rendering-with-multiple-opengl-contexts) | [Next: Reimplementing OpenCV's imshow](#tutorial-20--reimplementing-opencvs-imshow)
 
 This tutorial builds a self-contained image gallery application: it loads images from files and directories, and displays them as an animated carousel with glossy cards, reflections, smooth transitions, and a minimal ImGui HUD.
 
@@ -1595,7 +1595,7 @@ Each card is drawn with stacked layers: reflection (scissored, flipped), shadow,
 
 # Tutorial 20 — Reimplementing OpenCV's imshow
 
-> **Source:** [`20-imshow_reimplementation.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/20-imshow_reimplementation.markdown) | [An Interactive Image Carousel](#tutorial-19--an-interactive-image-carousel)
+> [An Interactive Image Carousel](#tutorial-19--an-interactive-image-carousel)
 
 This tutorial dissects the most feature-complete sample: a reimplementation of OpenCV's Qt-style `imshow` window, with 1:1 display, zoom around the cursor, panning, reset-to-fit, and the famous "deep zoom" mode that overlays every pixel's RGB value.
 
