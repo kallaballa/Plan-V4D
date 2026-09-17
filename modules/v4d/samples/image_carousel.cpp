@@ -78,7 +78,9 @@ class ImageCarousel : public V4DPlan {
     Event<Mouse>    click_    = E<Mouse>(Mouse::PRESS, Mouse::LEFT);
 
 public:
-    ImageCarousel() { }
+    ImageCarousel() {
+      _shared(state_);
+    }
 
     explicit ImageCarousel(const std::vector<std::string>& paths) {
 	_shared(state_);
@@ -569,8 +571,10 @@ private:
         cards_.push_back(std::move(c));
     }
 
-    CarouselState state_;
+    static CarouselState state_;
 };
+
+CarouselState ImageCarousel::state_;
 
 int main(int argc, char** argv) {
     cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
