@@ -2,36 +2,6 @@
 
 > A comprehensive, hands-on guide to the Plan-V4D framework — from displaying your first image to building a full-featured `imshow` reimplementation.
 
----
-
-## Table of Contents
-
-| # | Tutorial | Topics |
-|---|----------|--------|
-| 00 | [An Introduction to Plan-V4D](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/00-intro.markdown) | Core philosophy, Record Once/Replay Forever, edge-calls, contexts |
-| 01 | [Displaying an Image with NanoVG](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/01-display_image_nvg.markdown) | `V4DPlan`, `setup()`/`infer()`, `nvg` context, NanoVG image loading |
-| 02 | [Displaying an Image via Framebuffer](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/02-display_image_fb.markdown) | `plain` context, `fb` context, direct framebuffer access, `DISPLAY_MODE` |
-| 03 | [2D Vector Graphics with NanoVG](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/03-vector_graphics.markdown) | NanoVG drawing API, gradients, time-based animation |
-| 04 | [Combining Vector Graphics and Framebuffer Processing](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/04-vector_graphics_and_fb.markdown) | Context chaining, `boxFilter` on framebuffer |
-| 05 | [Direct OpenGL Rendering](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/05-render_opengl.markdown) | `gl` context, `V()` edge-call, OpenGL state preservation |
-| 06 | [Font Rendering](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/06-font_rendering.markdown) | `R()` edge-call, NanoVG text API, custom font loading |
-| 07 | [Simple Video Editing](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/07-video_editing.markdown) | `Source`/`Sink`, `capture()`, `write()` |
-| 08 | [Custom Source and Sink](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/08-custom_source_and_sink.markdown) | Lambda sources/sinks, `branch()` conditional logic |
-| 09 | [Font Rendering with a GUI](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/09-font_with_gui.markdown) | `gui()` method, `imgui` context, `RWS`/`CS` shared edges |
-| 10 | [Rendering a 3D Cube](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/10-cube.markdown) | `teardown()`, separation of concerns, `set()`/`clear()` |
-| 11 | [Compositing 3D Graphics on Video](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/11-video.markdown) | Compositing pipeline, `capture()` as background |
-| 12 | [Advanced NanoVG and Processing Pipelines](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/12-nanovg.markdown) | `assign()`, `F()`, function wrappers, hue-shifting chain |
-| 13 | [Interactive Custom Shaders](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/13-shader.markdown) | `E<T>` events, GLSL shaders, `branch` stateful control flow |
-| 14 | [Advanced Font Effects Demo](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/14-font.markdown) | Render-to-texture, conditional execution, performance optimization |
-| 15 | [Pedestrian Detection and Tracking Demo](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/15-pedestrian.markdown) | HOG detection, KCF tracking, `branch`/`elseBranch` |
-| 16 | [Sparse Optical Flow Demo](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/16-optflow.markdown) | FAST features, Lucas-Kanade, multi-layer compositing |
-| 17 | [Real-Time "Beauty Filter" Demo](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/17-beauty.markdown) | Sub-plans (`_sub`/`subInfer`), DNN models, `MultiBandBlender` |
-| 18 | [Parallel Rendering with Multiple OpenGL Contexts](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/18-many-cubes.markdown) | `gl<-1>` multi-context, parallel OpenGL execution |
-| 19 | [An Interactive Image Carousel](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/19-image_carousel.markdown) | `createImageRGBA`, `_shared`, event lists, perspective layout |
-| 20 | [Reimplementing OpenCV's imshow](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/20-imshow_reimplementation.markdown) | Full-featured viewer, deep zoom, ImGui menus, file dialogs |
-
----
-
 # Tutorial 00 — An Introduction to Plan-V4D
 
 > **Source:** [`00-intro.markdown`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/doc/samples/00-intro.markdown) | **Next:** [Displaying an Image with NanoVG](#tutorial-01--displaying-an-image-with-nanovg)
