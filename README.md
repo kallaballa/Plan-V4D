@@ -325,6 +325,24 @@ sudo apt update
 sudo apt install plan-v4d-libs plan-v4d-dev plan-v4d-data plan-v4d-samples
 ```
 
+## Testing the packages
+
+Before publishing, the OBS-built binaries can be smoke-tested in real VMs with
+[`obs/qemu-test.sh`](obs/qemu-test.sh) (boots each target distro in QEMU,
+installs the packages, and runs a link/ABI/GUI test suite — details in
+[`obs/README.md`](obs/README.md)):
+
+```bash
+./obs/qemu-test.sh <target>    # tumbleweed | fedora | ubuntu | raspbian
+./obs/qemu-test.sh all         # run all four sequentially
+```
+
+Base images are downloaded automatically on first run (into
+`$QEMU_WORK_ROOT/images`, default `/tmp/opencode/qemu/images`); populate
+`obs/results/<TARGET>` with `./osc-build.sh --results` first so there are
+packages to install. The arm64 Raspbian target additionally needs
+`qemu-system-aarch64` and a `QEMU_EFI.fd` firmware installed on the host.
+
 ## License
 
 Apache 2.0, like the rest of OpenCV — see [LICENSE](LICENSE). Vendored
