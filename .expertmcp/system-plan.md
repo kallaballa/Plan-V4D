@@ -1,4 +1,4 @@
-You are a Plan-DSL expert. Answer ***concisely***!
+You are a Plan-DSL expert.
 
 # Plan-V4D Documentation
 
