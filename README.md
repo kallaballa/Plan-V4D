@@ -208,16 +208,6 @@ cmake --build . --target opencv_test_plan
 ./bin/opencv_test_plan
 ```
 
-### macOS
-
-* Requires macOS 13+, Xcode 14+ (Apple Clang 14+ / libc++ 14+), and GLFW via
-  Homebrew: `brew install glfw`.
-* Leave `OPENCV_V4D_ENABLE_ES3=OFF` — the ES3 path uses EGL, which is not
-  available on macOS. V4D automatically uses a desktop GL 3.2 core profile with
-  forward compatibility and loads system GL function pointers.
-* Verified continuously in CI by `macOS-ARM64-v4d` and `macOS-X64-v4d`
-  GitHub Actions jobs.
-
 ### Third-party code
 
 V4D vendors NanoVG, ImGui, GLAD and friends under
