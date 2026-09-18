@@ -349,8 +349,8 @@ Apache 2.0, like the rest of OpenCV — see [LICENSE](LICENSE). Vendored
 third-party code under `modules/v4d/third/` is licensed under its own terms.
 
 ## Attribution
-By far the biggest thank you goes to: [Marius Kintel](https://github.com/kintel/)
-Second: [Mateusz Jablonski](https://github.com/JablonskiMateusz) (Intel)
+* By far the biggest thank you goes to: [Marius Kintel](https://github.com/kintel/)
+* Second: [Mateusz Jablonski](https://github.com/JablonskiMateusz) (Intel)
 
 * The author of the bunny video is the Blender Foundation ([Original video](https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm)).
 * The author of the dance video is GNI Dance Company ([Original video](https://www.youtube.com/watch?v=yg6LZtNeO_8)).
