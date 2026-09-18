@@ -3,7 +3,7 @@ set -euo pipefail
 
 # regenerate.sh — One-shot regeneration of all Plan-V4D OBS packages
 #
-# After making changes to the project (this repo, branch `rollback`) and/or the
+# After making changes to the project (this repo, branch `beta`) and/or the
 # OpenCV checkout ($OPENCV_DIR, branch `GCV`), run this script to:
 #   1. regenerate the source tarballs from the local git checkouts,
 #   2. update all four OBS packages (openSUSE_Tumbleweed, Fedora, Ubuntu_24.04,
@@ -22,7 +22,7 @@ set -euo pipefail
 # Prerequisites:
 #   - osc installed and configured
 #   - git available
-#   - local Plan-V4D checkout (this repo) on branch 'rollback'
+#   - local Plan-V4D checkout (this repo) on branch 'beta'
 #   - OpenCV checkout at $OPENCV_DIR (branch GCV) or will be cloned
 
 # ====================================================================
@@ -31,7 +31,7 @@ set -euo pipefail
 VERSION="${VERSION:-4.13.0~beta~kallaballa}"
 REVISION="${REVISION:-1}"
 OPENCV_BRANCH="${OPENCV_BRANCH:-GCV}"
-PLANV4D_BRANCH="${PLANV4D_BRANCH:-rollback}"
+PLANV4D_BRANCH="${PLANV4D_BRANCH:-beta}"
 OPENCV_REPO_URL="${OPENCV_REPO_URL:-https://github.com/kallaballa/opencv.git}"
 PLANV4D_REPO_URL="${PLANV4D_REPO_URL:-https://github.com/kallaballa/Plan-V4D.git}"
 

@@ -28,7 +28,6 @@ obs/
 ├── osc-setup.sh               # create OBS projects/packages + initial upload
 ├── regenerate.sh              # rebuild source tarballs, commit, trigger builds
 ├── osc-build.sh               # monitor / fetch / rebuild / submit
-├── local-test-*.sh            # containerized rpmbuild/dpkg-buildpackage sanity checks
 └── qemu-test/
     ├── qemu-test.sh           # boot real VMs & install+smoke-test the packages
     └── remote-test.sh         # test script executed inside each guest
@@ -64,22 +63,6 @@ obs/
    ```
 
 4. **Test the built packages** (see below).
-
-## Local container builds (`local-test-*.sh`)
-
-Simulates the OBS build locally with `podman` before uploading — useful for
-iterating on the spec / debian files:
-
-```sh
-./local-test-tumbleweed.sh    # rpmbuild in opensuse/tumbleweed container
-./local-test-fedora.sh        # rpmbuild in fedora:latest container
-./local-test-ubuntu.sh        # dpkg-buildpackage in ubuntu:24.04 container
-```
-
-Each clones the `GCV` opencv and `rollback` Plan-V4D branches, tarballs them,
-and builds inside the container. Add `--shell` to drop into a build shell for
-debugging. **Note:** `local-test-*.sh` become redundant once you have real OBS
-builds; they are primarily a spec/debian-format check.
 
 ## QEMU testing (`qemu-test.sh`)
 
@@ -151,5 +134,5 @@ Environment variables honored by the scripts:
 | `REVISION` | regenerate.sh | `1` |
 | `OPENCV_DIR` | regenerate.sh | `~/devel/opencv` or cloned |
 | `OPENCV_BRANCH` | regenerate.sh | `GCV` |
-| `PLANV4D_BRANCH` | regenerate.sh | `rollback` |
+| `PLANV4D_BRANCH` | regenerate.sh | `beta` |
 | `QEMU_WORK_ROOT` | qemu-test.sh | `/tmp/opencode/qemu` |
