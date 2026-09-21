@@ -392,10 +392,3 @@ third-party code under `modules/v4d/third/` is licensed under its own terms.
 * The author of the video used in the beauty-demo video is Kristen Leanne ([Original video](https://www.youtube.com/watch?v=hUAT8Jm_dvw)).
 * The author of cxxpool is Copyright (c) 2022 Christian Blume: ([LICENSE](https://github.com/bloomen/cxxpool/blob/master/LICENSE))
 * The author of the roboto font family is Google Inc. ([LICENSE](https://github.com/googlefonts/roboto/blob/main/LICENSE))
-
-=======
-In order to keep a clean overview containing all contributed modules, the following files need to be created/adapted:
-
-1. Update the README.md file under the modules folder. Here, you add your model with a single-line description.
-
-2. Add a README.md inside your own module folder. This README explains which functionality (separate functions) is available, links to the corresponding samples, and explains in somewhat more detail what the module is expected to do. If any extra requirements are needed to build the module without problems, add them here also.
