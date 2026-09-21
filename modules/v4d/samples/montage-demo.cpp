@@ -137,7 +137,6 @@ public:
     plain(RW(localState_) = RS(globalState_));
     branch(R(localState_.zoomed_) == V(-1));
     {
-
       for (size_t i = 0; i < plans_.size(); ++i) {
         branch(R(localState_.focus_) == V(int32_t(i)));
         {
