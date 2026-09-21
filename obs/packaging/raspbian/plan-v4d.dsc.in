@@ -1,0 +1,28 @@
+Format: 3.0 (quilt)
+Source: plan-v4d
+Version: @VERSION@-@REVISION@
+Binary: plan-v4d-data plan-v4d-libs plan-v4d-dev plan-v4d-samples
+Architecture: any
+Maintainer: elchaschab <elchaschab@users.noreply.github.com>
+Standards-Version: 4.6.2
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.20),
+               g++,
+               make,
+               git,
+               pkg-config,
+               opencl-headers,
+               zlib1g-dev,
+               libpng-dev,
+               libjpeg-dev,
+               libxinerama-dev,
+               libxcursor-dev,
+               libxi-dev,
+               libgl1-mesa-dev,
+               libglu1-mesa-dev,
+               libglew-dev,
+               libglfw3-dev,
+               qtbase5-dev,
+               ocl-icd-opencl-dev
+DEBTRANSFORM-TAR: opencv-@VERSION@.tar.gz
+DEBTRANSFORM-FILES-TAR: debian.tar.gz
