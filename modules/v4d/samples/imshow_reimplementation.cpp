@@ -1,3 +1,7 @@
+// This file is part of OpenCV project.
+// It is subject to the license terms in the LICENSE file found in the top-level directory
+// of this distribution and at http://opencv.org/license.html.
+// Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 #include <opencv2/v4d/v4d.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -21,12 +25,18 @@ class ImshowReimplementation : public V4DPlan {
     Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 
     // Shared between the rendering pipeline and the ImGui menu/help thread.
+    // This demo runs with 0 workers (main thread only).  If workers are
+    // added, `state_` must be protected or split per-thread.
     struct State {
         // Image
         int   imageHandle_  = -1;
         int   imageWidth_   = 0;
         int   imageHeight_  = 0;
         int   channels_     = 0;
+        cv::Mat deepZoomPixels_;
+        int   deepZoomW_    = 0;
+        int   deepZoomH_    = 0;
+        int   deepZoomC_    = 0;
 
         // View transform
         float zoom_         = 1.0f;
@@ -48,8 +58,10 @@ class ImshowReimplementation : public V4DPlan {
         // Save dialog state
         bool  showSaveDialog_    = false;
         bool  showSaveViewDialog_= false;
-        bool  lastSaveOk_        = true;
-        std::string lastSaveMsg_;
+        bool  lastImageSaveOk_   = true;
+        std::string lastImageSaveMsg_;
+        bool  lastViewSaveOk_    = true;
+        std::string lastViewSaveMsg_;
         char  saveBuf_[1024]     = {};
         int   saveFormat_        = 0; // 0=PNG, 1=JPG, 2=BMP
 
@@ -147,8 +159,8 @@ public:
                 cv::Mat tmp = cv::imread(state.newFilename_, cv::IMREAD_UNCHANGED);
                 if (!tmp.empty()) {
                     if (tmp.cols != image.cols || tmp.rows != image.rows) {
-                        state.lastSaveOk_ = false;
-                        state.lastSaveMsg_ = "Cannot load image of different size ("
+                        state.lastImageSaveOk_ = false;
+                        state.lastImageSaveMsg_ = "Cannot load image of different size ("
                                            + std::to_string(tmp.cols) + "x"
                                            + std::to_string(tmp.rows)
                                            + " vs current " + std::to_string(image.cols) + "x"
@@ -163,6 +175,10 @@ public:
                             cvtColor(image, rgba, COLOR_BGRA2RGBA);
                         }
                         cvtColor(rgba, bgra, COLOR_RGBA2BGRA);
+                        state.deepZoomPixels_.release();
+                        state.deepZoomW_ = 0;
+                        state.deepZoomH_ = 0;
+                        state.deepZoomC_ = 0;
                         filename_ = state.newFilename_;
                         state.filenameCopy_ = state.newFilename_;
                     }
@@ -254,211 +270,10 @@ public:
            move_, hoverEnter_, hoverExit_, size_, RWS(state_));
 
         // -- Render the canvas ----------------------------------------------
-        nvg([](const UMat& bgra, const State& state, const cv::Size& sz) {
-            using namespace cv::v4d::nvg;
-            // ----- Image -----
-            save();
-            translate(state.pan_.x, state.pan_.y);
-            scale(state.zoom_, state.zoom_);
-
-            beginPath();
-            rect(0.0f, 0.0f,
-                 static_cast<float>(state.imageWidth_),
-                 static_cast<float>(state.imageHeight_));
-            fillPaint(imagePattern(0.0f, 0.0f,
-                                   static_cast<float>(state.imageWidth_),
-                                   static_cast<float>(state.imageHeight_),
-                                   0.0f, state.imageHandle_, 1.0f));
-            fill();
-
-            // Grid lines for moderate zoom (8x .. 30x). At >= 30x the
-            // dedicated deep-zoom block below draws its own grid on top of
-            // the RGB labels, matching the QT imshow behavior.
-            if (state.zoom_ >= 8.0f && state.zoom_ < State::kDeepZoomThreshold) {
-                float gridAlpha = std::min(1.0f, (state.zoom_ - 8.0f) / 8.0f);
-                strokeColor(cv::Scalar(128, 128, 128,
-                                       static_cast<int>(gridAlpha * 255)));
-                strokeWidth(1.0f / state.zoom_);
-                beginPath();
-                for (int x = 0; x <= state.imageWidth_; ++x) {
-                    moveTo(static_cast<float>(x), 0.0f);
-                    lineTo(static_cast<float>(x),
-                           static_cast<float>(state.imageHeight_));
-                }
-                stroke();
-                beginPath();
-                for (int y = 0; y <= state.imageHeight_; ++y) {
-                    moveTo(0.0f, static_cast<float>(y));
-                    lineTo(static_cast<float>(state.imageWidth_),
-                           static_cast<float>(y));
-                }
-                stroke();
-            }
-
-            restore();
-
-            // ----- Deep-zoom per-pixel RGB / grayscale overlay -----
-            // Faithfully reimplements OpenCV's QT imshow drawImgRegion().
-            // Activates only at >= 30x (threshold_zoom_img_region).
-            // Drawn in screen space (outside the image transform) so the
-            // text font size is in real screen pixels and the on-screen
-            // coordinates are unambiguous.
-            if (state.zoom_ >= State::kDeepZoomThreshold &&
-                state.channels_ >= 1 && state.channels_ <= 4) {
-
-                static cv::Mat pixels;
-                static int pw = 0, ph = 0, pc = 0;
-                if (pw != state.imageWidth_ || ph != state.imageHeight_ ||
-                    pc != bgra.channels() || pixels.empty()) {
-                    bgra.getMat(cv::ACCESS_READ).copyTo(pixels);
-                    pw = state.imageWidth_;
-                    ph = state.imageHeight_;
-                    pc = bgra.channels();
-                }
-                CV_Assert(!pixels.empty());
-
-                // On-screen pixel size in screen units.
-                float pixelW = state.zoom_;
-                float pixelH = state.zoom_;
-
-                // Visible image-coordinate range (with 1 extra row/col on
-                // the top/left to show partial pixels at the edges, matching
-                // QPainter's behavior).
-                int imgX0 = std::max(-1, static_cast<int>(
-                    std::floor(-state.pan_.x / pixelW) - 1));
-                int imgY0 = std::max(-1, static_cast<int>(
-                    std::floor(-state.pan_.y / pixelH) - 1));
-                int imgX1 = std::min(state.imageWidth_,
-                    static_cast<int>(
-                        std::ceil((sz.width  - state.pan_.x) / pixelW) + 1));
-                int imgY1 = std::min(state.imageHeight_,
-                    static_cast<int>(
-                        std::ceil((sz.height - state.pan_.y) / pixelH) + 1));
-
-                // Font pixel size in screen units: 10 + (pixel_height - 30)/5.
-                float fs = 10.0f + (pixelH - State::kDeepZoomThreshold) / 5.0f;
-                fs = std::clamp(fs, 6.0f, 48.0f);
-                fontSize(fs);
-                fontFace("sans-bold");
-                textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-
-                if (state.channels_ == 3 || state.channels_ == 4) {
-                    // BGR(A): three rows of colored text per pixel.
-                    for (int imgY = imgY0; imgY < imgY1; ++imgY) {
-                        for (int imgX = imgX0; imgX < imgX1; ++imgX) {
-                            if (imgX < 0 || imgY < 0 ||
-                                imgX >= state.imageWidth_ || imgY >= state.imageHeight_)
-                                continue;
-                            const uchar* p = pixels.ptr(imgY, imgX);
-                            int b = p[0], g = p[1], r = p[2];
-                            char buf[8];
-                            float px = state.pan_.x + (imgX + 0.5f) * pixelW;
-                            float pyR = state.pan_.y + (imgY + 1.0f/6.0f) * pixelH;
-                            float pyG = state.pan_.y + (imgY + 0.5f)      * pixelH;
-                            float pyB = state.pan_.y + (imgY + 5.0f/6.0f) * pixelH;
-                            std::snprintf(buf, sizeof(buf), "%d", r);
-                            fillColor(cv::Scalar(255, 0,   0,   255));
-                            text(px, pyR, buf, buf + std::strlen(buf));
-                            std::snprintf(buf, sizeof(buf), "%d", g);
-                            fillColor(cv::Scalar(0,   255, 0,   255));
-                            text(px, pyG, buf, buf + std::strlen(buf));
-                            std::snprintf(buf, sizeof(buf), "%d", b);
-                            fillColor(cv::Scalar(255, 255, 255, 255));
-                            text(px, pyB, buf, buf + std::strlen(buf));
-                        }
-                    }
-                } else if (state.channels_ == 1) {
-                    // Grayscale: single value with a brightness-shifted color
-                    // so it stays readable on light and dark pixels alike.
-                    for (int imgY = imgY0; imgY < imgY1; ++imgY) {
-                        for (int imgX = imgX0; imgX < imgX1; ++imgX) {
-                            if (imgX < 0 || imgY < 0 ||
-                                imgX >= state.imageWidth_ || imgY >= state.imageHeight_)
-                                continue;
-                            const uchar* p = pixels.ptr(imgY, imgX);
-                            int v = p[0];
-                            int tv = (v > 127) ? (v - 127) : (127 + v);
-                            char buf[8];
-                            float px = state.pan_.x + (imgX + 0.5f) * pixelW;
-                            float py = state.pan_.y + (imgY + 0.5f) * pixelH;
-                            std::snprintf(buf, sizeof(buf), "%d", v);
-                            fillColor(cv::Scalar(tv, tv, tv, 255));
-                            text(px, py, buf, buf + std::strlen(buf));
-                        }
-                    }
-                }
-
-                // Grid lines drawn AFTER text (matches QPainter ordering),
-                // in screen units.
-                strokeColor(cv::Scalar(0, 0, 0, 180));
-                strokeWidth(1.0f);
-                beginPath();
-                for (int imgX = imgX0; imgX <= imgX1; ++imgX) {
-                    float sx = state.pan_.x + imgX * pixelW;
-                    moveTo(sx, state.pan_.y);
-                    lineTo(sx, state.pan_.y + state.imageHeight_ * pixelH);
-                }
-                stroke();
-                beginPath();
-                for (int imgY = imgY0; imgY <= imgY1; ++imgY) {
-                    float sy = state.pan_.y + imgY * pixelH;
-                    moveTo(state.pan_.x, sy);
-                    lineTo(state.pan_.x + state.imageWidth_ * pixelW, sy);
-                }
-                stroke();
-            }
-
-            // ----- Status bar at the bottom of the viewport -----
-            if (state.showStatusBar_) {
-                std::ostringstream oss;
-                oss << state.filenameCopy_.c_str();
-                if (state.mouseInside_) {
-                    float invZ = 1.0f / state.zoom_;
-                    int ix = static_cast<int>(std::floor((state.mousePos_.x - state.pan_.x) * invZ));
-                    int iy = static_cast<int>(std::floor((state.mousePos_.y - state.pan_.y) * invZ));
-                    if (ix >= 0 && iy >= 0 &&
-                        ix < state.imageWidth_ && iy < state.imageHeight_) {
-                        const cv::Mat& m = bgra.getMat(cv::ACCESS_READ);
-                        const uchar* p = m.ptr(iy, ix);
-                        oss << "   |   (x=" << ix << ", y=" << iy << ")";
-                        if (state.channels_ == 1) {
-                            oss << "   L:" << static_cast<int>(p[0]);
-                        } else {
-                            oss << "   R:" << static_cast<int>(p[2])
-                                << " G:" << static_cast<int>(p[1])
-                                << " B:" << static_cast<int>(p[0]);
-                            if (state.channels_ == 4)
-                                oss << " A:" << static_cast<int>(p[3]);
-                        }
-                    } else {
-                        oss << "   |   (x=-, y=-)";
-                    }
-                } else {
-                    oss << "   |   (x=-, y=-)";
-                }
-                oss << "   |   " << state.imageWidth_ << "x" << state.imageHeight_
-                    << "   |   zoom: " << static_cast<int>(state.zoom_ * 100.0f) << "%";
-
-                float barH = 28.0f;
-                float yTop = static_cast<float>(sz.height) - barH;
-                beginPath();
-                rect(0.0f, yTop, static_cast<float>(sz.width), barH);
-                fillColor(cv::Scalar(20, 20, 30, 230));
-                fill();
-
-                beginPath();
-                rect(0.0f, yTop, static_cast<float>(sz.width), 1.0f);
-                fillColor(cv::Scalar(255, 255, 255, 120));
-                fill();
-
-                fontSize(15.0f);
-                fontFace("sans-bold");
-                fillColor(cv::Scalar(230, 230, 230, 255));
-                textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-                std::string txt = oss.str();
-                text(10.0f, yTop + barH * 0.5f, txt.c_str(), txt.c_str() + txt.size());
-            }
-        }, R(bgra_), R(state_), size_);
+        nvg([](const UMat& bgra, State& state, const cv::Size& sz) {
+            renderImage(bgra, state, sz);
+            if (state.showStatusBar_) renderStatusBar(bgra, state, sz);
+        }, R(bgra_), RWS(state_), size_);
     }
 
     // ImGui menu bar, dialogs and keyboard shortcuts.
@@ -516,8 +331,8 @@ public:
                             std::string cmd = "xclip -selection clipboard -t image/png < "
                                               + tmp + " >/dev/null 2>&1 &";
                             std::system(cmd.c_str());
-                            state.lastSaveOk_ = true;
-                            state.lastSaveMsg_ = "Copied image to clipboard.";
+                            state.lastImageSaveOk_ = true;
+                            state.lastImageSaveMsg_ = "Copied image to clipboard.";
                         }
                     }
                 }
@@ -688,11 +503,11 @@ public:
                 InputText("Path", state.saveBuf_, sizeof(state.saveBuf_));
                 const char* fmts[] = { ".png", ".jpg", ".bmp" };
                 Combo("Format", &state.saveFormat_, fmts, IM_ARRAYSIZE(fmts));
-                if (!state.lastSaveMsg_.empty()) {
-                    if (state.lastSaveOk_) TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
-                                                       "%s", state.lastSaveMsg_.c_str());
+                if (!state.lastImageSaveMsg_.empty()) {
+                    if (state.lastImageSaveOk_) TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+                                                       "%s", state.lastImageSaveMsg_.c_str());
                     else                    TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                                                       "%s", state.lastSaveMsg_.c_str());
+                                                       "%s", state.lastImageSaveMsg_.c_str());
                 }
                 if (Button("Save") && state.saveBuf_[0] != '\0') {
                     std::string path(state.saveBuf_);
@@ -708,15 +523,15 @@ public:
                         params.push_back(IMWRITE_JPEG_QUALITY);
                         params.push_back(95);
                     }
-                    state.lastSaveOk_ = imwrite(path, src, params);
-                    state.lastSaveMsg_ = state.lastSaveOk_
+                    state.lastImageSaveOk_ = imwrite(path, src, params);
+                    state.lastImageSaveMsg_ = state.lastImageSaveOk_
                         ? ("Saved to " + path)
                         : ("Failed to save to " + path);
                 }
                 SameLine();
                 if (Button("Cancel")) {
                     state.showSaveDialog_ = false;
-                    state.lastSaveMsg_.clear();
+                    state.lastImageSaveMsg_.clear();
                 }
                 End();
             }
@@ -729,11 +544,11 @@ public:
                 InputText("Path", state.saveBuf_, sizeof(state.saveBuf_));
                 const char* fmts[] = { ".png", ".jpg", ".bmp" };
                 Combo("Format", &state.saveFormat_, fmts, IM_ARRAYSIZE(fmts));
-                if (!state.lastSaveMsg_.empty()) {
-                    if (state.lastSaveOk_) TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
-                                                       "%s", state.lastSaveMsg_.c_str());
+                if (!state.lastViewSaveMsg_.empty()) {
+                    if (state.lastViewSaveOk_) TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+                                                       "%s", state.lastViewSaveMsg_.c_str());
                     else                    TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                                                       "%s", state.lastSaveMsg_.c_str());
+                                                       "%s", state.lastViewSaveMsg_.c_str());
                 }
                 if (Button("Save") && state.saveBuf_[0] != '\0') {
                     std::string path(state.saveBuf_);
@@ -750,15 +565,15 @@ public:
                         params.push_back(IMWRITE_JPEG_QUALITY);
                         params.push_back(95);
                     }
-                    state.lastSaveOk_ = imwrite(path, src, params);
-                    state.lastSaveMsg_ = state.lastSaveOk_
+                    state.lastViewSaveOk_ = imwrite(path, src, params);
+                    state.lastViewSaveMsg_ = state.lastViewSaveOk_
                         ? ("Saved to " + path)
                         : ("Failed to save to " + path);
                 }
                 SameLine();
                 if (Button("Cancel")) {
                     state.showSaveViewDialog_ = false;
-                    state.lastSaveMsg_.clear();
+                    state.lastViewSaveMsg_.clear();
                 }
                 End();
             }
@@ -871,10 +686,202 @@ private:
         state.pan_.y = (sz.height - state.imageHeight_ * state.zoom_) * 0.5f;
     }
 
+    static void renderImage(const UMat& bgra, State& state, const cv::Size& sz) {
+        using namespace cv::v4d::nvg;
+        save();
+        translate(state.pan_.x, state.pan_.y);
+        scale(state.zoom_, state.zoom_);
+
+        beginPath();
+        rect(0.0f, 0.0f,
+             static_cast<float>(state.imageWidth_),
+             static_cast<float>(state.imageHeight_));
+        fillPaint(imagePattern(0.0f, 0.0f,
+                               static_cast<float>(state.imageWidth_),
+                               static_cast<float>(state.imageHeight_),
+                               0.0f, state.imageHandle_, 1.0f));
+        fill();
+
+        if (state.zoom_ >= 8.0f && state.zoom_ < State::kDeepZoomThreshold) {
+            float gridAlpha = std::min(1.0f, (state.zoom_ - 8.0f) / 8.0f);
+            strokeColor(cv::Scalar(128, 128, 128,
+                                   static_cast<int>(gridAlpha * 255)));
+            strokeWidth(1.0f / state.zoom_);
+            beginPath();
+            for (int x = 0; x <= state.imageWidth_; ++x) {
+                moveTo(static_cast<float>(x), 0.0f);
+                lineTo(static_cast<float>(x),
+                       static_cast<float>(state.imageHeight_));
+            }
+            stroke();
+            beginPath();
+            for (int y = 0; y <= state.imageHeight_; ++y) {
+                moveTo(0.0f, static_cast<float>(y));
+                lineTo(static_cast<float>(state.imageWidth_),
+                       static_cast<float>(y));
+            }
+            stroke();
+        }
+
+        restore();
+        drawDeepZoomOverlay(bgra, state, sz);
+    }
+
+    static void drawDeepZoomOverlay(const UMat& bgra, State& state, const cv::Size& sz) {
+        using namespace cv::v4d::nvg;
+        if (!(state.zoom_ >= State::kDeepZoomThreshold &&
+              state.channels_ >= 1 && state.channels_ <= 4)) {
+            return;
+        }
+
+        if (state.deepZoomW_ != state.imageWidth_ ||
+            state.deepZoomH_ != state.imageHeight_ ||
+            state.deepZoomC_ != (int)bgra.channels() ||
+            state.deepZoomPixels_.empty()) {
+            bgra.getMat(cv::ACCESS_READ).copyTo(state.deepZoomPixels_);
+            state.deepZoomW_ = state.imageWidth_;
+            state.deepZoomH_ = state.imageHeight_;
+            state.deepZoomC_ = bgra.channels();
+        }
+        CV_Assert(!state.deepZoomPixels_.empty());
+
+        float pixelW = state.zoom_;
+        float pixelH = state.zoom_;
+
+        int imgX0 = std::max(-1, static_cast<int>(
+            std::floor(-state.pan_.x / pixelW) - 1));
+        int imgY0 = std::max(-1, static_cast<int>(
+            std::floor(-state.pan_.y / pixelH) - 1));
+        int imgX1 = std::min(state.imageWidth_,
+            static_cast<int>(
+                std::ceil((sz.width  - state.pan_.x) / pixelW) + 1));
+        int imgY1 = std::min(state.imageHeight_,
+            static_cast<int>(
+                std::ceil((sz.height - state.pan_.y) / pixelH) + 1));
+
+        float fs = 10.0f + (pixelH - State::kDeepZoomThreshold) / 5.0f;
+        fs = std::clamp(fs, 6.0f, 48.0f);
+        fontSize(fs);
+        fontFace("sans-bold");
+        textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+
+        if (state.channels_ == 3 || state.channels_ == 4) {
+            for (int imgY = imgY0; imgY < imgY1; ++imgY) {
+                for (int imgX = imgX0; imgX < imgX1; ++imgX) {
+                    if (imgX < 0 || imgY < 0 ||
+                        imgX >= state.imageWidth_ || imgY >= state.imageHeight_)
+                        continue;
+                    const uchar* p = state.deepZoomPixels_.ptr(imgY, imgX);
+                    int b = p[0], g = p[1], r = p[2];
+                    char buf[8];
+                    float px = state.pan_.x + (imgX + 0.5f) * pixelW;
+                    float pyR = state.pan_.y + (imgY + 1.0f/6.0f) * pixelH;
+                    float pyG = state.pan_.y + (imgY + 0.5f)      * pixelH;
+                    float pyB = state.pan_.y + (imgY + 5.0f/6.0f) * pixelH;
+                    std::snprintf(buf, sizeof(buf), "%d", r);
+                    fillColor(cv::Scalar(255, 0,   0,   255));
+                    text(px, pyR, buf, buf + std::strlen(buf));
+                    std::snprintf(buf, sizeof(buf), "%d", g);
+                    fillColor(cv::Scalar(0,   255, 0,   255));
+                    text(px, pyG, buf, buf + std::strlen(buf));
+                    std::snprintf(buf, sizeof(buf), "%d", b);
+                    fillColor(cv::Scalar(255, 255, 255, 255));
+                    text(px, pyB, buf, buf + std::strlen(buf));
+                }
+            }
+        } else if (state.channels_ == 1) {
+            for (int imgY = imgY0; imgY < imgY1; ++imgY) {
+                for (int imgX = imgX0; imgX < imgX1; ++imgX) {
+                    if (imgX < 0 || imgY < 0 ||
+                        imgX >= state.imageWidth_ || imgY >= state.imageHeight_)
+                        continue;
+                    const uchar* p = state.deepZoomPixels_.ptr(imgY, imgX);
+                    int v = p[0];
+                    int tv = (v > 127) ? (v - 127) : (127 + v);
+                    char buf[8];
+                    float px = state.pan_.x + (imgX + 0.5f) * pixelW;
+                    float py = state.pan_.y + (imgY + 0.5f) * pixelH;
+                    std::snprintf(buf, sizeof(buf), "%d", v);
+                    fillColor(cv::Scalar(tv, tv, tv, 255));
+                    text(px, py, buf, buf + std::strlen(buf));
+                }
+            }
+        }
+
+        strokeColor(cv::Scalar(0, 0, 0, 180));
+        strokeWidth(1.0f);
+        beginPath();
+        for (int imgX = imgX0; imgX <= imgX1; ++imgX) {
+            float sx = state.pan_.x + imgX * pixelW;
+            moveTo(sx, state.pan_.y);
+            lineTo(sx, state.pan_.y + state.imageHeight_ * pixelH);
+        }
+        stroke();
+        beginPath();
+        for (int imgY = imgY0; imgY <= imgY1; ++imgY) {
+            float sy = state.pan_.y + imgY * pixelH;
+            moveTo(state.pan_.x, sy);
+            lineTo(state.pan_.x + state.imageWidth_ * pixelW, sy);
+        }
+        stroke();
+    }
+
+    static void renderStatusBar(const UMat& bgra, State& state, const cv::Size& sz) {
+        using namespace cv::v4d::nvg;
+        std::ostringstream oss;
+        oss << state.filenameCopy_.c_str();
+        if (state.mouseInside_) {
+            float invZ = 1.0f / state.zoom_;
+            int ix = static_cast<int>(std::floor((state.mousePos_.x - state.pan_.x) * invZ));
+            int iy = static_cast<int>(std::floor((state.mousePos_.y - state.pan_.y) * invZ));
+            if (ix >= 0 && iy >= 0 &&
+                ix < state.imageWidth_ && iy < state.imageHeight_) {
+                const cv::Mat& m = bgra.getMat(cv::ACCESS_READ);
+                const uchar* p = m.ptr(iy, ix);
+                oss << "   |   (x=" << ix << ", y=" << iy << ")";
+                if (state.channels_ == 1) {
+                    oss << "   L:" << static_cast<int>(p[0]);
+                } else {
+                    oss << "   R:" << static_cast<int>(p[2])
+                        << " G:" << static_cast<int>(p[1])
+                        << " B:" << static_cast<int>(p[0]);
+                    if (state.channels_ == 4)
+                        oss << " A:" << static_cast<int>(p[3]);
+                }
+            } else {
+                oss << "   |   (x=-, y=-)";
+            }
+        } else {
+            oss << "   |   (x=-, y=-)";
+        }
+        oss << "   |   " << state.imageWidth_ << "x" << state.imageHeight_
+            << "   |   zoom: " << static_cast<int>(state.zoom_ * 100.0f) << "%";
+
+        float barH = 28.0f;
+        float yTop = static_cast<float>(sz.height) - barH;
+        beginPath();
+        rect(0.0f, yTop, static_cast<float>(sz.width), barH);
+        fillColor(cv::Scalar(20, 20, 30, 230));
+        fill();
+
+        beginPath();
+        rect(0.0f, yTop, static_cast<float>(sz.width), 1.0f);
+        fillColor(cv::Scalar(255, 255, 255, 120));
+        fill();
+
+        fontSize(15.0f);
+        fontFace("sans-bold");
+        fillColor(cv::Scalar(230, 230, 230, 255));
+        textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+        std::string txt = oss.str();
+        text(10.0f, yTop + barH * 0.5f, txt.c_str(), txt.c_str() + txt.size());
+    }
+
     static bool isImageFile(const std::string& name) {
         std::error_code ec;
         std::string lower = name;
-        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         size_t dot = lower.rfind('.');
         if (dot == std::string::npos) return false;
         std::string ext = lower.substr(dot);
@@ -918,16 +925,18 @@ private:
 };
 
 int main(int argc, char** argv) {
-    cv::Rect viewport(0, 0, 960, 960);
+    cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
+    cv::Rect viewport(0, 0, 1920, 1080);
     std::string filename;
     if (argc > 1) {
         filename = argv[1];
     } else {
-        filename = samples::findFile("lena.png");
+        filename = cv::samples::findFile("lena.png");
     }
     cv::Ptr<V4D> runtime = V4D::init(viewport, "V4D imshow Reimplementation",
                                      AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-    //IMPORTANT This demo has no use for additional workers.
+    // Run on the main thread only (0 workers).  The demo is not designed
+    // for concurrent workers.
     V4DPlan::run<ImshowReimplementation>(0, std::move(filename));
     return 0;
 }
