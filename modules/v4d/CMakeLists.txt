@@ -98,7 +98,7 @@ endmacro(populate_assets_local)
 # Macro to add a native sample
 macro(add_binary_sample sample source)
     ocv_add_executable(${sample} ${source})
-    ocv_target_link_libraries(${sample} opencv_v4d opencv_plan opencv_core opencv_imgproc opencv_ximgproc opencv_videoio opencv_video opencv_imgcodecs opencv_objdetect opencv_xobjdetect opencv_optflow opencv_stitching opencv_face opencv_geometry opencv_features opencv_dnn glfw nanovg)
+    ocv_target_link_libraries(${sample} opencv_v4d opencv_plan opencv_core opencv_imgproc opencv_ximgproc opencv_videoio opencv_video opencv_imgcodecs opencv_objdetect opencv_xobjdetect opencv_optflow opencv_tracking opencv_stitching opencv_face opencv_geometry opencv_features opencv_dnn glfw nanovg)
     if(WITH_OPENCL)
       ocv_target_link_libraries(${sample} "${OpenCL_LIBRARIES}")
     endif()
@@ -141,6 +141,7 @@ macro(add_binary_sample sample source)
       "${CMAKE_HOME_DIRECTORY}/modules/features/include"
       "${CMAKE_HOME_DIRECTORY}/modules/flann/include"
       "${V4D_MODULES_DIR}/xobjdetect/include"
+      "${V4D_MODULES_DIR}/tracking/include"
       "${V4D_MODULES_DIR}/optflow/include"
       "${V4D_MODULES_DIR}/face/include"
       ${BGFX_INC_DIRS}

@@ -4,10 +4,10 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include <opencv2/v4d/v4d.hpp>
+#include <opencv2/objdetect.hpp>
+#include <opencv2/xobjdetect.hpp>
 #include <opencv2/video/tracking.hpp>
-#include <opencv2/video/background_segm.hpp>
-#include <opencv2/geometry/2d.hpp>
-
+#include <opencv2/tracking.hpp>
 #include <string>
 
 using std::vector;
@@ -27,10 +27,10 @@ private:
 	struct Frames {
 		//BGRA
 		cv::UMat background_;
-		//RGB
-		cv::UMat videoFrame_, videoFrameBGR_, videoFrameDown_;
-		//GREY
-		cv::UMat videoFrameDownGrey_;
+    	//RGB
+    	cv::UMat videoFrame_, videoFrameBGR_, videoFrameDown_;
+    	//GREY
+    	cv::UMat videoFrameDownGrey_;
 	} frames_;
 
     struct Detection {
@@ -40,16 +40,16 @@ private:
 		vector<vector<double>> boxes_;
 		//probability of detected object being a pedestrian - currently always set to 1.0
 		vector<double> probs_;
-		//MIL tracker used for tracking the detected pedestrian
-		cv::Ptr<cv::TrackerMIL> tracker_;
+		//Faster tracking parameters
+		cv::TrackerKCF::Params params_;
+		//KCF tracker used instead of continous detection
+		cv::Ptr<cv::Tracker> tracker_;
 		//initialize tracker only once
 		bool trackerInit_ = false;
 		//If tracking fails re-detect
 		bool redetect_ = true;
-		//Background subtractor used for pedestrian detection
-		cv::Ptr<cv::BackgroundSubtractorMOG2> bgSubtractor_;
-		//Foreground mask used for detection
-		cv::UMat fgMask_;
+		//Descriptor used for pedestrian detection
+		cv::HOGDescriptor hog_;
     } detection_;
 
     inline static cv::Rect tracked_ = cv::Rect(0,0,0,0);
@@ -69,67 +69,113 @@ private:
 		cv::add(background, framebuffer, framebuffer);
 	};
 
-	class Detector {
+	class NonMaxSupression {
+	private:
+		//adapted from cv::dnn_objdetect::InferBbox
+		static inline bool pair_comparator(std::pair<double, size_t> l1, std::pair<double, size_t> l2) {
+			return l1.first > l2.first;
+		}
+
+		//adapted from cv::dnn_objdetect::InferBbox
+		static void intersection_over_union(std::vector<std::vector<double> > *boxes, std::vector<double> *base_box, std::vector<double> *iou) {
+			double g_xmin = (*base_box)[0];
+			double g_ymin = (*base_box)[1];
+			double g_xmax = (*base_box)[2];
+			double g_ymax = (*base_box)[3];
+			double base_box_w = g_xmax - g_xmin;
+			double base_box_h = g_ymax - g_ymin;
+			for (size_t b = 0; b < (*boxes).size(); ++b) {
+				double xmin = std::max((*boxes)[b][0], g_xmin);
+				double ymin = std::max((*boxes)[b][1], g_ymin);
+				double xmax = std::min((*boxes)[b][2], g_xmax);
+				double ymax = std::min((*boxes)[b][3], g_ymax);
+
+				// Intersection
+				double w = std::max(static_cast<double>(0.0), xmax - xmin);
+				double h = std::max(static_cast<double>(0.0), ymax - ymin);
+				// Union
+				double test_box_w = (*boxes)[b][2] - (*boxes)[b][0];
+				double test_box_h = (*boxes)[b][3] - (*boxes)[b][1];
+
+				double inter_ = w * h;
+				double union_ = test_box_h * test_box_w + base_box_h * base_box_w - inter_;
+				(*iou)[b] = inter_ / (union_ + 1e-7);
+			}
+		}
 	public:
-		void detect(const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params) const {
-			detection.redetect_ = true;
-			//Apply background subtraction to detect moving foreground objects
-			detection.bgSubtractor_->apply(videoFrameDownGrey, detection.fgMask_);
-			//Threshold to clean up the mask
-			cv::threshold(detection.fgMask_, detection.fgMask_, 200, 255, cv::THRESH_BINARY);
+		//adapted from cv::dnn_objdetect::InferBbox
+		std::vector<bool> perform(std::vector<std::vector<double> > *boxes, std::vector<double> *probs, const double threshold = 0.1) {
+			std::vector<bool> keep(((*probs).size()));
+			std::fill(keep.begin(), keep.end(), true);
+			std::vector<size_t> prob_args_sorted((*probs).size());
 
-			//Find contours of moving objects
-			std::vector<std::vector<cv::Point>> contours;
-			cv::findContours(detection.fgMask_, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+			std::vector<std::pair<double, size_t> > temp_sort((*probs).size());
+			for (size_t tidx = 0; tidx < (*probs).size(); ++tidx) {
+				temp_sort[tidx] = std::make_pair((*probs)[tidx], static_cast<size_t>(tidx));
+			}
+			std::sort(temp_sort.begin(), temp_sort.end(), pair_comparator);
 
-			if (!contours.empty()) {
-				//Find the largest contour as the most likely pedestrian
-				double maxArea = 0;
-				int maxIdx = -1;
-				for (size_t i = 0; i < contours.size(); ++i) {
-					double area = cv::contourArea(contours[i]);
-					if (area > maxArea) {
-						maxArea = area;
-						maxIdx = i;
+			for (size_t idx = 0; idx < temp_sort.size(); ++idx) {
+				prob_args_sorted[idx] = temp_sort[idx].second;
+			}
+
+			for (std::vector<size_t>::iterator itr = prob_args_sorted.begin(); itr != prob_args_sorted.end() - 1; ++itr) {
+				size_t idx = itr - prob_args_sorted.begin();
+				std::vector<double> iou_(prob_args_sorted.size() - idx - 1);
+				std::vector<std::vector<double> > temp_boxes(iou_.size());
+				for (size_t bb = 0; bb < temp_boxes.size(); ++bb) {
+					std::vector<double> temp_box(4);
+					for (size_t b = 0; b < 4; ++b) {
+						temp_box[b] = (*boxes)[prob_args_sorted[idx + bb + 1]][b];
 					}
+					temp_boxes[bb] = temp_box;
 				}
-
-				if (maxIdx >= 0 && maxArea > 100) {
-					cv::Rect bbox = cv::boundingRect(contours[maxIdx]);
-					detection.locations_.push_back(bbox);
-					detection.boxes_.push_back({double(bbox.x), double(bbox.y), double(bbox.x + bbox.width), double(bbox.y + bbox.height)});
-					detection.probs_.push_back(1.0);
-
-					params.newTracked_ = bbox;
-					detection.redetect_ = false;
-
-					// Create a fresh tracker instance for the new target (OpenCV trackers cannot be re-initialized)
-					cv::TrackerMIL::Params milParams;
-					milParams.samplerInitInRadius = 6;
-					milParams.samplerSearchWinSize = 25;
-					milParams.samplerInitMaxNegNum = 65;
-					detection.tracker_ = cv::TrackerMIL::create(milParams);
-					bool trackerCreated = !detection.tracker_.empty();
-					try {
-						if(!detection.trackerInit_) {
-			                                cv::TrackerMIL::Params milParams;
-		                                        milParams.samplerInitInRadius = 6;
-                                		        milParams.samplerSearchWinSize = 25;
-                		                        milParams.samplerInitMaxNegNum = 65;
-		                                        detection.tracker_ = cv::TrackerMIL::create(milParams);
-							detection.tracker_->init(videoFrameDownGrey, params.newTracked_);
-							detection.trackerInit_ = true;
-						} else 
-							detection.redetect_ = true;
-					} catch (...) {
-					   std::cerr << "Tracker not usuable" << std::endl;
-					   detection.trackerInit_ = false;
-                                           detection.redetect_ = true;
+				intersection_over_union(&temp_boxes, &(*boxes)[prob_args_sorted[idx]], &iou_);
+				for (std::vector<double>::iterator _itr = iou_.begin(); _itr != iou_.end(); ++_itr) {
+					size_t iou_idx = _itr - iou_.begin();
+					if (*_itr > threshold) {
+						keep[prob_args_sorted[idx + iou_idx + 1]] = false;
 					}
 				}
 			}
+			return keep;
 		}
-	} detector_;
+	} nms;
+
+	class HOG {
+	public:
+		void detect(const cv::UMat& videoFrameDownGrey, Detection& detection, NonMaxSupression& nms, Params& params) const {
+			detection.redetect_ = true;
+			//Detect pedestrians
+			detection.hog_.detectMultiScale(videoFrameDownGrey, detection.locations_, 0, cv::Size(), cv::Size(), 1.15, 2.0, true);
+			if (!detection.locations_.empty()) {
+				detection.boxes_.clear();
+				detection.probs_.clear();
+				//collect all found boxes
+				for (const auto &rect : detection.locations_) {
+					detection.boxes_.push_back( { double(rect.x), double(rect.y), double(rect.x + rect.width), double(rect.y + rect.height) });
+					detection.probs_.push_back(1.0);
+				}
+
+				//use nms to filter overlapping boxes (https://medium.com/analytics-vidhya/non-max-suppression-nms-6623e6572536)
+				vector<bool> keep = nms.perform(&detection.boxes_, &detection.probs_, 0.1);
+				for (size_t i = 0; i < keep.size(); ++i) {
+					//only track the first pedestrian found
+					if (keep[i]) {
+						params.newTracked_= detection.locations_[i];
+						detection.redetect_ = false;
+						break;
+					}
+				}
+
+				if(!detection.trackerInit_ && !detection.redetect_){
+					//initialize the tracker once
+					detection.tracker_->init(videoFrameDownGrey, params.newTracked_);
+					detection.trackerInit_ = true;
+				}
+			}
+		}
+	} hog;
 
 	class Tracking {
 	private:
@@ -154,7 +200,6 @@ private:
 			params.newTracked_ = tracked;
 			if(params.newTracked_.width == 0 || params.newTracked_.height == 0 || !detection.tracker_->update(videoFrameDownGrey, params.newTracked_)) {
 				detection.redetect_ = true;
-				detection.trackerInit_ = false;
 			} else {
 				detection.redetect_ = false;
 			}
@@ -168,12 +213,12 @@ private:
 			const double diffW = oldTracked.width - params.newTracked_.width;
 			const double diffH = oldTracked.height - params.newTracked_.height;
 			const double excenter = std::hypotf(diffX, diffY);
-			
+			const double stability = 2.333;
 			if(excenter > ((sz.width + sz.height) / 160.0)) {
-                limitFunc(diffX, excenter / 3.0, oldTracked.x, tracked.x);
-                limitFunc(diffY, excenter / 3.0, oldTracked.y, tracked.y);
-                limitFunc(diffW, excenter / 3.0, oldTracked.width, tracked.width);
-                limitFunc(diffH, excenter / 3.0, oldTracked.height, tracked.height);
+		                limitFunc(diffX, excenter / stability, oldTracked.x, tracked.x);
+                		limitFunc(diffY, excenter / stability, oldTracked.y, tracked.y);
+		                limitFunc(diffW, excenter / stability, oldTracked.width, tracked.width);
+                		limitFunc(diffH, excenter / stability, oldTracked.height, tracked.height);
 			}
 		}
 	} tracking;
@@ -198,14 +243,16 @@ private:
 public:
     void setup() override {
     	plain([](const cv::Size& sz, Detection& detection, Frames& frames, Params& params){
-    		detection.tracker_ = cv::TrackerMIL::create();
-    		detection.bgSubtractor_ = cv::createBackgroundSubtractorMOG2(500, 16, false);
+    		detection.params_.desc_pca = cv::TrackerKCF::GRAY;
+    		detection.params_.compress_feature = false;
+    		detection.params_.compressed_size = 1;
+    		detection.tracker_ = cv::TrackerKCF::create(detection.params_);
+    		detection.hog_.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
     		params.downSize_ = { sz.width / 4 , sz.height / 4 };
     		params.scale_ = { 4.0f, 4.0f };
     		frames.videoFrame_.create(sz, CV_8UC4);
     		frames.videoFrameBGR_.create(sz, CV_8UC3);
     		frames.videoFrameDownGrey_.create(sz, CV_8UC1);
-    		detection.fgMask_.create(params.downSize_, CV_8UC1);
     	}, size_, RW(detection_), RW(frames_), RW(params_));
 	}
 
@@ -215,9 +262,9 @@ public:
 		plain(cv::cvtColor,R(frames_.videoFrame_), RW(frames_.videoFrameBGR_),V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->plain(prepare_frames, R(params_), RW(frames_));
 
-		//Try to track the pedestrian (if we currently are tracking one), else re-detect using background subtraction
-		branch(BranchType::SINGLE, doRedect_, R(detection_))
-			->plain(&Detector::detect, R(detector_), R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_))
+		//Try to track the pedestrian (if we currently are tracking one), else re-detect using HOG descriptor
+		branch(doRedect_, R(detection_))
+			->plain(&HOG::detect, R(hog), R(frames_.videoFrameDownGrey_), RW(detection_), RW(nms), RW(params_))
 		->elseBranch()
 			->plain(&Tracking::perform, R(tracking), R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
 		->endBranch();
@@ -232,17 +279,14 @@ public:
 
 
 int main(int argc, char **argv) {
-  cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
+    if (argc != 2) {
+        std::cerr << "Usage: pedestrian-demo <video-input>" << std::endl;
+        exit(1);
+    }
 
-  std::string videoFile = (argc > 1) ? argv[1] : cv::samples::findFile("videos/dance.mp4");
-  if (videoFile.empty()) {
-      std::cerr << "Usage: pedestrian-demo <video-input>" << std::endl;
-      return 1;
-  }
-
-  cv::Rect viewport(0, 0, 1920, 1080);
-  cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-  auto src = Source::make(runtime, videoFile);
+    cv::Rect viewport(0, 0, 1920, 1080);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+    auto src = Source::make(runtime, argv[1]);
 //    auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 60, viewport.size());
     runtime->setSource(src);
 //    runtime->setSink(sink);
