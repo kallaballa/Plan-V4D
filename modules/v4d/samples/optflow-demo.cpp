@@ -240,7 +240,7 @@ public:
 
 class SparseOpticalFlow {
 	struct Temp {
-	    vector<cv::Point2i> hull_;
+	    vector<cv::Point2f> hull_;
 	    vector<cv::Point2f> nextPoints_, trimmedPoints_;;
 		vector<std::tuple<float, int, cv::Point2f>> prevPoints_;
 		vector<std::tuple<float, int, cv::Point2f>> newPoints_;
@@ -260,7 +260,8 @@ public:
 	void visualize(const cv::UMat &prevGrey, const cv::UMat &nextGrey, const vector<cv::Point2f> &detectedPoints, const float& maxStroke, const size_t& maxPoints, const float& pointLoss, cv::Scalar_<float> effectColor) {
 		//less then 5 points is a degenerate case (e.g. the corners of a video frame)
 	    if (detectedPoints.size() > 4) {
-	        cv::convexHull(detectedPoints, temp_.hull_, false, true);
+	        temp_.hull_.resize(detectedPoints.size());
+		cv::convexHull(detectedPoints, temp_.hull_, false, true);
 	        float area = cv::contourArea(temp_.hull_);
 	        //make sure the area of the point cloud is positive
 	        if (area > 0) {
@@ -452,16 +453,7 @@ public:
 
     void setup() override {
         params_.size_ = V4D::get<cv::Size>(V4D::Keys::SIZE);
-        assign(RW(params_.kernelSize_), V(params_.size_.width + params_.size_.height) / V(375));
-        assign(RW(params_.kernelSize_),
-                IF(
-                    R(params_.kernelSize_) % V(2) == V(0),
-                    R(params_.kernelSize_) + V(1),
-                    R(params_.kernelSize_)
-                )
-        );
         assign(RW(params_.maxPoints_), V(params_.size_.width + params_.size_.height) * V(100));
-        plain(RW(std::cerr) << R(params_.kernelSize_) << V('\n'));
         construct(RW(featurePoints_), F(cv::FastFeatureDetector::create, V(10), V(false), V(cv::FastFeatureDetector::TYPE_9_16)));
 
     	plain(UMAT_CREATE,
