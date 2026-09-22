@@ -57,13 +57,20 @@ template<typename Tlamba> std::string lambda_ptr_hex(Tlamba&& l) {
 }
 
 static std::size_t map_index(const std::thread::id id) {
-    static std::size_t nextindex = 0;
-    static std::mutex my_mutex;
-    static std::unordered_map<std::thread::id, std::size_t> ids;
-    std::lock_guard<std::mutex> lock(my_mutex);
-    auto iter = ids.find(id);
-    if(iter == ids.end())
-        return ids[id] = nextindex++;
+    // The state is intentionally leaked (never destroyed): teardown() still
+    // creates nodes (and thus calls map_index) on worker threads while the main
+    // thread runs process-exit cleanup, and a destroyed unordered_map/mutex
+    // would be read from those workers -> use-after-free at shutdown.
+    struct Store {
+        std::size_t nextindex = 0;
+        std::mutex my_mutex;
+        std::unordered_map<std::thread::id, std::size_t> ids;
+    };
+    static Store& s = *new Store;
+    std::lock_guard<std::mutex> lock(s.my_mutex);
+    auto iter = s.ids.find(id);
+    if(iter == s.ids.end())
+        return s.ids[id] = s.nextindex++;
     return iter->second;
 }
 
@@ -1252,6 +1259,21 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 				CV_Error_(cv::Error::StsError, ("Pipeline teardown failed: %s", ex.what()));
 			}
 			CV_LOG_DEBUG(nullptr, "Teardown complete on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
+		}
+
+		// The spawned worker threads were never joined, so their teardown worked
+		// concurrently with process/static-object destruction and crashed (e.g.
+		// function-local statics like plan's thread-id index already being freed
+		// while teardown() still recorded nodes). Wait for every worker to finish
+		// (including its teardown graph) here, on the display thread, before the
+		// caller returns -- otherwise the engine leaks threads that race the
+		// exit-time destructors of the global/static state they use.
+		if(GlobalState::isMain()) {
+			for(std::thread* t : threads) {
+				if(t->joinable()) t->join();
+				delete t;
+			}
+			threads.clear();
 		}
 	}
 
