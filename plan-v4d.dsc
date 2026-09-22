@@ -1,6 +1,6 @@
 Format: 3.0 (quilt)
 Source: plan-v4d
-Version: 4.13.0~beta~kallaballa-1
+Version: 5.x.x~beta~kallaballa-1
 Binary: plan-v4d-data plan-v4d-libs plan-v4d-dev plan-v4d-samples
 Architecture: any
 Maintainer: elchaschab <elchaschab@users.noreply.github.com>
@@ -25,5 +25,5 @@ Build-Depends: debhelper-compat (= 13),
                libglfw3-dev,
                qtbase5-dev,
                ocl-icd-opencl-dev
-DEBTRANSFORM-TAR: opencv-4.13.0~beta~kallaballa.tar.gz
+DEBTRANSFORM-TAR: opencv-5.x.x~beta~kallaballa.tar.gz
 DEBTRANSFORM-FILES-TAR: debian.tar.gz

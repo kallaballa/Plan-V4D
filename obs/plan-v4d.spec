@@ -1,5 +1,5 @@
 Name:           plan-v4d
-Version:        4.13.0~beta~kallaballa
+Version:        5.x.x~beta~kallaballa
 Release:        1%{?dist}
 Summary:        OpenCV with Plan-DSL and V4D Visualization Modules
 License:        Apache-2.0
@@ -426,7 +426,7 @@ install -m 0644 %{_builddir}/extra_modules/v4d/samples/fonts/*.ttf \
 %{_datadir}/%{name}/v4d/samples/fonts/
 
 %changelog
-* Tue Sep 01 2026 elchaschab <elchaschab@users.noreply.github.com> - 4.13.0~beta~kallaballa-1
+* Tue Sep 01 2026 elchaschab <elchaschab@users.noreply.github.com> - 5.x.x~beta~kallaballa-1
 - Initial release for openSUSE Tumbleweed / Fedora
 - Custom build of OpenCV 4.13.0 with Plan-DSL and V4D visualization modules
 - Built with Qt5, OpenGL, and OpenCL support

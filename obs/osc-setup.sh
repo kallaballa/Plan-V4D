@@ -177,7 +177,7 @@ echo "  Done."
 # This stages files from the tracked packaging sources (no _service upload)
 # After setup, run regenerate.sh to upload the actual source tarballs and trigger builds.
 
-VERSION="4.13.0~beta~kallaballa"
+VERSION="5.x.x~beta~kallaballa"
 REVISION="1"
 
 generate_deb_files() {

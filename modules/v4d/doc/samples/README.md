@@ -100,7 +100,7 @@ Using the most restrictive edge-call possible is a best practice that helps the 
 
 ## Helper Macros
 
-When wrapping existing OpenCV functions or class methods so the engine can dispatch them, the `util.hpp` header provides a small set of pointer-cast macros (see [`modules/v4d/include/opencv2/v4d/util.hpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/include/opencv2/v4d/util.hpp)):
+When wrapping existing OpenCV functions or class methods so the engine can dispatch them, the `util.hpp` header provides a small set of pointer-cast macros (see [`modules/v4d/include/opencv2/v4d/util.hpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/util.hpp)):
 
 - `_OL_(r, fn, …)` — overload of a free function.
 - `_OLC_(r, fn, …)` — const-qualified overload of a free function.
@@ -136,7 +136,7 @@ In addition, `V4D` provides a `Source` / `Sink` system, exposed inside a `V4DPla
 
 ## Lifecycle of a `V4DPlan`
 
-A `V4DPlan` (see [`v4d.hpp:422`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/include/opencv2/v4d/v4d.hpp)) inherits from `Plan` and adds four virtual hooks you can override:
+A `V4DPlan` (see [`v4d.hpp:422`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp)) inherits from `Plan` and adds four virtual hooks you can override:
 
 - `setup()` — emitted once, before the frame loop. Use it to allocate resources.
 - `infer()` — emitted every frame. Use it for the main rendering/processing pipeline.
@@ -145,7 +145,7 @@ A `V4DPlan` (see [`v4d.hpp:422`](https://github.com/kallaballa/Plan-V4D/blob/bet
 
 ## Getting Started
 
-Every tutorial links to its complete source sample in the [samples directory](https://github.com/kallaballa/Plan-V4D/tree/beta/modules/v4d/samples).
+Every tutorial links to its complete source sample in the [samples directory](https://github.com/kallaballa/Plan-V4D/tree/beta-5.x/modules/v4d/samples).
 
 1. [Tutorial 01 — Displaying an Image with NanoVG](#tutorial-01--displaying-an-image-with-nanovg) (`display_image_nvg.cpp`)
 2. [Tutorial 02 — Displaying an Image via Framebuffer](#tutorial-02--displaying-an-image-via-framebuffer) (`display_image_fb.cpp`)
@@ -180,7 +180,7 @@ This tutorial demonstrates how to load and display an image using Plan-V4D's Nan
 
 ## The Code
 
-Here is the complete source code for this example. You can find it in [`display_image_nvg.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/display_image_nvg.cpp).
+Here is the complete source code for this example. You can find it in [`display_image_nvg.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/display_image_nvg.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
@@ -284,7 +284,7 @@ This tutorial explains how to display an image by writing its data directly to t
 
 ## The Code
 
-You can find the complete source in [`display_image_fb.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/display_image_fb.cpp).
+You can find the complete source in [`display_image_fb.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/display_image_fb.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
@@ -355,7 +355,7 @@ Plan-V4D provides a powerful 2D vector graphics API through its integration with
 
 ## The Code
 
-You can find the complete source in [`vector_graphics.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/vector_graphics.cpp).
+You can find the complete source in [`vector_graphics.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/vector_graphics.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
@@ -463,7 +463,7 @@ A powerful feature of Plan-V4D is the ability to chain different contexts togeth
 
 ## The Code
 
-You can find the complete source in [`vector_graphics_and_fb.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/vector_graphics_and_fb.cpp).
+You can find the complete source in [`vector_graphics_and_fb.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/vector_graphics_and_fb.cpp).
 
 ```cpp
 void infer() override {
@@ -504,7 +504,7 @@ While V4D provides high-level contexts like `nvg` and `fb`, it also gives you di
 
 ## The Code
 
-You can find the complete source in [`render_opengl.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/render_opengl.cpp).
+You can find the complete source in [`render_opengl.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/render_opengl.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
@@ -540,7 +540,7 @@ Its usage is straightforward:
 gl(openGLFunction, arg1, arg2, …);
 ```
 
-The two-argument form `gl<-1>(V(idx), …)` (see [`v4d.hpp:584`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/include/opencv2/v4d/v4d.hpp)) routes the call to one of V4D's worker OpenGL contexts for parallel execution.
+The two-argument form `gl<-1>(V(idx), …)` (see [`v4d.hpp:584`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp)) routes the call to one of V4D's worker OpenGL contexts for parallel execution.
 
 ### Setting State in `setup()`
 
@@ -576,7 +576,7 @@ Text is a fundamental part of most graphical applications. Plan-V4D makes font r
 
 ## The Code
 
-You can find the complete source in [`font_rendering.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/font_rendering.cpp).
+You can find the complete source in [`font_rendering.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/font_rendering.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
@@ -621,7 +621,7 @@ int main() {
 
 ### Loading Custom Fonts
 
-You can load your own TrueType (`.ttf`) fonts by calling `createFont` in your `setup()` phase. The TTF files in [`modules/v4d/samples/fonts/`](https://github.com/kallaballa/Plan-V4D/tree/beta/modules/v4d/samples/fonts/) are copied into the build directory at `assets/fonts/` by the `v4d` CMake module.
+You can load your own TrueType (`.ttf`) fonts by calling `createFont` in your `setup()` phase. The TTF files in [`modules/v4d/samples/fonts/`](https://github.com/kallaballa/Plan-V4D/tree/beta-5.x/modules/v4d/samples/fonts/) are copied into the build directory at `assets/fonts/` by the `v4d` CMake module.
 
 ```cpp
 int my_font_;
@@ -651,7 +651,7 @@ Plan-V4D provides a simple yet powerful source/sink architecture for building vi
 
 ## The Code
 
-You can find the complete source in [`video_editing.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/video_editing.cpp).
+You can find the complete source in [`video_editing.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/video_editing.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
@@ -731,7 +731,7 @@ While Plan-V4D provides convenient `Source` and `Sink` objects for file I/O, you
 
 ## The Code
 
-You can find the complete source in [`custom_source_and_sink.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/custom_source_and_sink.cpp).
+You can find the complete source in [`custom_source_and_sink.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/custom_source_and_sink.cpp).
 
 ```cpp
 cv::Ptr<Source> src = new Source([](cv::UMat& frame){
@@ -782,7 +782,7 @@ This tutorial demonstrates how to add a GUI to our font rendering example, allow
 
 ## The Code
 
-You can find the complete source in [`font_with_gui.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/font_with_gui.cpp).
+You can find the complete source in [`font_with_gui.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/font_with_gui.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
@@ -860,8 +860,8 @@ This tutorial demonstrates how to structure a more complex rendering application
 
 This example is split into two files:
 
-1. [`cubescene.hpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/cubescene.hpp): A `CubeScene` class encapsulating all low-level OpenGL code.
-2. [`cube-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/cube-demo.cpp): The `CubeDemoPlan` and `main` function.
+1. [`cubescene.hpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/cubescene.hpp): A `CubeScene` class encapsulating all low-level OpenGL code.
+2. [`cube-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/cube-demo.cpp): The `CubeDemoPlan` and `main` function.
 
 ### `cubescene.hpp` (Abridged)
 
@@ -950,7 +950,7 @@ This tutorial demonstrates compositing: reading a video, rendering a rotating 3D
 
 ## The Code
 
-You can find the complete source in [`video-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/video-demo.cpp).
+You can find the complete source in [`video-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/video-demo.cpp).
 
 ```cpp
 void infer() override {
@@ -987,7 +987,7 @@ This tutorial showcases a complex, multi-stage image processing pipeline: readin
 
 ## The Code
 
-You can find the complete source in [`nanovg-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/nanovg-demo.cpp).
+You can find the complete source in [`nanovg-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/nanovg-demo.cpp).
 
 ```cpp
 // Abridged for clarity
@@ -1058,7 +1058,7 @@ This tutorial showcases a complete, interactive application: a Mandelbrot fracta
 
 ## The Code
 
-You can find the complete source in [`shader-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/shader-demo.cpp).
+You can find the complete source in [`shader-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/shader-demo.cpp).
 
 ```cpp
 // Abridged for clarity
@@ -1143,7 +1143,7 @@ This tutorial breaks down a complex, "Star Wars"-style opening crawl effect. It 
 
 ## The Code
 
-You can find the complete source in [`font-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/font-demo.cpp).
+You can find the complete source in [`font-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/font-demo.cpp).
 
 ```cpp
 // Abridged for clarity.
@@ -1236,7 +1236,7 @@ This tutorial implements a classic "detect-then-track" strategy for finding pede
 
 ## The Code
 
-You can find the complete source in [`pedestrian-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/pedestrian-demo.cpp).
+You can find the complete source in [`pedestrian-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/pedestrian-demo.cpp).
 
 ```cpp
 void infer() override {
@@ -1347,7 +1347,7 @@ This is the most architecturally complex demo: a real-time "beauty filter" that 
 
 ## The Code
 
-You can find the complete source in [`beauty-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/beauty-demo.cpp).
+You can find the complete source in [`beauty-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/beauty-demo.cpp).
 
 ```cpp
 // Main plan that orchestrates everything.
@@ -1396,7 +1396,7 @@ public:
 ### Sub-Plans: Hierarchical Task Graphs
 
 - **`_sub<T>(…)`**: Creates a sub-plan instance in the constructor (see `plan.hpp:979`).
-- **`subInfer(…)`**: Executes the sub-plan's entire `infer()` graph as if it were a single node in the main graph (see [`v4d.hpp:531`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/include/opencv2/v4d/v4d.hpp)).
+- **`subInfer(…)`**: Executes the sub-plan's entire `infer()` graph as if it were a single node in the main graph (see [`v4d.hpp:531`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp)).
 
 ### The Pipeline Data Flow
 
@@ -1421,7 +1421,7 @@ This tutorial demonstrates one of Plan-V4D's most powerful high-performance feat
 
 ## The Code
 
-You can find the complete source in [`many_cubes-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/many_cubes-demo.cpp).
+You can find the complete source in [`many_cubes-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/many_cubes-demo.cpp).
 
 ```cpp
 #include <opencv2/v4d/v4d.hpp>
@@ -1469,7 +1469,7 @@ int main() {
 
 ### The Multi-Context `gl` Call
 
-`gl<-1>(V(i), …)` tells V4D to use one of its worker OpenGL contexts (see [`v4d.hpp:584`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/include/opencv2/v4d/v4d.hpp)). `V(i)` specifies the index of the worker context — each cube is a separate graph node targeting an independent context.
+`gl<-1>(V(i), …)` tells V4D to use one of its worker OpenGL contexts (see [`v4d.hpp:584`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp)). `V(i)` specifies the index of the worker context — each cube is a separate graph node targeting an independent context.
 
 ### Parallel Execution
 
@@ -1495,7 +1495,7 @@ This tutorial builds a self-contained image gallery application: it loads images
 
 ## The Code
 
-You can find the complete source in [`image_carousel.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/image_carousel.cpp). Run it with one or more image files or directories. Controls: arrow keys for prev/next, Space to toggle auto-play, mouse scroll/clicks, Home/End.
+You can find the complete source in [`image_carousel.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/image_carousel.cpp). Run it with one or more image files or directories. Controls: arrow keys for prev/next, Space to toggle auto-play, mouse scroll/clicks, Home/End.
 
 ```cpp
 class ImageCarousel : public V4DPlan {
@@ -1601,7 +1601,7 @@ This tutorial dissects the most feature-complete sample: a reimplementation of O
 
 ## The Code
 
-You can find the complete source in [`imshow_reimplementation.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta/modules/v4d/samples/imshow_reimplementation.cpp). Run it with an image path; it falls back to `lena.png`.
+You can find the complete source in [`imshow_reimplementation.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/imshow_reimplementation.cpp). Run it with an image path; it falls back to `lena.png`.
 
 ```cpp
 class ImshowReimplementation : public V4DPlan {

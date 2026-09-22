@@ -42,11 +42,11 @@ obs/
    Requires `osc` installed and configured (`osc ls` first to create `~/.oscrc`).
 
 2. **Regenerate + upload sources** after any change to this repo or the OpenCV
-   checkout (`$OPENCV_DIR`, branch `GCV`):
+   checkout (`$OPENCV_DIR`, branch `plan-v4d-5.x`):
    ```sh
    ./regenerate.sh             # build tarballs, commit to OBS, trigger rebuilds
    ./regenerate.sh --no-rebuild user
-   OPENCV_DIR=/path/to/opencv VERSION=4.13.0~beta~kallaballa ./regenerate.sh
+   OPENCV_DIR=/path/to/opencv VERSION=5.x.x~beta~kallaballa ./regenerate.sh
    ```
    This bypasses the broken `_service` (`osc`-gated `obs_scm`) and pushes source
    tarballs directly. RPM targets get the plain opencv + plan-v4d tarballs; deb
@@ -130,9 +130,9 @@ Environment variables honored by the scripts:
 |---|---|---|
 | `OSC_USER` / `OBS_USER` | setup/regenerate/build | read from `~/.oscrc` |
 | `OBS_API` | all osc commands | `https://api.opensuse.org` |
-| `VERSION` | regenerate.sh | `4.13.0~beta~kallaballa` |
+| `VERSION` | regenerate.sh | `5.x.x~beta~kallaballa` |
 | `REVISION` | regenerate.sh | `1` |
 | `OPENCV_DIR` | regenerate.sh | `~/devel/opencv` or cloned |
-| `OPENCV_BRANCH` | regenerate.sh | `GCV` |
-| `PLANV4D_BRANCH` | regenerate.sh | `beta` |
+| `OPENCV_BRANCH` | regenerate.sh | `plan-v4d-5.x` |
+| `PLANV4D_BRANCH` | regenerate.sh | `beta-5.x` |
 | `QEMU_WORK_ROOT` | qemu-test.sh | `/tmp/opencode/qemu` |
