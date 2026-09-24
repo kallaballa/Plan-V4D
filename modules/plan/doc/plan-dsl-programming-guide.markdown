@@ -27,7 +27,7 @@
 11. [Events: reading input](#11-events-reading-input)
 12. [Loops as a special case of branches](#12-loops-as-a-special-case-of-branches)
 13. [Sub-plans: modules and reusable logic](#13-sub-plans-modules-and-reusable-logic)
-14. [Side-effect contexts: `gl`, `nvg`, `fb`, `capture`, `write`, `imgui`](#14-side-effect-contexts-gl-nvg-fb-capture-write-imgui)
+14. [Side-effect contexts: `gl`, `clear`, `fb`, `nvg`, `bgfx`, `ext`, `capture`, `write`, `imgui`, `set`](#14-side-effect-contexts-gl-clear-fb-nvg-bgfx-ext-capture-write-imgui-set)
 15. [Lifecycle: `setup`, `infer`, `teardown`, `gui`, `run`](#15-lifecycle-setup-infer-teardown-gui-run)
 16. [Workers: how parallelism works](#16-workers-how-parallelism-works)
 17. [Walkthrough: `video_editing.cpp`](#17-walkthrough-video_editingcpp)
@@ -80,7 +80,7 @@ The class `VideoEditingPlan` does not directly run a frame loop. Instead, it *de
 Then this call:
 
 ```cpp
-V4DPlan::run<VideoEditingPlan>(0);
+V4DPlan::run<VideoEditingPlan>(2);
 ```
 
 starts the runtime and executes that description repeatedly.
@@ -145,7 +145,7 @@ The lifecycle methods have different roles:
 * `setup()` — one-shot initialization.
 * `infer()` — records the per-frame graph.
 * `teardown()` — one-shot cleanup.
-* `runGraph()` — the runtime-provided frame loop.
+* `runGraph()` — replays the recorded graph once per frame (provided by the runtime).
 
 ### Plan-DSL describes one iteration of a frame loop
 
@@ -195,7 +195,7 @@ Key points:
 * `P<uint64_t>(GlobalState::Keys::FRAME_CNT)` reads the runtime frame counter.
 * `Plan::run<CountToTen>(0)` starts the runtime.
 
-If built and run, this prints one `tick` per frame for ten frames, then exits.
+If built and run against a runtime, this prints one `tick` per frame for the first ten frames; afterwards the branch predicate is false and the body is skipped for the rest of the run.
 
 ---
 
@@ -409,7 +409,7 @@ int threshold_ = 128;
 
 void infer() override {
     auto src = R(frame_);
-    auto bright = F(&cv::mean, src) > V(threshold_);
+    auto bright = F(&cv::mean, src)[V(0)] > V(threshold_);
 
     branch(bright);
         plain([](const cv::UMat&) {
@@ -423,7 +423,7 @@ What happens here?
 
 1. `R(frame_)` creates a read-only edge to `frame_`.
 2. `F(&cv::mean, src)` records a call node that computes the mean.
-3. `> V(threshold_)` records a comparison node.
+3. `[V(0)]` extracts the mean's first channel, and `> V(threshold_)` records a comparison node.
 4. `branch(bright)` opens a conditional region that runs only when the comparison is true.
 
 Nothing here executes immediately as a normal C++ computation. It is all recorded.
@@ -763,7 +763,7 @@ If the callable returns `void`, `F` acts as a statement.
 
 There is no separate Plan-DSL function-definition syntax. To reuse logic, write a normal C++ function or lambda and call it through `F`.
 
-The graph records each call site as a node. Identical call sites with identical operands may be deduplicated.
+The graph records one node per call site. Every occurrence appears in the graph, in record order, exactly as written.
 
 ---
 
@@ -1151,12 +1151,6 @@ public:
 };
 ```
 
-int main(int argc, char** argv) {
-    // Open source and sink...
-    V4DPlan::run<VideoEditingPlan>(2);
-}
-```
-
 The plan does three things every frame:
 
 1. `capture()` pulls a frame from the source.
@@ -1167,27 +1161,31 @@ The `main()` function initializes the V4D runtime, attaches a source and sink, a
 
 ```cpp
 int main(int argc, char** argv) {
-    cv::Rect viewport(0, 0, 960, 960);
+    cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
 
+    std::string inputVideo = (argc > 1) ? argv[1]
+                              : cv::samples::findFile("videos/bunny.mp4");
+    std::string outputVideo = (argc > 2) ? argv[2] : "video_editing_out.mkv";
+
+    cv::Rect viewport(0, 0, 960, 960);
     cv::Ptr<V4D> runtime = V4D::init(
         viewport,
         "Video Editing",
-        AllocateFlags::NANOVG | AllocateFlags::IMGUI
+        AllocateFlags::NANOVG | AllocateFlags::IMGUI,
+        ConfigFlags::DISPLAY_MODE
     );
 
-    auto src = Source::make(runtime, argv[1]);
-    auto sink = Sink::make(runtime, argv[2], src->fps(), viewport.size());
+    auto src = Source::make(runtime, inputVideo);
+    auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
 
     runtime->setSource(src);
     runtime->setSink(sink);
 
-    V4DPlan::run<VideoEditingPlan>(0);
+    V4DPlan::run<VideoEditingPlan>(2);
 }
 ```
 
-Because `0` is passed to `run`, the runtime uses one worker plus the main thread.
-
-For V4D, the main thread handles display and events, while the worker executes the plan graph.
+Because `2` is passed to `run`, the runtime uses three compute workers plus a display thread (the main thread). For V4D the main thread handles the display and input-event loop, while each compute worker executes its own copy of the plan graph.
 
 ---
 
@@ -1216,7 +1214,7 @@ struct BeautyDemoPlan : public V4DPlan {
         float eyesAndLipsSaturation_ = 1.25f;
         float skinSaturation_ = 1.35f;
         float skinContrast_ = 0.75f;
-        bool sideBySide_ = false;
+        bool sideBySide_ = true;
         bool stretch_ = true;
         bool fullscreen_ = false;
         bool enabled_ = true;
@@ -1292,7 +1290,7 @@ The important lesson is that all of this is expressed as a graph, not as a norma
 ```cpp
 struct MyPlan : Plan {
     void infer() override {
-        plain({ std::cout << "frame" << std::endl; });
+        plain([]() { std::cout << "frame" << std::endl; });
     }
 };
 
