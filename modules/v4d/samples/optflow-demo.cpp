@@ -363,7 +363,7 @@ private:
 		//the framebuffer size
         cv::Size size_;
 		// Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
-		int kernelSize_ = 63;
+		int kernelSize_ = 9;
 		//The intensity of the glow or bloom filter
 		int gain_ = 100;
 		//Convert the background to greyscale
@@ -374,9 +374,9 @@ private:
 		float sceneChangeThreshDiff_ = 0.01f;
 		// The theoretical maximum number of points to track which is scaled by the density of detected points
 		// and therefor is usually much smaller.
-		int maxPoints_ = 300000;
+		int maxPoints_ = 9999999;
 		// How many of the tracked points to lose intentionally, in percent.
-		float pointLoss_ = 5;
+		float pointLoss_ = 4.0;
 		// The theoretical maximum size of the drawing stroke which is scaled by the area of the convex hull
 		// of tracked points and therefor is usually much smaller.
 		int maxStroke_ = 3;

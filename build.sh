@@ -94,7 +94,7 @@ if [ -n "${SAN:-}" ]; then
 fi
 
 if [ ! -d "$OPENCV_DIR" ]; then
-  git clone git@github.com:kallaballa/opencv.git "$OPENCV_DIR"
+  $(cd $SCRIPT_DIR; git clone git@github.com:kallaballa/opencv.git)
 fi
 
 if [ -f "$BUILD_MARKER" ] && [ "$(cat "$BUILD_MARKER")" != "$BUILD_TYPE" ]; then
