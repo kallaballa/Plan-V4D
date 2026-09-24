@@ -231,7 +231,7 @@ There is also an overload taking a separate `framebufferSize` (for high-DPI or w
 | `DISPLAY_MODE` | Sync display thread and workers via semaphores — needed for `imshow`-style programs |
 | `RESIZEABLE` | Allow user resizing (not resizable by default!) |
 
-`DebugFlags` — what to log: `PRINT_CONTROL_FLOW` (branch decisions), `PRINT_LOCK_CONTENTION`, `MONITOR_RUNTIME_PROPERTIES`, `LOWER_WORKER_PRIORITY` (Linux), `DEBUG_GL_CONTEXT`, `DONT_PAUSE_LOG`. Keep `DEFAULT` for day-to-day work; reach for `PRINT_CONTROL_FLOW` when a branch misbehaves.
+`DebugFlags` — what to log/do: `ONSCREEN_CONTEXTS` (render framebuffers into visible on-screen GLFW windows, useful when debugging off-screen content), `PRINT_CONTROL_FLOW` (branch decisions), `PRINT_LOCK_CONTENTION`, `MONITOR_RUNTIME_PROPERTIES`, `LOWER_WORKER_PRIORITY` (Linux), `DEBUG_GL_CONTEXT`, `DONT_PAUSE_LOG`. Keep `DEFAULT` for day-to-day work; reach for `PRINT_CONTROL_FLOW` when a branch misbehaves.
 
 The last argument is the MSAA sample count (`0`, `2`, `4`, `8`…). It only matters for direct `gl(...)` rendering — `nvg(...)` does its own anti-aliasing.
 
@@ -528,7 +528,7 @@ At replay time this calls `cv::cvtColor(result_, framebuffer, ...)` — i.e. it 
 
 Because the framebuffer is a genuine `cv::UMat` backed by shared memory, you can run OpenCV (and thus OpenCL) directly on framebuffer data without copies.
 
-**Copying the framebuffer out.** Snapshot the framebuffer into a `UMat` with `copyTo` (samples define the helper pointer `UMAT_COPY_` via the `_OLMC_` macro in `util.hpp`):
+**Copying the framebuffer out.** Snapshot the framebuffer into a `UMat` with `copyTo`. Samples expose `copyTo` as a pre-made edge — `beauty-demo.cpp` / `optflow-demo.cpp` define `UMAT_COPY_TO_` with the `_OLMC_` macro in `util.hpp`, and `font-demo.cpp` defines a `UMAT_COPY_` of its own:
 
 ```cpp
 nvg(&StarsRenderer::draw, RWS(stars_), size_);
@@ -624,7 +624,7 @@ Event<Mouse> dragEvents_  = E<Mouse>(Mouse::Type::DRAG, Mouse::LEFT);      // ty
 Event<Mouse> scroll_      = E<Mouse>(Mouse::Type::SCROLL);
 ```
 
-Event classes: `Mouse`, `Keyboard`, `Window`, `Joystick`. Mouse types include `PRESS`, `RELEASE`, `CLICK`, `DRAG`, `MOVE`, `SCROLL`, `HOVER_ENTER`, `HOVER_EXIT`. The DSL core produces empty lists; V4D's runtime fills them from GLFW each frame.
+Event classes: `Mouse`, `Keyboard`, `Window`, `Joystick`. Mouse types: `PRESS`, `RELEASE`, `MOVE`, `SCROLL`, `DRAG`, `HOVER_ENTER`, `HOVER_EXIT`, `DOUBLE_CLICK`. The DSL core produces empty lists; V4D's runtime fills them from GLFW each frame.
 
 The classic usage pattern — test whether the list is empty:
 
@@ -753,12 +753,11 @@ Why bother? Organization (a 500-line `infer()` becomes three focused classes), r
 
 | N | Threads |
 |---|---|
-| -1 | runtime default worker count + main |
-| 0 | 1 worker + main ← the common case |
-| 1 | 1 worker + main |
-| ≥ 1 | N workers + main (e.g. `beauty-demo` runs with 6) |
+| -1 | 1 worker + main (`Plan::run` calls `cv::setNumThreads(-1)` — OpenCV keeps its full internal threading) |
+| 0 | 1 worker + main ← the common case (`cv::setNumThreads(0)` — single-threaded OpenCV) |
+| ≥ 1 | **N + 1 workers** + main (e.g. `beauty-demo` passes `2` → 3 workers) |
 
-`0` is the special case meaning “one worker”; any `N ≥ 1` means exactly N workers. For V4D, the main thread usually handles the display and event loop.
+`0` is the special case meaning “one worker”; any positive `N` means `N + 1` workers. For V4D, the main thread usually handles the display and event loop.
 
 **What's shared vs. not:**
 
@@ -796,7 +795,7 @@ private:
     static Params params_;                       // shared: GUI writes, workers read
     Property<cv::Size>  size_    = P<cv::Size>(V4D::Keys::SIZE);
     Property<uint64_t>  frameNo_ = P<uint64_t>(GlobalState::Keys::FRAME_CNT);
-    Event<Mouse>        clicks_  = E<Mouse>(Mouse::Type::CLICK);
+    Event<Mouse>        presses_ = E<Mouse>(Mouse::Type::PRESS);
 
     // CPU-side effect: runs inside an fb(...) node, directly on the framebuffer.
     static void adjust_colors(cv::UMat& img, const Params& p) {
@@ -823,14 +822,14 @@ public:
     void infer() override {
         set(V4D::Keys::FULLSCREEN, CS(params_.fullscreen_));     // (0) GUI → runtime
 
-        // (1) toggle enabled_ on mouse click; the assignment doubles as predicate.
-        //     IF's condition is "the click list is empty":
-        //     true arm (no click) keeps the value, false arm (click) flips it.
+        // (1) toggle enabled_ on mouse press; the assignment doubles as predicate.
+        //     IF's condition is "the event list is empty":
+        //     true arm (no press) keeps the value, false arm (press) flips it.
         branch(
             RWS(params_.enabled_) = IF(
-                F(&Mouse::List::empty, clicks_),
-                CS(params_.enabled_),          // no click → unchanged
-                !CS(params_.enabled_)          // click    → flip
+                F(&Mouse::List::empty, presses_),
+                CS(params_.enabled_),          // no press → unchanged
+                !CS(params_.enabled_)          // press    → flip
             )
         )
         ->endBranch();

@@ -34,6 +34,8 @@ Plan-DSL is an embedded C++ language that records a task graph.
 
 User code is written inside lifecycle methods of a class derived from `Plan` or `V4DPlan`.
 
+### 1.1 Lifecycle methods
+
 The main lifecycle methods are:
 
 | Method | Role |
@@ -42,6 +44,8 @@ The main lifecycle methods are:
 | `infer()` | Per-frame graph |
 | `teardown()` | One-shot cleanup graph |
 | `gui()` | Main-thread GUI setup |
+
+### 1.2 Record and replay
 
 The graph is built once and then executed repeatedly.
 
@@ -52,9 +56,81 @@ runGraph() replays nodes every frame
 
 Nodes are executed in record order.
 
+### 1.3 Execution properties
+
 Plan-DSL does not perform dynamic dependency scheduling, work stealing, or automatic vectorization.
 
 The runtime evaluates branch predicates each frame and executes enabled nodes.
+
+Plan member variables are private to one plan instance. Because every worker thread runs its own plan instance (see §1.5), a plain member is effectively per-worker state. Promoting it with `_shared(x)` turns it into process-wide state guarded by a mutex.
+
+### 1.4 Threading model
+
+`Plan::run<Tplan>(extra_workers, args...)` spawns compute workers plus a display thread. Each worker constructs its own plan instance inside its thread, records its own graph, and replays it in lockstep with the other workers; the runtime decides frame pacing.
+
+Worker count is selected by the first argument:
+
+```text
+extra_workers == -1 -> 1 compute worker + display thread, cv::setNumThreads(-1)
+extra_workers ==  0 -> 1 compute worker + display thread, cv::setNumThreads(0)
+extra_workers ==  n -> n+1 compute workers + display thread, cv::setNumThreads(0)
+```
+
+### 1.5 Runtime and lifecycle
+
+`Plan` is runtime-agnostic. Runtime-specific behavior — rendering contexts, source/sink buffers, frame pacing, debug flags — is delegated to an abstract `PlanRuntime` registered thread-locally and picked up by the plan constructor:
+
+```cpp
+class PlanRuntime {
+    static cv::Ptr<PlanRuntime>& current();
+
+    // Context accessors; each is paired with a has<X>Ctx() query
+    cv::Ptr<detail::PlainContext> plainCtx();
+    cv::Ptr<detail::PlanContext>  glCtx(int32_t idx = 0);
+    cv::Ptr<detail::PlanContext>  fbCtx();
+    cv::Ptr<detail::PlanContext>  nvgCtx();
+    cv::Ptr<detail::PlanContext>  bgfxCtx();
+    cv::Ptr<detail::PlanContext>  extCtx(int32_t idx = 0);
+    cv::Ptr<detail::PlanContext>  sourceCtx();
+    cv::Ptr<detail::PlanContext>  sinkCtx();
+    cv::Ptr<detail::PlanContext>  imguiCtx();
+
+    uint32_t debugFlags() const;
+    cv::Rect getViewport() const;
+
+    // Lifecycle hooks
+    void initWorkerThread(int32_t workerIdx);
+    void willGui(const cv::Ptr<Plan>& plan);
+    void runFrameLoop(std::function<void()> frameFn);
+    void releaseIo();
+};
+```
+
+`Plan::run<Tplan>` orchestrates the complete per-worker lifecycle:
+
+```text
+per compute worker:
+  initWorkerThread(i)
+  construct the worker's own plan instance
+  setup()    -> makeGraph() -> runGraph() -> clearGraph()
+  infer()    -> makeGraph()
+  barrier
+  runFrameLoop(runGraph() per frame)
+  teardown() -> makeGraph() -> runGraph() -> clearGraph()
+
+display thread:
+  willGui(plan)
+  gui()
+```
+
+Phases:
+
+* `setup()` records a one-shot graph, executed once before inference. Worker setup is serialized (one setup graph at a time).
+* `infer()` records the per-frame graph. Entering the frame loop is gated on a barrier so all workers start together; `runGraph()` then replays the graph once per frame.
+* `teardown()` records a one-shot cleanup graph, executed once after the frame loop.
+* `gui()` runs on the display thread before the frame loop and typically registers ImGui widgets rather than graph nodes.
+* V4D implements `runFrameLoop` with frame-synchronized compute workers and a display thread (`ConfigFlags::DISPLAY_MODE`).
+* After the frame loop ends, `Plan::run` joins every spawned worker on the display thread — including each worker's teardown graph — before the caller returns.
 
 ---
 
@@ -74,10 +150,11 @@ Each edge has an access intent.
 ### 2.1 `V(value)` — constant
 
 ```cpp
-template<typename T> Edge<T, true, true, false> V(T&& value)
+template<typename T> Edge<cv::Ptr<T>, false, true, false, T, true> V(T value)
 ```
 
-Creates an immediate constant edge.
+Creates a constant edge backed by an owning copy of the value. The edge never
+aliases user storage, so the value cannot change behind the edge.
 
 Equivalent conceptually to an LLVM constant.
 
@@ -202,32 +279,46 @@ P<size_t>(LocalState::Keys::WORKER_INDEX)
 
 Core global keys include:
 
-```cpp
-FRAME_CNT
-CAPTURE_CNT
-FPS_CNT
-RUN_CNT
-START_TIME
-FPS
-WORKERS_READY
-WORKERS_STARTED
-LOCKING
-DISPLAY_READY
-LOCK_CONTENTION_CNT
-LOCK_CONTENTION_RATE
-LCR_CNT
-SHOW_GUI
-SHOW_FRAME_TIME
-TIME_TRACKER
-```
+| Key | Stored type |
+|---|---|
+| `FRAME_CNT` | `uint64_t` |
+| `CAPTURE_CNT` | `uint64_t` |
+| `FPS_CNT` | `uint64_t` |
+| `RUN_CNT` | `size_t` |
+| `START_TIME` | `uint64_t` (epoch nanoseconds) |
+| `FPS` | `double` |
+| `WORKERS_READY` | `size_t` |
+| `WORKERS_STARTED` | `size_t` |
+| `LOCKING` | `bool` |
+| `DISPLAY_READY` | `bool` |
+| `LOCK_CONTENTION_CNT` | `uint64_t` |
+| `LOCK_CONTENTION_RATE` | `double` |
+| `LCR_CNT` | `uint64_t` |
+| `SHOW_GUI` | `bool` |
+| `SHOW_FRAME_TIME` | `bool` |
+| `TIME_TRACKER` | `bool` |
 
 Core local keys include:
 
-```cpp
-WORKER_INDEX
-```
+| Key | Stored type |
+|---|---|
+| `WORKER_INDEX` | `size_t` |
 
-Runtimes may add additional key families, such as `V4D::Keys`.
+V4D adds a runtime key family read through `P<T>(V4D::Keys::…)`:
+
+| Key | Stored type | Read-only |
+|---|---|---|
+| `SIZE` | `cv::Size` | yes |
+| `VIEWPORT` | `cv::Rect` | no |
+| `WINDOW_SIZE` | `cv::Size` | no |
+| `FRAMEBUFFER_SIZE` | `cv::Size` | yes |
+| `CLEAR_COLOR` | `cv::Scalar` | no |
+| `NAMESPACE` | `std::string` | no |
+| `FULLSCREEN` | `bool` | no |
+| `DISABLE_INPUT_EVENTS` | `bool` | no |
+| `VISIBLE` | `bool` | no |
+
+Writable V4D properties fire runtime callbacks when they are set (for example `WINDOW_SIZE` resizes the window, `FULLSCREEN` toggles fullscreen). Other runtimes may add their own key families.
 
 LLVM analogue: global variable or fixed runtime register.
 
@@ -292,6 +383,7 @@ Accepted callables include:
 
 * free functions,
 * member functions,
+* member data,
 * lambdas,
 * function objects.
 
@@ -374,7 +466,7 @@ Statement forms do not return result edges.
 
 ---
 
-## 3.1 Arithmetic operators
+## 3.5 Arithmetic operators
 
 | Opcode | Symbol | Named | Arity | Meaning | LLVM analogue |
 |---|---:|---|---:|---|---|
@@ -399,7 +491,7 @@ Unary minus written as `-x` is lowered as multiplication by `-1` using `MUL`.
 
 ---
 
-## 3.2 Logical and bitwise operators
+## 3.6 Logical and bitwise operators
 
 | Opcode | Symbol | Named | Arity | Meaning | LLVM analogue |
 |---|---:|---|---:|---|---|
@@ -414,7 +506,7 @@ Unary minus written as `-x` is lowered as multiplication by `-1` using `MUL`.
 
 ---
 
-## 3.3 Comparison operators
+## 3.7 Comparison operators
 
 | Opcode | Symbol | Named | Arity | Meaning | LLVM analogue |
 |---|---:|---|---:|---|---|
@@ -429,7 +521,7 @@ Comparison semantics follow native C++ operators.
 
 ---
 
-## 3.4 Selection, memory, and construction
+## 3.8 Selection, memory, and construction
 
 | Opcode | Symbol | Named | Arity | Meaning | LLVM analogue |
 |---|---:|---|---:|---|---|
@@ -459,7 +551,7 @@ construct(dst, a, b)
 
 ---
 
-## 3.5 Lowercase statement helpers
+## 3.9 Lowercase statement helpers
 
 ```cpp
 template<Operators Top, typename... Edges>
@@ -637,21 +729,25 @@ Both are wrappers over the underlying transaction-adding mechanism.
 | Call | Context | Purpose |
 |---|---|---|
 | `gl(fn, args...)` | OpenGL | Execute GL commands |
-| `gl(idxEdge, fn, args...)` | OpenGL | Execute GL commands on context index |
+| `gl(idxEdge, fn, args...)` | OpenGL | Select context by index and execute GL commands |
+| `gl<pos>(idxEdge, fn, args...)` | OpenGL | Select context by index and execute GL commands, injecting `idxEdge` at argument position `pos`; `pos < 0` uses the edge only for context selection |
+| `clear(glIndex = -1)` | OpenGL | Clear color, depth, and stencil buffers |
 | `fb<pos>(fn, args...)` | Framebuffer | Framebuffer access |
 | `nvg(fn, args...)` | NanoVG | Vector graphics |
 | `bgfx(fn, args...)` | bgfx | bgfx rendering |
 | `ext(fn, args...)` | External | External renderer context |
+| `ext(idxEdge, fn, args...)` | External | External renderer context by index |
+| `ext<pos>(idxEdge, fn, args...)` | External | External renderer context by index, injecting `idxEdge` at argument position `pos`; `pos < 0` uses the edge only for context selection |
 | `capture(fn, args...)` | Source | Pull input frame |
 | `capture(edge)` | Source | Pull input frame into edge |
 | `capture()` | Source | Pull input frame |
 | `write(fn, args...)` | Sink | Push output frame |
 | `write(edge)` | Sink | Push output frame |
 | `write()` | Sink | Push output frame |
-| `set(key, edge)` | CPU | Property write node |
+| `set(key, edge)` | CPU | Property write node (`V4D::Keys` or `GlobalState::Keys`) |
 | `imgui(fn, args...)` | ImGui | Install ImGui transaction |
 
-Most context calls return `cv::Ptr<V4DPlan>` and can be chained.
+Most context calls return `cv::Ptr<V4DPlan>` and can be chained. `imgui` is the exception: it returns `void` and installs a transaction for the ImGui frame instead.
 
 ---
 
@@ -664,7 +760,10 @@ static void Plan::run<Tplan>(workers, args...);
 
 `make` instantiates a plan.
 
-`run` starts the full lifecycle.
+`run` starts the full lifecycle. The first argument selects the number of
+compute workers: `-1` runs a single worker with OpenCV threading enabled,
+`0` runs a single worker, and a positive `n` runs `n + 1` workers. A display
+thread handles the GUI. See §1.5 for the complete lifecycle.
 
 For V4D:
 
@@ -689,21 +788,20 @@ V4DPlan::run<Tplan>(workers, args...);
 | Named global state | `GlobalState` + `P<T>(key)` | global variable |
 | Named local state | `LocalState` + `P<T>(key)` | thread-local variable |
 
-`GlobalState` supports:
+`GlobalState` and `LocalState` provide the same operations:
 
 ```cpp
-GlobalState::create<V>(key, value, cb)
-GlobalState::set<V>(key, v)
-GlobalState::apply<V>(key, f)
+State::create<Tread, V>(key, value, cb)   // Tread=true creates a read-only property
+State::get<V>(key)
+State::set<V>(key, v)
+State::apply<V>(key, f)
 ```
 
-`P<T>(key)` reads a state value as an edge.
+* `GlobalState` is process-wide; `LocalState` is `thread_local`.
+* `create<false, V>(key, value, cb)` stores a callback that fires whenever `set` changes the value.
+* `P<T>(key)` binds an edge to a state value. A property is `Edge<const T, false, true, true>` — shared and read-only.
 
-Runtimes may add property write nodes. For example, V4D provides:
-
-```cpp
-set(key, edge)
-```
+Runtimes may add property write nodes. V4D provides a `set(key, edge)` node that accepts both `V4D::Keys` and `GlobalState::Keys` (see §5.2). Writable V4D properties trigger runtime callbacks on write.
 
 ---
 
@@ -920,12 +1018,12 @@ assign(RW(pc_), V(nextBlock));
 Example:
 
 ```cpp
-branch(this { return pc_ == 0; }, R(pc_));
+branch([](const int32_t& pc) { return pc == 0; }, R(pc_));
     // block 0
     assign(RW(pc_), V(1));
 endBranch();
 
-branch(this { return pc_ == 1; }, R(pc_));
+branch([](const int32_t& pc) { return pc == 1; }, R(pc_));
     // block 1
     branch(cond);
         assign(RW(pc_), V(2));
@@ -959,7 +1057,7 @@ It uses `O(1)` control state and avoids boot nodes.
 
 | Mnemonic | Opcode | Arity | Symbol | Named | Statement form |
 |---|---|---:|---|---|---|
-| CONSTRUCT | `CONSTRUCT_` | variadic | `plan(...)` | `operator()` | `construct(...)` |
+| CONSTRUCT | `CONSTRUCT_` | variadic | `()` via `operator()` | `operator()` | `construct(...)` |
 | ASSIGN | `ASSIGN_` | 2 | `=` | `ASSIGN` | `assign(...)` |
 | ADD | `ADD_` | n | `+` | `ADD` | `op<ADD_>` |
 | SUB | `SUB_` | n | `-` | `SUB` | `op<SUB_>` |
