@@ -50,15 +50,15 @@ public:
     void infer() override {
         capture();
 
-        nvg({
+        nvg([](const cv::Size& sz, const std::string& str) {
             using namespace cv::v4d::nvg;
 
             fontSize(40.0f);
             fontFace("sans-bold");
             fillColor(Scalar(255, 0, 0, 255));
             textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-            text(sz_.width / 2.0, sz_.height / 2.0,
-                 hv_.c_str(), hv_.c_str() + hv_.size());
+            text(sz.width / 2.0, sz.height / 2.0,
+                 str.c_str(), str.c_str() + str.size());
         }, sz_, R(hv_));
 
         write();
@@ -67,7 +67,7 @@ public:
 
 int main(int argc, char** argv) {
     // Open source and sink...
-    V4DPlan::run<VideoEditingPlan>(0);
+    V4DPlan::run<VideoEditingPlan>(2);
 }
 ```
 
@@ -174,7 +174,7 @@ using namespace cv::plan;
 struct CountToTen : Plan {
     void infer() override {
         branch(P<uint64_t>(GlobalState::Keys::FRAME_CNT) < V(uint64_t(10)));
-            plain({ std::cout << "tick" << std::endl; });
+            plain([]() { std::cout << "tick" << std::endl; });
         endBranch();
     }
 };
@@ -190,7 +190,7 @@ Key points:
 * The main plan logic lives inside `infer()`.
 * You do not write the frame loop yourself.
 * `branch(predicate)` opens a conditional region.
-* `plain({ ... })` creates a node containing ordinary C++ code.
+* `plain(fn, edges...)` creates a node containing ordinary C++ code.
 * `V(uint64_t(10))` creates a constant edge.
 * `P<uint64_t>(GlobalState::Keys::FRAME_CNT)` reads the runtime frame counter.
 * `Plan::run<CountToTen>(0)` starts the runtime.
@@ -412,7 +412,7 @@ void infer() override {
     auto bright = F(&cv::mean, src) > V(threshold_);
 
     branch(bright);
-        plain({
+        plain([](const cv::UMat&) {
             // process bright frame
         }, R(frame_));
     endBranch();
@@ -820,15 +820,21 @@ WORKER_INDEX
 
 Runtimes can add their own keys.
 
-V4D adds keys such as:
+V4D adds the following keys:
 
-```cpp
-V4D::Keys::SIZE
-V4D::Keys::VIEWPORT
-V4D::Keys::NAMESPACE
-V4D::Keys::FULLSCREEN
-V4D::Keys::DISABLE_INPUT_EVENTS
-```
+| Key | Stored type |
+|---|---|
+| `SIZE` | `cv::Size` |
+| `VIEWPORT` | `cv::Rect` |
+| `WINDOW_SIZE` | `cv::Size` |
+| `FRAMEBUFFER_SIZE` | `cv::Size` |
+| `CLEAR_COLOR` | `cv::Scalar` |
+| `NAMESPACE` | `std::string` |
+| `FULLSCREEN` | `bool` |
+| `DISABLE_INPUT_EVENTS` | `bool` |
+| `VISIBLE` | `bool` |
+
+Writable V4D properties fire runtime callbacks when they are set, for example `WINDOW_SIZE` resizes the window and `FULLSCREEN` toggles fullscreen.
 
 ---
 
@@ -889,7 +895,7 @@ struct CountdownPlan : Plan {
 
     void infer() override {
         branch(R(counter_) > V(0));
-            plain({ std::cout << "tick" << std::endl; }, R(counter_));
+            plain([](const int&) { std::cout << "tick" << std::endl; }, R(counter_));
             assign(RW(counter_), R(counter_) - V(1));
         endBranch();
     }
@@ -956,7 +962,7 @@ Because a sub-plan graph is spliced at the call site, it inherits the enclosing 
 
 ---
 
-## 14. Side-effect contexts: `gl`, `nvg`, `fb`, `capture`, `write`, `imgui`
+## 14. Side-effect contexts: `gl`, `clear`, `fb`, `nvg`, `bgfx`, `ext`, `capture`, `write`, `imgui`, `set`
 
 A **context call** attaches a node to a specialized execution environment.
 
@@ -974,14 +980,25 @@ Runtimes such as V4D add additional contexts.
 | Call | Context | Purpose |
 |---|---|---|
 | `gl(fn, args...)` | OpenGL | Execute GL commands |
+| `gl(idxEdge, fn, args...)` | OpenGL | Select context by index and execute GL commands |
+| `gl<pos>(idxEdge, fn, args...)` | OpenGL | Select context by index, injecting `idxEdge` at argument position `pos`; `pos < 0` uses the edge only for context selection |
+| `clear(glIndex = -1)` | OpenGL | Clear color, depth, and stencil buffers |
 | `fb<pos>(fn, args...)` | Framebuffer | Access framebuffer |
 | `nvg(fn, args...)` | NanoVG | Vector graphics |
 | `bgfx(fn, args...)` | bgfx | bgfx rendering |
-| `ext(fn, args...)` | External | External renderer contexts |
-| `capture(...)` | Source | Pull next input frame |
-| `write(...)` | Sink | Push output frame |
-| `imgui(...)` | ImGui | Install UI node |
-| `set(key, edge)` | CPU | Property write node |
+| `ext(fn, args...)` | External | External renderer context |
+| `ext(idxEdge, fn, args...)` | External | Select context by index |
+| `ext<pos>(idxEdge, fn, args...)` | External | Select context by index, injecting `idxEdge` at argument position `pos`; `pos < 0` uses the edge only for context selection |
+| `capture(fn, args...)` | Source | Pull input frame |
+| `capture(edge)` | Source | Pull input frame into an edge |
+| `capture()` | Source | Pull input frame |
+| `write(fn, args...)` | Sink | Push output frame |
+| `write(edge)` | Sink | Push output frame |
+| `write()` | Sink | Push output frame |
+| `imgui(fn, args...)` | ImGui | Install UI transaction |
+| `set(key, edge)` | CPU | Property write node (`V4D::Keys` or `GlobalState::Keys`) |
+
+Most context calls return `cv::Ptr<V4DPlan>` and can be chained. `imgui` is the exception: it returns `void` and installs a transaction for the ImGui frame instead.
 
 A typical frame body looks like this:
 
@@ -1016,13 +1033,13 @@ Each C++ function is wrapped into a node that the runtime dispatches to the corr
 A program starts with:
 
 ```cpp
-Plan::run<Tplan>(workers, args...);
+Plan::run<Tplan>(extra_workers, args...);
 ```
 
 or, for V4D:
 
 ```cpp
-V4DPlan::run<Tplan>(workers, args...);
+V4DPlan::run<Tplan>(extra_workers, args...);
 ```
 
 The arguments are forwarded to the plan constructor.
@@ -1042,16 +1059,19 @@ The runtime then performs roughly these steps:
 6. Enter the frame loop.
 7. Every frame, each worker calls `runGraph()`.
 8. When the runtime shuts down, each worker calls `teardown()`.
+9. The main thread joins every worker, including each worker’s teardown graph, before `run` returns.
 
 ### Worker count semantics
 
-The meaning of the `workers` argument is:
+The meaning of the `extra_workers` argument is:
 
-| `workers` value | Meaning |
+| `extra_workers` value | Meaning |
 |---|---|
-| `-1` | Default worker count |
-| `0` | One worker plus main thread |
-| `>= 1` | N workers plus main thread |
+| `-1` | One compute worker, OpenCV threading enabled (`cv::setNumThreads(-1)`) |
+| `0` | One compute worker (`cv::setNumThreads(0)`) |
+| `>= 1` | `n + 1` compute workers (`cv::setNumThreads(0)`) |
+
+In all cases the main thread handles `gui()` and the display/event loop, while each compute worker runs its own copy of the plan graph.
 
 For V4D, the main thread usually handles the display and event loop.
 
@@ -1115,20 +1135,26 @@ public:
     void infer() override {
         capture();
 
-        nvg({
+        nvg([](const cv::Size& sz, const std::string& str) {
             using namespace cv::v4d::nvg;
 
             fontSize(40.0f);
             fontFace("sans-bold");
             fillColor(Scalar(255, 0, 0, 255));
             textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-            text(sz_.width / 2.0, sz_.height / 2.0,
-                 hv_.c_str(), hv_.c_str() + hv_.size());
+            text(sz.width / 2.0, sz.height / 2.0,
+                 str.c_str(), str.c_str() + str.size());
         }, sz_, R(hv_));
 
         write();
     }
 };
+```
+
+int main(int argc, char** argv) {
+    // Open source and sink...
+    V4DPlan::run<VideoEditingPlan>(2);
+}
 ```
 
 The plan does three things every frame:
