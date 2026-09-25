@@ -26,11 +26,9 @@ struct Track {
 	cv::Rect smoothed_;
 	//KCF tracker
 	cv::Ptr<cv::Tracker> tracker_;
-	//Consecutive failed updates
+	//Consecutive failed updates (a miss is only counted on frames the tracker is
+	//actually refreshed, so the real drop latency is missCount * kcfEvery frames)
 	int missCount_ = 0;
-	//Miss threshold after which the track is dropped. KCF updates are interleaved
-	//(every other frame), so this corresponds to roughly maxMiss_*2 lost frames.
-	int maxMiss_ = 2;
 	//True if this track already consumed a detection during the current detect pass
 	//(prevents one track from being matched by several overlapping detections)
 	bool matched_ = false;
@@ -53,15 +51,29 @@ struct Detection {
 	cv::TrackerKCF::Params params_;
 	//counts processed frames to gate periodic re-detection
 	uint64_t detectCnt_ = 0;
-	//Frames between HOG re-detection passes while tracks are healthy
-	int detectInterval_ = 8;
-	//Maximum number of simultaneously tracked pedestrians. Bounds the cost of the
-	//per-frame KCF updates (one tracker per pedestrian).
-	int maxTracks_ = 15;
 };
 
 class PedestrianDemoPlan : public V4DPlan {
 private:
+	//GUI-tunable tracking parameters. Written on the main thread by gui() (under
+	//the shared mutex via RWS) and snapshotted by the tracking worker (via CS).
+	struct TrackParams {
+		//Frames between HOG re-detection passes while tracks are healthy
+		int detectInterval_ = 8;
+		//Maximum number of simultaneously tracked pedestrians. Bounds the cost of
+		//the per-frame KCF updates (one tracker per pedestrian).
+		int maxTracks_ = 15;
+		//Consecutive failed tracker updates after which a track is dropped
+		int maxMiss_ = 2;
+		//Refresh every KCF tracker every kcfEvery_ frames (1 = every frame)
+		int kcfEvery_ = 2;
+		//Exponential smoothing of the published box toward tracker output
+		float smoothFactor_ = 0.3f;
+		//Exponential smoothing of a live track's box toward its re-detection
+		float anchorFactor_ = 0.5f;
+	};
+	static TrackParams trackParams_;
+
 	struct Params {
 		cv::Size downSize_;
 		cv::Size_<float> scale_;
@@ -185,18 +197,21 @@ private:
 		oldBox.height = cvRound(oldBox.height + factor * (newBox.height - oldBox.height));
 	}
 
-	static void erase_dead(std::vector<Track>& tracks) {
+	static void erase_dead(std::vector<Track>& tracks, const TrackParams& tp) {
 		tracks.erase(std::remove_if(tracks.begin(), tracks.end(),
-			[](const Track& t) { return t.missCount_ >= t.maxMiss_; }), tracks.end());
+			[tp](const Track& t) { return t.missCount_ >= tp.maxMiss_; }), tracks.end());
 	}
 
-	static void update_tracking(const cv::UMat& videoFrameDownGrey, Detection& detection, NonMaxSupression& nms, std::vector<cv::Rect>& outBoxes) {
+	static void update_tracking(const cv::UMat& videoFrameDownGrey, Detection& detection, NonMaxSupression& nms, const TrackParams& tp, std::vector<cv::Rect>& outBoxes) {
 		++detection.detectCnt_;
+
+		const int detectInterval = std::max(1, tp.detectInterval_);
+		const int kcfEvery = std::max(1, tp.kcfEvery_);
 
 		//Re-run HOG detection on a fixed cadence (right away on the first frame).
 		//The interval is longer than before because the HOG sweep is the most
 		//expensive single operation; between passes the KCF trackers carry the state.
-		const bool doDetect = detection.detectCnt_ == 1 || (detection.detectCnt_ % detection.detectInterval_) == 0;
+		const bool doDetect = detection.detectCnt_ == 1 || (detection.detectCnt_ % size_t(detectInterval)) == 0;
 
 		std::vector<cv::Rect> detections;
 		if (doDetect) {
@@ -224,17 +239,18 @@ private:
 		}
 
 		//Update the KCF trackers. With many pedestrians the tracker updates dominate
-		//the per-frame cost, so only every other tracker is refreshed each frame
-		//(staggered by track index). The interleaving halves the tracker load while
-		//every track is still refreshed at least every two frames.
+		//the per-frame cost, so trackers are refreshed on a staggered cadence
+		//(every kcfEvery_ frames per tracker). At kcfEvery_==2 this halves the
+		//tracker load while every track is still refreshed at least once every two
+		//frames.
 		for (size_t i = 0; i < detection.tracks_.size(); ++i) {
 			Track& track = detection.tracks_[i];
-			if ((i + size_t(detection.detectCnt_)) & 1)
+			if ((i + size_t(detection.detectCnt_)) % size_t(kcfEvery))
 				continue;
 			cv::Rect predicted;
 			if (track.tracker_->update(videoFrameDownGrey, predicted)) {
 				track.missCount_ = 0;
-				smooth(track.smoothed_, predicted);
+				smooth(track.smoothed_, predicted, tp.smoothFactor_);
 			} else {
 				++track.missCount_;
 			}
@@ -260,7 +276,7 @@ private:
 					}
 				}
 				if (best != detection.tracks_.end()) {
-					smooth(best->smoothed_, det, 0.5f);
+					smooth(best->smoothed_, det, tp.anchorFactor_);
 					best->matched_ = true;
 					continue;
 				}
@@ -284,7 +300,7 @@ private:
 					best->smoothed_ = det;
 					best->missCount_ = 0;
 					best->matched_ = true;
-				} else if (detection.tracks_.size() < size_t(detection.maxTracks_)) {
+				} else if (detection.tracks_.size() < size_t(tp.maxTracks_)) {
 					//Unmatched detection: start tracking a new pedestrian, unless
 					//the per-frame tracker budget is already exhausted.
 					Track track;
@@ -297,7 +313,7 @@ private:
 		}
 
 		//Drop tracks that have been lost for too long.
-		erase_dead(detection.tracks_);
+		erase_dead(detection.tracks_, tp);
 
 		//Publish the current pedestrian boxes for rendering.
 		outBoxes.clear();
@@ -332,6 +348,25 @@ private:
 		}
 	} marker_;
 public:
+	PedestrianDemoPlan() {
+		_shared(trackParams_);
+	}
+
+	void gui() override {
+		imgui([](TrackParams& tp, const std::vector<cv::Rect>& boxes) {
+			using namespace ImGui;
+			Begin("Tracking");
+			SliderInt("Re-detect interval", &tp.detectInterval_, 1, 60);
+			SliderInt("Max pedestrians", &tp.maxTracks_, 1, 100);
+			SliderInt("Miss threshold", &tp.maxMiss_, 1, 30);
+			SliderInt("Tracker refresh period", &tp.kcfEvery_, 1, 4);
+			SliderFloat("Box smoothing", &tp.smoothFactor_, 0.05f, 0.95f);
+			SliderFloat("Re-anchor factor", &tp.anchorFactor_, 0.05f, 0.95f);
+			Text("Active tracks: %zu", boxes.size());
+			End();
+		}, RWS(trackParams_), CS(trackedBoxes_));
+	}
+
     void setup() override {
     	plain([](const cv::Size& sz, Detection& detection, Frames& frames, Params& params){
     		detection.params_.desc_pca = cv::TrackerKCF::GRAY;
@@ -357,7 +392,7 @@ public:
 		//ever touched by one thread. The results are published to trackedBoxes_ which
 		//all workers snapshot for rendering.
 		branch(BranchType::SINGLE, always_)
-			->plain(update_tracking, R(frames_.videoFrameDownGrey_), RWS(detection_), RW(nms), RW(outBoxes_))
+			->plain(update_tracking, R(frames_.videoFrameDownGrey_), RWS(detection_), RW(nms), CS(trackParams_), RW(outBoxes_))
 			->plain(copy_boxes, R(outBoxes_), RWS(trackedBoxes_))
 		->endBranch();
 
@@ -368,6 +403,8 @@ public:
 	}
 };
 
+
+PedestrianDemoPlan::TrackParams PedestrianDemoPlan::trackParams_;
 
 int main(int argc, char **argv) {
     if (argc != 2) {
