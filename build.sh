@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OPENCV_DIR="$(dirname "$SCRIPT_DIR")/opencv"
+OPENCV_DIR="$(dirname "$SCRIPT_DIR")/Plan-V4D/opencv"
 BUILD_DIR="$OPENCV_DIR/build"
 BUILD_MARKER="$BUILD_DIR/.build-type"
 JOBS=4

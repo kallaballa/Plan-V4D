@@ -8,7 +8,11 @@
 #include <opencv2/xobjdetect.hpp>
 #include <opencv2/video/tracking.hpp>
 #include <opencv2/tracking.hpp>
+#include <algorithm>
+#include <cmath>
 #include <string>
+#include <utility>
+#include <vector>
 
 using std::vector;
 using std::string;
@@ -16,12 +20,51 @@ using std::string;
 
 using namespace cv::v4d;
 
+//One tracked pedestrian: a KCF tracker plus the smoothed bounding box it produces.
+struct Track {
+	//Smoothed bounding box (in downscaled coordinates)
+	cv::Rect smoothed_;
+	//KCF tracker
+	cv::Ptr<cv::Tracker> tracker_;
+	//Consecutive failed updates
+	int missCount_ = 0;
+	//Miss threshold after which the track is dropped. KCF updates are interleaved
+	//(every other frame), so this corresponds to roughly maxMiss_*2 lost frames.
+	int maxMiss_ = 2;
+	//True if this track already consumed a detection during the current detect pass
+	//(prevents one track from being matched by several overlapping detections)
+	bool matched_ = false;
+};
+
+//Per-pedestrian tracking state, shared by all workers. Only ever touched by
+//the single worker executing the tracking branch.
+struct Detection {
+	//brute force detections
+	std::vector<cv::Rect> locations_;
+	//probability of detected object being a pedestrian - currently always set to 1.0
+	std::vector<double> probs_;
+	//detected pedestrian locations as boxes
+	std::vector<std::vector<double>> boxes_;
+	//the active trackers, one per tracked pedestrian
+	std::vector<Track> tracks_;
+	//Descriptor used for pedestrian detection
+	cv::HOGDescriptor hog_;
+	//Faster tracking parameters
+	cv::TrackerKCF::Params params_;
+	//counts processed frames to gate periodic re-detection
+	uint64_t detectCnt_ = 0;
+	//Frames between HOG re-detection passes while tracks are healthy
+	int detectInterval_ = 8;
+	//Maximum number of simultaneously tracked pedestrians. Bounds the cost of the
+	//per-frame KCF updates (one tracker per pedestrian).
+	int maxTracks_ = 15;
+};
+
 class PedestrianDemoPlan : public V4DPlan {
 private:
 	struct Params {
 		cv::Size downSize_;
 		cv::Size_<float> scale_;
-		cv::Rect newTracked_;
 	} params_;
 
 	struct Frames {
@@ -32,42 +75,6 @@ private:
     	//GREY
     	cv::UMat videoFrameDownGrey_;
 	} frames_;
-
-    struct Detection {
-		//detected pedestrian locations rectangles
-		std::vector<cv::Rect> locations_;
-		//detected pedestrian locations as boxes
-		vector<vector<double>> boxes_;
-		//probability of detected object being a pedestrian - currently always set to 1.0
-		vector<double> probs_;
-		//Faster tracking parameters
-		cv::TrackerKCF::Params params_;
-		//KCF tracker used instead of continous detection
-		cv::Ptr<cv::Tracker> tracker_;
-		//initialize tracker only once
-		bool trackerInit_ = false;
-		//If tracking fails re-detect
-		bool redetect_ = true;
-		//Descriptor used for pedestrian detection
-		cv::HOGDescriptor hog_;
-    } detection_;
-
-    inline static cv::Rect tracked_ = cv::Rect(0,0,0,0);
-
-    constexpr static auto dontRedect_ = [](const Detection& detection){ return detection.trackerInit_ && !detection.redetect_; };
-    constexpr static auto doRedect_ = [](const Detection& detection){ return !detection.trackerInit_ || detection.redetect_; };
-
-	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
-
-	static void prepare_frames(const Params& params, Frames &frames) {
-		cv::resize(frames.videoFrameBGR_, frames.videoFrameDown_, params.downSize_);
-		cv::cvtColor(frames.videoFrameDown_, frames.videoFrameDownGrey_, cv::COLOR_RGB2GRAY);
-		frames.videoFrame_.copyTo(frames.background_);
-	}
-
-	static void present(cv::UMat& framebuffer, const cv::UMat& background) {
-		cv::add(background, framebuffer, framebuffer);
-	};
 
 	class NonMaxSupression {
 	private:
@@ -142,102 +149,186 @@ private:
 		}
 	} nms;
 
-	class HOG {
-	public:
-		void detect(const cv::UMat& videoFrameDownGrey, Detection& detection, NonMaxSupression& nms, Params& params) const {
-			detection.redetect_ = true;
-			//Detect pedestrians
-			detection.hog_.detectMultiScale(videoFrameDownGrey, detection.locations_, 0, cv::Size(), cv::Size(), 1.15, 2.0, true);
+	//Per-pedestrian tracking state, shared by all workers. Only ever touched by
+	//the single worker executing the tracking branch.
+	inline static Detection detection_;
+
+	//Smoothed bounding boxes of all tracked pedestrians, published by the tracking
+	//branch and consumed by the drawing node.
+	inline static std::vector<cv::Rect> trackedBoxes_;
+	//Scratch buffer of the single worker running the tracking branch.
+	std::vector<cv::Rect> outBoxes_;
+
+	Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+
+	static void prepare_frames(const Params& params, Frames &frames) {
+		cv::resize(frames.videoFrameBGR_, frames.videoFrameDown_, params.downSize_);
+		cv::cvtColor(frames.videoFrameDown_, frames.videoFrameDownGrey_, cv::COLOR_RGB2GRAY);
+		frames.videoFrame_.copyTo(frames.background_);
+	}
+
+	static void present(cv::UMat& framebuffer, const cv::UMat& background) {
+		cv::add(background, framebuffer, framebuffer);
+	};
+
+	static double iou(const cv::Rect& a, const cv::Rect& b) {
+		const cv::Rect inter = a & b;
+		const double interArea = inter.area();
+		const double unionArea = a.area() + b.area() - interArea;
+		return unionArea > 0.0 ? interArea / unionArea : 0.0;
+	}
+
+	static void smooth(cv::Rect& oldBox, const cv::Rect& newBox, float factor = 0.3f) {
+		oldBox.x = cvRound(oldBox.x + factor * (newBox.x - oldBox.x));
+		oldBox.y = cvRound(oldBox.y + factor * (newBox.y - oldBox.y));
+		oldBox.width = cvRound(oldBox.width + factor * (newBox.width - oldBox.width));
+		oldBox.height = cvRound(oldBox.height + factor * (newBox.height - oldBox.height));
+	}
+
+	static void erase_dead(std::vector<Track>& tracks) {
+		tracks.erase(std::remove_if(tracks.begin(), tracks.end(),
+			[](const Track& t) { return t.missCount_ >= t.maxMiss_; }), tracks.end());
+	}
+
+	static void update_tracking(const cv::UMat& videoFrameDownGrey, Detection& detection, NonMaxSupression& nms, std::vector<cv::Rect>& outBoxes) {
+		++detection.detectCnt_;
+
+		//Re-run HOG detection on a fixed cadence (right away on the first frame).
+		//The interval is longer than before because the HOG sweep is the most
+		//expensive single operation; between passes the KCF trackers carry the state.
+		const bool doDetect = detection.detectCnt_ == 1 || (detection.detectCnt_ % detection.detectInterval_) == 0;
+
+		std::vector<cv::Rect> detections;
+		if (doDetect) {
+			//Detect pedestrians with the HOG descriptor. Classic groupRectangles
+			//grouping (no meanshift) and a coarser scale pyramid are notably faster
+			//than the previous settings at a small cost in detection density.
+			detection.locations_.clear();
+			detection.hog_.detectMultiScale(videoFrameDownGrey, detection.locations_, 0, cv::Size(), cv::Size(), 1.2, 2.0, false);
 			if (!detection.locations_.empty()) {
 				detection.boxes_.clear();
 				detection.probs_.clear();
-				//collect all found boxes
-				for (const auto &rect : detection.locations_) {
+				for (const auto& rect : detection.locations_) {
 					detection.boxes_.push_back( { double(rect.x), double(rect.y), double(rect.x + rect.width), double(rect.y + rect.height) });
 					detection.probs_.push_back(1.0);
 				}
 
 				//use nms to filter overlapping boxes (https://medium.com/analytics-vidhya/non-max-suppression-nms-6623e6572536)
-				vector<bool> keep = nms.perform(&detection.boxes_, &detection.probs_, 0.1);
+				std::vector<bool> keep = nms.perform(&detection.boxes_, &detection.probs_, 0.1);
+				detections.reserve(keep.size());
 				for (size_t i = 0; i < keep.size(); ++i) {
-					//only track the first pedestrian found
-					if (keep[i]) {
-						params.newTracked_= detection.locations_[i];
-						detection.redetect_ = false;
-						break;
+					if (keep[i])
+						detections.push_back(detection.locations_[i]);
+				}
+			}
+		}
+
+		//Update the KCF trackers. With many pedestrians the tracker updates dominate
+		//the per-frame cost, so only every other tracker is refreshed each frame
+		//(staggered by track index). The interleaving halves the tracker load while
+		//every track is still refreshed at least every two frames.
+		for (size_t i = 0; i < detection.tracks_.size(); ++i) {
+			Track& track = detection.tracks_[i];
+			if ((i + size_t(detection.detectCnt_)) & 1)
+				continue;
+			cv::Rect predicted;
+			if (track.tracker_->update(videoFrameDownGrey, predicted)) {
+				track.missCount_ = 0;
+				smooth(track.smoothed_, predicted);
+			} else {
+				++track.missCount_;
+			}
+		}
+
+		if (doDetect) {
+			//Consume each detection at most once so that overlapping detections
+			//cannot re-anchor or restart the same track twice.
+			for (auto& track : detection.tracks_)
+				track.matched_ = false;
+
+			for (const cv::Rect& det : detections) {
+				//A detection overlapping a live track re-anchors that tracker.
+				auto best = detection.tracks_.end();
+				double bestIou = 0.1;
+				for (auto it = detection.tracks_.begin(); it != detection.tracks_.end(); ++it) {
+					if (it->matched_ || it->missCount_ > 0)
+						continue;
+					const double ov = iou(det, it->smoothed_);
+					if (ov > bestIou) {
+						bestIou = ov;
+						best = it;
+					}
+				}
+				if (best != detection.tracks_.end()) {
+					smooth(best->smoothed_, det, 0.5f);
+					best->matched_ = true;
+					continue;
+				}
+
+				//A detection overlapping a lost track re-initializes its tracker.
+				best = detection.tracks_.end();
+				bestIou = 0.1;
+				for (auto it = detection.tracks_.begin(); it != detection.tracks_.end(); ++it) {
+					if (it->matched_ || it->missCount_ <= 0)
+						continue;
+					const double ov = iou(det, it->smoothed_);
+					if (ov > bestIou) {
+						bestIou = ov;
+						best = it;
 					}
 				}
 
-				if(!detection.trackerInit_ && !detection.redetect_){
-					//initialize the tracker once
-					detection.tracker_->init(videoFrameDownGrey, params.newTracked_);
-					detection.trackerInit_ = true;
+				if (best != detection.tracks_.end()) {
+					best->tracker_ = cv::TrackerKCF::create(detection.params_);
+					best->tracker_->init(videoFrameDownGrey, det);
+					best->smoothed_ = det;
+					best->missCount_ = 0;
+					best->matched_ = true;
+				} else if (detection.tracks_.size() < size_t(detection.maxTracks_)) {
+					//Unmatched detection: start tracking a new pedestrian, unless
+					//the per-frame tracker budget is already exhausted.
+					Track track;
+					track.smoothed_ = det;
+					track.tracker_ = cv::TrackerKCF::create(detection.params_);
+					track.tracker_->init(videoFrameDownGrey, det);
+					detection.tracks_.push_back(std::move(track));
 				}
 			}
 		}
-	} hog;
 
-	class Tracking {
-	private:
-	    void limitFunc(const double& in, const double& max, const int& val, int& limited) const {
-            if(fabs(in) > max) {
-                if(in < 0.0) {
-                    limited = std::round(val + (max / 2.0));
-                } else {
-                    limited = std::round(val - (max / 2.0));
-                }
-            } else {
-                if(in < 0.0) {
-                    limited = std::round(val + (in / 2.0));
-                } else {
-                    limited = std::round(val - (in / 2.0));
-                }
-            }
-	    }
+		//Drop tracks that have been lost for too long.
+		erase_dead(detection.tracks_);
 
-	public:
-		void perform(const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params, const cv::Rect& tracked) const {
-			params.newTracked_ = tracked;
-			if(params.newTracked_.width == 0 || params.newTracked_.height == 0 || !detection.tracker_->update(videoFrameDownGrey, params.newTracked_)) {
-				detection.redetect_ = true;
-			} else {
-				detection.redetect_ = false;
-			}
-		}
+		//Publish the current pedestrian boxes for rendering.
+		outBoxes.clear();
+		outBoxes.reserve(detection.tracks_.size());
+		for (const auto& track : detection.tracks_)
+			outBoxes.push_back(track.smoothed_);
+	}
 
-		void save(const Params& params, const cv::Size& sz, cv::Rect& tracked) const {
-		    const cv::Rect oldTracked = tracked;
-
-		    const double diffX = oldTracked.x - params.newTracked_.x;
-			const double diffY = oldTracked.y - params.newTracked_.y;
-			const double diffW = oldTracked.width - params.newTracked_.width;
-			const double diffH = oldTracked.height - params.newTracked_.height;
-			const double excenter = std::hypotf(diffX, diffY);
-			const double stability = 2.333;
-			if(excenter > ((sz.width + sz.height) / 160.0)) {
-		                limitFunc(diffX, excenter / stability, oldTracked.x, tracked.x);
-                		limitFunc(diffY, excenter / stability, oldTracked.y, tracked.y);
-		                limitFunc(diffW, excenter / stability, oldTracked.width, tracked.width);
-                		limitFunc(diffH, excenter / stability, oldTracked.height, tracked.height);
-			}
-		}
-	} tracking;
+	static void copy_boxes(const std::vector<cv::Rect>& src, std::vector<cv::Rect>& dst) {
+		dst = src;
+	}
 
 	class ObjectMarker {
 	public:
-		void draw(const cv::Size& sz, const Params& params, const cv::Rect& tracked) const {
-		//Draw an ellipse around the tracked pedestrian
-		using namespace cv::v4d::nvg;
-		float width = tracked.width * params.scale_.width;
-		float height = tracked.height * params.scale_.height;
-		float cx = (params.scale_.width * tracked.x + (width / 2));
-		float cy = (params.scale_.height * tracked.y + (height / 2));
-		clearScreen();
-		beginPath();
-		strokeWidth(std::fmax(5.0, sz.width / 960.0));
-		strokeColor(cv::v4d::convert_pix(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
-		ellipse(cx, cy, (width / 1.25), (height / 1.5));
-		stroke();
+		void draw(const cv::Size& sz, const Params& params, const std::vector<cv::Rect>& trackedBoxes) const {
+			//Draw an ellipse around every tracked pedestrian
+			using namespace cv::v4d::nvg;
+			clearScreen();
+			if (trackedBoxes.empty())
+				return;
+			beginPath();
+			strokeWidth(std::fmax(5.0, sz.width / 960.0));
+			strokeColor(cv::v4d::convert_pix(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
+			for (const auto& box : trackedBoxes) {
+				float width = box.width * params.scale_.width;
+				float height = box.height * params.scale_.height;
+				float cx = (params.scale_.width * box.x + (width / 2));
+				float cy = (params.scale_.height * box.y + (height / 2));
+				ellipse(cx, cy, (width / 1.25), (height / 1.5));
+			}
+			stroke();
 		}
 	} marker_;
 public:
@@ -246,14 +337,13 @@ public:
     		detection.params_.desc_pca = cv::TrackerKCF::GRAY;
     		detection.params_.compress_feature = false;
     		detection.params_.compressed_size = 1;
-    		detection.tracker_ = cv::TrackerKCF::create(detection.params_);
     		detection.hog_.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
     		params.downSize_ = { sz.width / 4 , sz.height / 4 };
     		params.scale_ = { 4.0f, 4.0f };
     		frames.videoFrame_.create(sz, CV_8UC4);
     		frames.videoFrameBGR_.create(sz, CV_8UC3);
     		frames.videoFrameDownGrey_.create(sz, CV_8UC1);
-    	}, size_, RW(detection_), RW(frames_), RW(params_));
+    	}, size_, RWS(detection_), RW(frames_), RW(params_));
 	}
 
 	void infer() override {
@@ -262,15 +352,16 @@ public:
 		plain(cv::cvtColor,R(frames_.videoFrame_), RW(frames_.videoFrameBGR_),V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->plain(prepare_frames, R(params_), RW(frames_));
 
-		//Try to track the pedestrian (if we currently are tracking one), else re-detect using HOG descriptor
-		branch(doRedect_, R(detection_))
-			->plain(&HOG::detect, R(hog), R(frames_.videoFrameDownGrey_), RW(detection_), RW(nms), RW(params_))
-		->elseBranch()
-			->plain(&Tracking::perform, R(tracking), R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
+		//Detect pedestrians and update the per-pedestrian trackers. Runs on a single
+		//worker each frame, so the KCF trackers in shared state (detection_) are only
+		//ever touched by one thread. The results are published to trackedBoxes_ which
+		//all workers snapshot for rendering.
+		branch(BranchType::SINGLE, always_)
+			->plain(update_tracking, R(frames_.videoFrameDownGrey_), RWS(detection_), RW(nms), RW(outBoxes_))
+			->plain(copy_boxes, R(outBoxes_), RWS(trackedBoxes_))
 		->endBranch();
 
-		plain(&Tracking::save, R(tracking), R(params_), size_, RWS(tracked_))
-        ->nvg(&ObjectMarker::draw, R(marker_), size_, R(params_), CS(tracked_))
+		nvg(&ObjectMarker::draw, R(marker_), size_, R(params_), CS(trackedBoxes_))
         ->fb(present, R(frames_.background_));
 
 		write();

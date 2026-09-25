@@ -374,7 +374,7 @@ private:
 		float sceneChangeThreshDiff_ = 0.01f;
 		// The theoretical maximum number of points to track which is scaled by the density of detected points
 		// and therefor is usually much smaller.
-		int maxPoints_ = 9999999;
+		int maxPoints_ = 3000000;
 		// How many of the tracked points to lose intentionally, in percent.
 		float pointLoss_ = 4.0;
 		// The theoretical maximum size of the drawing stroke which is scaled by the area of the convex hull
@@ -453,7 +453,6 @@ public:
 
     void setup() override {
         params_.size_ = V4D::get<cv::Size>(V4D::Keys::SIZE);
-        assign(RW(params_.maxPoints_), V(params_.size_.width + params_.size_.height) * V(100));
         construct(RW(featurePoints_), F(cv::FastFeatureDetector::create, V(10), V(false), V(cv::FastFeatureDetector::TYPE_9_16)));
 
     	plain(UMAT_CREATE,
