@@ -16,6 +16,7 @@ using namespace cv::plan;
 
 #include "source.hpp"
 #include "sink.hpp"
+#include "sinksource.hpp"
 #include "util.hpp"
 #include "nvg.hpp"
 #include "detail/framebuffercontext.hpp"

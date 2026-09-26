@@ -5,6 +5,7 @@ A windowed runtime for the Plan-DSL that adds:
 * a GLFW + OpenGL window with an event loop,
 * NanoVG and ImGui rendering contexts on top of GL,
 * `Source` / `Sink` I/O for video files, webcams and user functors,
+* `SinkSource` — a combined producer/consumer for bridging frames between plans or custom I/O pipelines,
 * a `V4D::Keys` property table for runtime state,
 * a small set of "side-effect context" calls that route nodes to
   the right GPU/CPU pipeline (`nvg`, `fb`, `gl`, `bgfx`, `ext`).
@@ -63,6 +64,7 @@ V4D adds five side-effect contexts on top of the DSL's `plain(...)`:
 | `ext(fn, args...)`  | External        | External renderer contexts               |
 | `capture()` / `capture(edge)` / `capture(fn, args)` | Source | Pull the next input frame |
 | `write()` / `write(edge)` / `write(fn, args)`         | Sink   | Push the finished frame |
+| `SinkSource`                                         | Source + Sink | Combined producer/consumer for bridging plans or custom I/O |
 | `imgui(fn, args...)` | ImGui          | Install a UI node from `gui()`            |
 | `set(key, edge)`     | CPU            | Property write node                      |
 | `clear()`            | GL             | Clear the framebuffer to `CLEAR_COLOR`   |
@@ -132,6 +134,15 @@ rt->setSource(src);
 rt->setSink(sink);
 ```
 
+`SinkSource` combines both roles in one object and can also be used as a
+thread-safe bridge between two `V4DPlan` instances:
+
+```cpp
+auto ss = SinkSource::make(rt, "in.mp4", "out.mkv");
+rt->setSource(ss);
+rt->setSink(ss);
+```
+
 Or build your own from a functor (see
 `samples/custom_source_and_sink.cpp`):
 
@@ -160,6 +171,7 @@ modules/v4d/
 │           ├── v4d.hpp             V4D runtime, V4DPlan, Keys
 │           ├── source.hpp          Source
 │           ├── sink.hpp            Sink
+│           ├── sinksource.hpp      SinkSource (combined producer/consumer)
 │           ├── nvg.hpp             NanoVG C++ wrapper
 │           ├── events.hpp          GLFW event helpers (Mouse, Keyboard, …)
 │           ├── util.hpp            GL_CHECK, _OL_ helpers, copy_cross, …
@@ -190,7 +202,10 @@ modules/v4d/
 │   ├── nanovg-demo.cpp            NanoVG showcase
 │   ├── shader-demo.cpp            GLSL fragment shader on a quad
 │   ├── custom_source_and_sink.cpp custom I/O + conditional writing
+│   ├── sinksource_sample.cpp       simple SinkSource usage
+│   ├── sinksource_bridge_demo.cpp  two plans bridged via a shared SinkSource
 │   ├── montage-demo.cpp           many windows in one process
+│   ├── two-windows-demo.cpp       two parallel plans, two windows, one process
 │   ├── pedestrian-demo.cpp        HOG/NMS detection + KCF tracking + ImGui controls
 │   ├── optflow-demo.cpp           Farneback optical flow
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
@@ -201,6 +216,7 @@ modules/v4d/
 │   ├── nvg.cpp                    NanoVG wrapper
 │   ├── source.cpp
 │   ├── sink.cpp
+│   ├── sinksource.cpp
 │   ├── util.cpp
 │   ├── resequence.cpp             frame-sequencing for display mode
 │   └── detail/
@@ -221,12 +237,17 @@ modules/v4d/
    canonical "capture → render → write" pipeline.
 4. [`samples/pedestrian-demo.cpp`](samples/pedestrian-demo.cpp) — HOG/NMS
    detection, multi-pedestrian KCF tracking, and interactive ImGui controls.
-5. [`samples/beauty-demo.cpp`](samples/beauty-demo.cpp) — the most
+5. [`samples/two-windows-demo.cpp`](samples/two-windows-demo.cpp) — two
+   parallel `V4DPlan` instances, each on its own thread with its own window,
+   frame counter, and GUI.
+6. [`samples/sinksource_bridge_demo.cpp`](samples/sinksource_bridge_demo.cpp) — two
+   parallel `V4DPlan` instances communicating through a shared `SinkSource`.
+7. [`samples/beauty-demo.cpp`](samples/beauty-demo.cpp) — the most
    representative real program. Shared state, sub-plans, branching
    with `IF`, mouse events, NanoVG, framebuffer writes, ImGui GUI.
-6. [`samples/imshow_reimplementation.cpp`](samples/imshow_reimplementation.cpp)
+8. [`samples/imshow_reimplementation.cpp`](samples/imshow_reimplementation.cpp)
    — a full GUI image viewer; a tour de force.
-7. [`samples/image_carousel.cpp`](samples/image_carousel.cpp) — animated
+9. [`samples/image_carousel.cpp`](samples/image_carousel.cpp) — animated
    glossy cards with reflections, keyboard/mouse navigation, and an ImGui HUD.
 
 For the language itself (edges, operators, control flow,

@@ -140,6 +140,7 @@ on top of the DSL's `plain(...)`:
 | `bgfx(fn, args...)`| bgfx           | bgfx rendering (alternative to GL)    |
 | `ext(fn, args...)` | External       | External renderer contexts            |
 | `capture()` / `write()` | Source / Sink | Pull the next input frame / push the finished frame |
+| `capture()/write()` via `SinkSource` | Source + Sink | Combined producer/consumer for bridging frames between plans or custom I/O pipelines |
 | `imgui(fn, args...)` | ImGui         | UI nodes from `gui()`                 |
 
 Sources and sinks read from video files, webcams, or arbitrary functors, and
@@ -159,6 +160,7 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 | Start here | What it shows |
 |---|---|
 | `video_editing.cpp` | capture → nvg → write, the canonical pipeline |
+| `two-windows-demo.cpp` | two parallel `V4DPlan` instances, each with its own thread, window, frame counter, and GUI |
 | `pedestrian-demo.cpp` | HOG/NMS detection, multi-pedestrian KCF tracking, and ImGui controls |
 | `beauty-demo.cpp` | the kitchen sink: shared state, sub-plans, `IF`, events, NanoVG, ImGui |
 | `font_rendering.cpp` | the smallest visible program (32 lines) |
@@ -167,7 +169,8 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 
 Plus: raw OpenGL (`render_opengl`, `cube-demo`, `shader-demo`), vector graphics
 (`nanovg-demo`, `font-demo`), video processing (`optflow-demo`,
-`pedestrian-demo`), multi-window (`montage-demo`, `many_cubes-demo`), custom
+`pedestrian-demo`), multi-window (`montage-demo`, `many_cubes-demo`,
+`two-windows-demo`), custom
 I/O (`custom_source_and_sink`), and more. The pedestrian demo's run command
 and tracking controls are documented in the [V4D module README](modules/v4d/README.md).
 

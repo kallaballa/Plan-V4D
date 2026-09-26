@@ -40,6 +40,7 @@ TITLES = {
     "nanovg-demo": "NanoVG Demo",
     "font-demo": "Font Demo",
     "shader-demo": "Mandelbrot Shader Demo",
+    "two-windows-demo": "Two Windows Demo",
     "pedestrian-demo": "Pedestrian Demo",
     "optflow-demo": "Sparse Optical Flow Demo",
     "beauty-demo": "Beautification Demo",

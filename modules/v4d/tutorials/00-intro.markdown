@@ -163,6 +163,7 @@ bin/example_v4d_nanovg-demo bunny.webm
 bin/example_v4d_shader-demo bunny.webm
 bin/example_v4d_font-demo
 bin/example_v4d_pedestrian-demo dance.mp4
+bin/example_v4d_two-windows-demo
 bin/example_v4d_optflow-demo dance.mp4
 bin/example_v4d_beauty-demo kristen.webm
 

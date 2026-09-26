@@ -29,6 +29,8 @@
 | 18 | [Parallel Rendering with Multiple OpenGL Contexts](#tutorial-18--parallel-rendering-with-multiple-opengl-contexts) | `gl<-1>` multi-context, parallel OpenGL execution |
 | 19 | [An Interactive Image Carousel](#tutorial-19--an-interactive-image-carousel) | `createImageRGBA`, `_shared`, event lists, perspective layout |
 | 20 | [Reimplementing OpenCV's imshow](#tutorial-20--reimplementing-opencvs-imshow) | Full-featured viewer, deep zoom, ImGui menus, file dialogs |
+| 21 | [Parallel Plans and Multiple Windows](#tutorial-21--parallel-plans-and-multiple-windows) | Two `V4DPlan` instances running in parallel, each on its own thread |
+| 22 | [Bridging Plans with SinkSource](#tutorial-22--bridging-plans-with-sinksource) | Shared `SinkSource` as a frame bridge between two plans |
 
 ---
 
@@ -1719,4 +1721,197 @@ A `branch(RWS(state_.reloadRequested_))` sub-graph re-imreads a new file, re-con
 - Deep zoom reads pixels from a private `UMat` copy and draws per-cell text with NanoVG.
 - Keeping the original image separate from RGBA/BGRA working copies makes "save original" vs "save view" trivially correct.
 
-This concludes the tutorial series. You have now seen the entire Plan-V4D feature set in action, from a single NanoVG image to a full-blown `imshow` reimplementation.
+---
+# Tutorial 21 — Parallel Plans and Multiple Windows
+
+> [Reimplementing OpenCV's imshow](#tutorial-20--reimplementing-opencvs-imshow)
+
+Two `V4DPlan` instances run in parallel within the same process: one on the main thread and one on a dedicated `std::thread`. Each plan owns its own window, frame counter, frame synchronization, GUI, and input queue. Closing one window stops only that plan; the other keeps running.
+
+## Running the Demo
+
+The executable takes no arguments. Both plans stop themselves after five seconds unless `--no-auto-close` is passed, so the demo terminates on its own. Close one window by hand to see that only that plan stops.
+
+Build the example from a configured OpenCV/V4D build:
+
+```bash
+cmake --build /path/to/opencv/build \
+  --target example_v4d_two-windows-demo \
+  --parallel 4
+```
+
+Run it:
+
+```bash
+/path/to/opencv/build/bin/example_v4d_two-windows-demo
+```
+
+Pass `--no-auto-close` to keep both windows open until you close them manually.
+
+## The Pipeline
+
+The sample defines a `TrianglePlan` that draws a spinning triangle with NanoVG and prints its thread ID and frame count on teardown. `main()` launches one instance on the main thread and another inside a `std::thread`. Each call to `V4D::init()` creates a thread-local runtime, and `V4DPlan::run<T>()` creates its own `PlanSession`, worker threads, and frame synchronization. The two plans never share mutable state.
+
+## Code Breakdown
+
+### Per-Thread Runtime Initialization
+
+`V4D::instance_` is `thread_local`. Calling `V4D::init()` from any thread creates a new runtime and window for that thread. The `runPlanInThread` helper wraps this pattern:
+
+```cpp
+template<typename Tplan>
+static void runPlanInThread(const std::string& title, const cv::Rect& viewport,
+                            const cv::Scalar& color, size_t maxFrames) {
+    std::thread t([title, viewport, color, maxFrames]() {
+        V4D::init(viewport, title, AllocateFlags::NANOVG | AllocateFlags::IMGUI,
+                  ConfigFlags::DISPLAY_MODE);
+        V4DPlan::run<Tplan>(0, title, color, maxFrames);
+    });
+    t.join();
+}
+```
+
+### Isolated Plan State
+
+Each `Plan::run()` call creates a fresh `PlanSession` containing the property map, frame counters, barrier, semaphores, node-lock table, and once-branch tracking. Two concurrent plans therefore never contend on any of these structures. The only process-wide serialization happens during startup (`runMtx`) and the OpenCV thread-pool initialization (`std::call_once`).
+
+### Per-Plan Shutdown
+
+A plan stops itself by calling `V4D::instance()->requestFinish()`, which sets only that runtime's `keepRunning` flag. Closing a window triggers the same flag. The other plan's runtime is unaffected.
+
+## Summary
+
+- Each thread gets its own `V4D` instance via thread-local storage.
+- `PlanSession` and `RunState` are created per `Plan::run()` call, giving each plan isolated frame counters, barriers, and node locks.
+- Closing one window or calling `requestFinish()` stops only that plan.
+- The canonical proof of multi-plan support; see the [threading model](doc/threading_model.md) for the full architectural explanation.
+
+---
+
+# Tutorial 22 — Bridging Plans with SinkSource
+
+> [Parallel Plans and Multiple Windows](#tutorial-21--parallel-plans-and-multiple-windows)
+
+This tutorial shows how to connect two `V4DPlan` instances through a shared
+`SinkSource`. The producer plan captures frames and pushes them into the
+`SinkSource`; the consumer plan pulls them back out and renders them. Closing
+one window stops only that plan.
+
+## The Code
+
+You can find the complete source in [`sinksource_bridge_demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/sinksource_bridge_demo.cpp).
+
+```cpp
+class ProducerPlan : public V4DPlan {
+    Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    void infer() override {
+        capture();
+
+        nvg([](const Size& sz) {
+            using namespace cv::v4d::nvg;
+            clearScreen(cv::Scalar(24, 24, 40, 255));
+            fontSize(40.0f);
+            fontFace("sans-bold");
+            fillColor(cv::Scalar(80, 200, 255, 255));
+            textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
+            text(sz.width / 2.0f, sz.height / 2.0f - 20.0f, "Producer", nullptr);
+        }, sz_);
+
+        write();
+    }
+};
+
+class ConsumerPlan : public V4DPlan {
+    Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
+public:
+    void infer() override {
+        capture();
+
+        nvg([](const Size& sz) {
+            using namespace cv::v4d::nvg;
+            clearScreen(cv::Scalar(24, 24, 40, 255));
+            fontSize(40.0f);
+            fontFace("sans-bold");
+            fillColor(cv::Scalar(255, 160, 80, 255));
+            textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
+            text(sz.width / 2.0f, sz.height / 2.0f - 20.0f, "Consumer", nullptr);
+        }, sz_);
+    }
+};
+```
+
+`main()` creates one `SinkSource`, launches the producer on a `std::thread`,
+and runs the consumer on the main thread. Each plan has its own `Source` that
+reads from the shared `SinkSource`:
+
+```cpp
+cv::Ptr<SinkSource> ss = SinkSource::make(30.0f);
+
+std::thread producer([inputVideo, ss]() {
+    V4D::init(cv::Rect(0, 0, 480, 360), "Producer",
+        AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+
+    auto src = Source::make(V4D::instance(), inputVideo);
+    V4D::instance()->setSource(src);
+
+    cv::Ptr<Sink> sink = new Sink([ss](const uint64_t& seq, const cv::UMat& frame) {
+        ss->operator()(seq, frame);
+        return ss->isOpen();
+    });
+    V4D::instance()->setSink(sink);
+
+    V4DPlan::run<ProducerPlan>(0);
+});
+
+V4D::init(cv::Rect(480, 0, 480, 360), "Consumer",
+    AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+
+cv::Ptr<Source> src = new Source([ss](cv::UMat& frame) {
+    frame = ss->operator()();
+    return !frame.empty();
+}, 30.0f);
+V4D::instance()->setSource(src);
+
+V4DPlan::run<ConsumerPlan>(0);
+```
+
+## Code Breakdown
+
+### The Shared `SinkSource`
+
+`SinkSource::make(30.0f)` creates an open, thread-safe bridge with a 30 fps
+generator fallback. It owns an ordered buffer and a `std::condition_variable`,
+so the consumer blocks until the producer pushes the next frame.
+
+### The Producer Plan
+
+The producer uses the normal `capture() → nvg() → write()` pipeline. Its
+`write()` sends frames into the shared `SinkSource` through a custom `Sink`
+lambda. The producer window is titled "Producer" and shows the incoming video
+with a label.
+
+### The Consumer Plan
+
+The consumer replaces `Source` with a custom lambda that calls
+`ss->operator()()`. When the shared buffer is empty, the source side blocks on
+the condition variable; when the producer pushes a frame, the consumer wakes up
+and delivers it. The consumer window is titled "Consumer" and renders the
+received frame with its own label.
+
+### Independent Shutdown
+
+Each plan owns its own runtime. Closing the producer window stops only the
+producer; the consumer keeps running until its window is closed. After both
+plans finish, `ss->close()` wakes any remaining waiters.
+
+## Summary
+
+- `SinkSource` acts as a thread-safe frame bridge between two independent
+  `V4DPlan` instances.
+- The producer writes through a custom `Sink` lambda; the consumer reads
+  through a custom `Source` lambda.
+- Each plan keeps its own window, framebuffer, and `Source`/`Sink` wiring.
+- Closing one window does not affect the other plan.
+
+This concludes the tutorial series. You have now seen the entire Plan-V4D feature set in action, from a single NanoVG image to a full-blown `imshow` reimplementation and multi-plan frame bridges.
