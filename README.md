@@ -159,6 +159,7 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 | Start here | What it shows |
 |---|---|
 | `video_editing.cpp` | capture → nvg → write, the canonical pipeline |
+| `pedestrian-demo.cpp` | HOG/NMS detection, multi-pedestrian KCF tracking, and ImGui controls |
 | `beauty-demo.cpp` | the kitchen sink: shared state, sub-plans, `IF`, events, NanoVG, ImGui |
 | `font_rendering.cpp` | the smallest visible program (32 lines) |
 | `imshow_reimplementation.cpp` | a full GUI image viewer |
@@ -167,7 +168,8 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 Plus: raw OpenGL (`render_opengl`, `cube-demo`, `shader-demo`), vector graphics
 (`nanovg-demo`, `font-demo`), video processing (`optflow-demo`,
 `pedestrian-demo`), multi-window (`montage-demo`, `many_cubes-demo`), custom
-I/O (`custom_source_and_sink`), and more.
+I/O (`custom_source_and_sink`), and more. The pedestrian demo's run command
+and tracking controls are documented in the [V4D module README](modules/v4d/README.md).
 
 ## Requirements
 

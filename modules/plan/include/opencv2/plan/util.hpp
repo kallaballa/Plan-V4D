@@ -17,6 +17,9 @@
 #include <cmath>
 #include <thread>
 #include <latch>
+#include <barrier>
+#include <semaphore>
+#include <memory>
 #include <deque>
 #include <map>
 
@@ -498,40 +501,74 @@ public:
 	}
 };
 
-class CV_EXPORTS GlobalState {
-public:
-	struct Keys {
-		enum Enum {
-			FRAME_CNT,
-			CAPTURE_CNT,
-            FPS_CNT,
-			RUN_CNT,
-			START_TIME,
-			FPS,
-			WORKERS_READY,
-			WORKERS_STARTED,
-			LOCKING,
-			DISPLAY_READY,
-			LOCK_CONTENTION_CNT,
-			LOCK_CONTENTION_RATE,
-			LCR_CNT,
-		    SHOW_GUI,
-		    SHOW_FRAME_TIME,
-		    TIME_TRACKER
-		};
+/*!
+ * Keys of the per-plan "global" property map. These are shared by all threads
+ * of one plan (display thread + workers) and reset for every plan, so two
+ * concurrent plans count frames independently.
+ */
+struct CV_EXPORTS GlobalKeys {
+	enum Enum {
+		FRAME_CNT,
+		CAPTURE_CNT,
+		FPS_CNT,
+		RUN_CNT,
+		START_TIME,
+		FPS,
+		WORKERS_READY,
+		WORKERS_STARTED,
+		LOCKING,
+		DISPLAY_READY,
+		LOCK_CONTENTION_CNT,
+		LOCK_CONTENTION_RATE,
+		LCR_CNT,
+		SHOW_GUI,
+		SHOW_FRAME_TIME,
+		TIME_TRACKER
 	};
-private:
-	CV_EXPORTS static ThreadSafeAnyMap<Keys::Enum> map_;
-	CV_EXPORTS static std::mutex threadIDMtx_;
-	CV_EXPORTS static const std::thread::id defaultThreadID_;
-	CV_EXPORTS static std::thread::id mainThreadID_;
-	CV_EXPORTS static bool isFirstRun_;
-	CV_EXPORTS static std::set<string> once_;
-	CV_EXPORTS static std::mutex nodeLockMtx_;
-	CV_EXPORTS static std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> nodeLockMap_;
-	CV_EXPORTS static SharedVariables sharedVars_;
+};
 
-	CV_EXPORTS static cv::Ptr<std::mutex> getNodeLockInternal(const string& name, const bool owned = true) {
+/*!
+ * State of a single #Plan::run.
+ *
+ * Everything the engine needs to know about "this run" rather than about the
+ * process used to be a process-wide static: one property map, one "main" thread
+ * id, one node-lock table, one set of fired once-branches, one setup semaphore
+ * and one frame barrier. That is what made a second concurrent plan impossible -
+ * it either deadlocked on a barrier sized for the first plan or stole its frame
+ * counters and node locks.
+ *
+ * A session is owned by the thread that displays a plan and inherited by every
+ * worker thread that plan spawns. All participants of one plan therefore share
+ * one session, while two plans running at the same time never observe each
+ * other's state. Threads that never join a run (unit tests, plain helper code)
+ * fall back to a process-wide default session, which keeps the single-plan
+ * behaviour unchanged.
+ */
+class CV_EXPORTS PlanSession {
+public:
+	using Keys = GlobalKeys;
+private:
+	ThreadSafeAnyMap<Keys::Enum> map_;
+
+	mutable std::mutex threadIDMtx_;
+	std::thread::id mainThreadID_;
+
+	std::mutex firstRunMtx_;
+	bool isFirstRun_ = true;
+
+	std::mutex onceMtx_;
+	std::set<string> once_;
+
+	std::mutex nodeLockMtx_;
+	std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> nodeLockMap_;
+
+	std::unique_ptr<std::binary_semaphore> setupSema_;
+
+	std::mutex syncMtx_;
+	size_t syncCount_ = 0;
+	std::unique_ptr<std::barrier<>> syncPoint_;
+
+	cv::Ptr<std::mutex> getNodeLockInternal(const string& name, const bool owned = true) {
 		auto it = nodeLockMap_.find(name);
 		if(owned) {
 			if(it != nodeLockMap_.end()) {
@@ -555,7 +592,7 @@ private:
 		return nullptr;
 	}
 
-	CV_EXPORTS static bool invalidateNodeLockInternal(const string& name) {
+	bool invalidateNodeLockInternal(const string& name) {
 		auto it = nodeLockMap_.find(name);
 		if(it != nodeLockMap_.end()) {
 			auto& entry = *it;
@@ -566,7 +603,12 @@ private:
 	}
 
 public:
-	CV_EXPORTS static void init_keys() {
+	explicit PlanSession(const std::thread::id& mainThreadID = std::thread::id()) : mainThreadID_(mainThreadID) {
+	}
+
+	// ---- property map ----
+
+	CV_EXPORTS void init_keys() {
 		if(map_.empty()) {
 			create<false, uint64_t>(Keys::FRAME_CNT, 0);
 			create<false, uint64_t>(Keys::CAPTURE_CNT, 0);
@@ -582,59 +624,82 @@ public:
 			create<false, double>(Keys::LOCK_CONTENTION_RATE, 0.0);
 			create<false, uint64_t>(Keys::LCR_CNT, 0);
 			create<false, bool>(Keys::SHOW_GUI, true);
-                        create<false, bool>(Keys::SHOW_FRAME_TIME, true);
+			create<false, bool>(Keys::SHOW_FRAME_TIME, true);
 			create<false, bool>(Keys::TIME_TRACKER, true);
 		}
 	}
 
+	/*!
+	 * Shared variables are keyed by address and are meant to be reachable from
+	 * anywhere, so they deliberately stay process-wide: a variable declared
+	 * shared must resolve to the same lock no matter which plan (or which run of
+	 * a plan) touches it. #SharedVariables is internally synchronized.
+	 */
 	CV_EXPORTS static SharedVariables& shared_vars() {
-		return sharedVars_;
+		static SharedVariables sharedVars;
+		return sharedVars;
 	}
 
 	template <typename V>
-	CV_EXPORTS static const auto& get(Keys::Enum k) {
+	const V& get(Keys::Enum k) {
 	    return map_.get<V>(k);
 	}
 
 	template <typename V>
-	CV_EXPORTS static void set(Keys::Enum k, V v) {
+	void set(Keys::Enum k, V v) {
 	    map_.set(k, v);
 	}
 
 	template <bool Tread, typename V>
-	CV_EXPORTS static void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
+	void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
 	    map_.create<Tread>(k, v, cb);
 	}
 
 	template <typename V>
-	CV_EXPORTS static V apply(Keys::Enum k, std::function<V(V&)> f) {
+	V apply(Keys::Enum k, std::function<V(V&)> f) {
 		return map_.apply(k, f);
 	}
 
-	CV_EXPORTS static void setMainID(const std::thread::id& id) {
+	// ---- display thread ----
+
+	CV_EXPORTS void setMainID(const std::thread::id& id) {
 		std::lock_guard<std::mutex> lock(threadIDMtx_);
 		mainThreadID_ = id;
     }
 
-	CV_EXPORTS static bool isMain() {
+	CV_EXPORTS bool isMain() const {
 		std::lock_guard<std::mutex> lock(threadIDMtx_);
-		return (mainThreadID_ == defaultThreadID_ || mainThreadID_ == std::this_thread::get_id());
+		return (mainThreadID_ == std::thread::id() || mainThreadID_ == std::this_thread::get_id());
 	}
 
-	CV_EXPORTS static bool isFirstRun() {
-		static std::mutex mtx;
-		std::lock_guard<std::mutex> lock(mtx);
+	CV_EXPORTS bool isFirstRun() {
+		std::lock_guard<std::mutex> lock(firstRunMtx_);
     	bool f = isFirstRun_;
     	isFirstRun_ = false;
 		return f;
     }
 
-	CV_EXPORTS static cv::Ptr<std::mutex> tryGetNodeLock(const string& name) {
+	// ---- branch bookkeeping ----
+
+	CV_EXPORTS bool once(const string& name) {
+		std::lock_guard<std::mutex> lock(onceMtx_);
+		string stem = name.substr(0, name.find_last_of("-"));
+
+		auto it = once_.find(stem);
+		if(it != once_.end()) {
+			return false;
+		} else {
+			once_.insert(stem);
+			return true;
+		}
+	}
+
+	CV_EXPORTS cv::Ptr<std::mutex> tryGetNodeLock(const string& name) {
 		std::lock_guard guard(nodeLockMtx_);
 		return getNodeLockInternal(name, false);
 	}
 
-	CV_EXPORTS static bool lockNode(const string& name) {
+	CV_EXPORTS bool lockNode(const string& name) {
 		std::lock_guard guard(nodeLockMtx_);
 		auto lock = getNodeLockInternal(name);
 		if(lock) {
@@ -645,7 +710,7 @@ public:
 		}
 	}
 
-	CV_EXPORTS static bool tryUnlockNode(const string& name) {
+	CV_EXPORTS bool tryUnlockNode(const string& name) {
 		std::lock_guard guard(nodeLockMtx_);
 		auto lock = getNodeLockInternal(name);
 		if(lock) {
@@ -659,7 +724,7 @@ public:
 		}
 	}
 
-	CV_EXPORTS static size_t countNodeLocks() {
+	CV_EXPORTS size_t countNodeLocks() {
 		std::lock_guard guard(nodeLockMtx_);
 		size_t cnt = 0;
 		for(auto entry : nodeLockMap_) {
@@ -670,18 +735,125 @@ public:
 		return cnt;
 	}
 
-	CV_EXPORTS static bool once(string name) {
-	    static std::mutex mtx;
-		std::lock_guard<std::mutex> lock(mtx);
-		string stem = name.substr(0, name.find_last_of("-"));
+	// ---- per-run synchronization ----
 
-		auto it = once_.find(stem);
-		if(it != once_.end()) {
-			return false;
-		} else {
-			once_.insert(stem);
-			return true;
+	/*!
+	 * Creates the setup semaphore and the startup barrier for this run. Must be
+	 * called by the display thread before the workers are spawned, because the
+	 * barrier is sized for exactly this run's worker count.
+	 */
+	CV_EXPORTS void ensureSyncPoint(size_t count) {
+		std::lock_guard guard(syncMtx_);
+		if(!setupSema_)
+			setupSema_ = std::make_unique<std::binary_semaphore>(1);
+		if(!syncPoint_) {
+			syncPoint_ = std::make_unique<std::barrier<>>(count);
+			syncCount_ = count;
 		}
+	}
+
+	CV_EXPORTS std::binary_semaphore& setupSemaphore() {
+		if(!setupSema_)
+			ensureSyncPoint(syncCount_ ? syncCount_ : 1);
+		return *setupSema_;
+	}
+
+	CV_EXPORTS std::barrier<>& syncPoint() {
+		if(!syncPoint_)
+			ensureSyncPoint(syncCount_ ? syncCount_ : 1);
+		return *syncPoint_;
+	}
+};
+
+/*!
+ * Facade over the #PlanSession of the calling thread. Every accessor resolves
+ * the session of the calling thread, so plan code (and the plan DSL) can keep
+ * using the plain `GlobalState::get(...)` style API while two plans run side by
+ * side.
+ */
+class CV_EXPORTS GlobalState {
+public:
+	using Keys = GlobalKeys;
+
+	/*!
+	 * Session of the calling thread, or an empty pointer on threads that are
+	 * not part of a run.
+	 */
+	CV_EXPORTS static std::shared_ptr<PlanSession>& currentSessionRef();
+
+	CV_EXPORTS static void setSession(const std::shared_ptr<PlanSession>& s) {
+		currentSessionRef() = s;
+	}
+
+	/*!
+	 * Session of the calling thread, falling back to a process-wide default so
+	 * that code running outside of #Plan::run keeps working.
+	 */
+	CV_EXPORTS static PlanSession& session();
+
+	CV_EXPORTS static void init_keys() {
+		session().init_keys();
+	}
+
+	CV_EXPORTS static SharedVariables& shared_vars() {
+		return PlanSession::shared_vars();
+	}
+
+	template <typename V>
+	CV_EXPORTS static const auto& get(Keys::Enum k) {
+	    return session().get<V>(k);
+	}
+
+	template <typename V>
+	CV_EXPORTS static void set(Keys::Enum k, V v) {
+	    session().set(k, v);
+	}
+
+	template <bool Tread, typename V>
+	CV_EXPORTS static void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
+	    session().create<Tread>(k, v, cb);
+	}
+
+	template <typename V>
+	CV_EXPORTS static V apply(Keys::Enum k, std::function<V(V&)> f) {
+		return session().apply(k, f);
+	}
+
+	CV_EXPORTS static void setMainID(const std::thread::id& id) {
+		session().setMainID(id);
+    }
+
+	/*!
+	 * True on the thread that displays the current plan (i.e. the thread that
+	 * started the run), false on that plan's workers and on threads belonging
+	 * to a different plan.
+	 */
+	CV_EXPORTS static bool isMain() {
+		return session().isMain();
+	}
+
+	CV_EXPORTS static bool isFirstRun() {
+		return session().isFirstRun();
+    }
+
+	CV_EXPORTS static cv::Ptr<std::mutex> tryGetNodeLock(const string& name) {
+		return session().tryGetNodeLock(name);
+	}
+
+	CV_EXPORTS static bool lockNode(const string& name) {
+		return session().lockNode(name);
+	}
+
+	CV_EXPORTS static bool tryUnlockNode(const string& name) {
+		return session().tryUnlockNode(name);
+	}
+
+	CV_EXPORTS static size_t countNodeLocks() {
+		return session().countNodeLocks();
+	}
+
+	CV_EXPORTS static bool once(const string& name) {
+		return session().once(name);
 	}
 };
 

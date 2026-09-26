@@ -156,6 +156,17 @@ public:
 	virtual void runFrameLoop(std::function<void()> frameFn) = 0;
 
 	/*!
+	 * Called on the display thread after the worker threads were spawned but
+	 * before they synchronize. Runtimes recreate their frame-synchronization
+	 * primitives here: they belong to a single run and must never be shared
+	 * between two plans, otherwise a second plan would resequence against the
+	 * first one's frames.
+	 */
+	virtual void onRunStart(int32_t workers) {
+		CV_UNUSED(workers);
+	}
+
+	/*!
 	 * Called after the frame loop finished, on every participating thread
 	 * (release per-thread IO resources here).
 	 */
@@ -1136,6 +1147,12 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 	 *   teardown() -> makeGraph() -> runGraph() -> clearGraph()
 	 *
 	 * Runtime specifics are delegated to the PlanRuntime hooks.
+	 *
+	 * Runs concurrently with any other plan: all per-run state (property map,
+	 * display-thread id, node locks, setup semaphore, startup barrier) lives in
+	 * the #PlanSession owned by the thread that starts the plan, and workers
+	 * inherit it from the spawning thread. Starting a plan therefore requires no
+	 * dedicated process-main thread - any thread can display a plan.
 	 */
 	template<typename Tplan, typename ... Args>
 	static void run(int32_t extra_workers, Args&& ... args) {
@@ -1146,19 +1163,44 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 		//   extra_workers ==  n -> n workers + display thread, cv::setNumThreads(0)
 		const int32_t workers = (extra_workers <= 0) ? 1 : extra_workers + 1;
 
+		// The thread that starts a run displays it and owns its session; the
+		// recursive calls made by this run's workers inherit that session. A
+		// worker therefore never creates a session of its own. A previous
+		// session (e.g. when a plan starts a second plan from its own display
+		// thread) is restored when this run returns.
+		const std::shared_ptr<PlanSession> previousSession = GlobalState::currentSessionRef();
+		const bool displayThread = !previousSession || GlobalState::isMain();
+		std::shared_ptr<PlanSession> session = displayThread
+				? std::make_shared<PlanSession>(std::this_thread::get_id())
+				: previousSession;
+		GlobalState::setSession(session);
+		// The barrier is sized for this run's participants. It lives in the
+		// session (not in a function local static) so a second, concurrently
+		// running plan cannot arrive at a barrier built for the first one.
+		session->ensureSyncPoint(static_cast<size_t>(workers) + 1);
+
 		cv::Ptr<Tplan> plan;
 		std::vector<std::thread*> threads;
 		{
+			// Only guards plan construction and worker spawning. Held for as
+			// long as it takes to hand work to the workers, never across a
+			// frame loop, so plans running in parallel only serialize on start.
 			static std::mutex runMtx;
 			std::lock_guard<std::mutex> lock(runMtx);
 
 			GlobalState::init_keys();
 			LocalState::init_keys();
-			cv::setNumThreads(extra_workers == -1 ? -1 : 0);
+			// OpenCV's internal thread pool is process-wide, so the first plan that
+			// runs decides it. Two concurrent plans must not keep overwriting each
+			// other's setting; a plan that spawns its own workers disables the
+			// internal pool, one that wants OpenCV's pool takes all cores.
+			static std::once_flag cvThreadsOnce;
+			std::call_once(cvThreadsOnce, [extra_workers]() {
+				cv::setNumThreads(extra_workers == -1 ? -1 : 0);
+			});
 
 
 			if(GlobalState::isFirstRun()) {
-				GlobalState::setMainID(std::this_thread::get_id());
 				CV_LOG_INFO(nullptr, "Starting with " << workers << " workers");
 			}
 
@@ -1168,8 +1210,11 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 				plan->setRuntime(PlanRuntime::current());
 			CV_Assert(plan->runtime_);
 
-			if(GlobalState::isMain()) {
+			if(displayThread) {
 				GlobalState::set<size_t>(GlobalState::Keys::WORKERS_STARTED, workers);
+				// Give the runtime a chance to build fresh frame-sync primitives
+				// before any worker can reach the barrier below.
+				plan->runtime()->onRunStart(workers);
 				// Decay-copy the arguments once: every worker needs its own
 				// copy, so the per-thread capture below must not move out of
 				// the argument pack.
@@ -1180,7 +1225,10 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 						// thread (after the runtime hook registered the thread's
 						// runtime), because a plan and its transactions are bound
 						// to the contexts of the runtime it was created with.
-						new std::thread([rt = plan->runtime(), i, argsTuple = argsCopy]() mutable {
+						new std::thread([rt = plan->runtime(), session, i, argsTuple = argsCopy]() mutable {
+							// Join the session of the run that spawned us before
+							// touching any session-scoped state.
+							GlobalState::setSession(session);
 							GlobalState::init_keys();
 							LocalState::init_keys();
 							rt->initWorkerThread(i);
@@ -1198,7 +1246,7 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 
 		CV_Assert(plan);
 
-		if(GlobalState::isMain()) {
+		if(displayThread) {
 			try {
 				CV_LOG_DEBUG(nullptr, "Loading GUI");
 				plan->runtime()->willGui(plan);
@@ -1207,22 +1255,21 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 				CV_Error_(cv::Error::StsError, ("Loading GUI failed: %s", ex.what()));
 			}
 		} else {
-			static std::binary_semaphore setup_sema(1);
 			try {
 				CV_LOG_DEBUG(nullptr, "Setup on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
-				setup_sema.acquire();
+				session->setupSemaphore().acquire();
 				plan->setup();
 				plan->makeGraph();
 				plan->runGraph();
 				plan->clearGraph();
-				setup_sema.release();
+				session->setupSemaphore().release();
 			} catch(std::exception& ex) {
 				CV_Error_(cv::Error::StsError, ("Setup failed: %s", ex.what()));
 			}
 			CV_LOG_DEBUG(nullptr, "Setup finished: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 		}
 
-		if(GlobalState::isMain()) {
+		if(displayThread) {
 			CV_LOG_DEBUG(nullptr, "GUI loaded");
 		} else {
 			try {
@@ -1236,10 +1283,9 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 			GlobalState::apply<size_t>(GlobalState::Keys::WORKERS_READY, [](size_t& wr){ ++wr; return wr; });
         	}
 
-                static std::barrier syncPoint(workers + 1);
-                syncPoint.arrive_and_wait();
+            session->syncPoint().arrive_and_wait();
 
-                try {
+            try {
 			plan->runtime()->runFrameLoop([plan]() {
 				plan->runGraph();
 			});
@@ -1247,7 +1293,7 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 			CV_Error_(cv::Error::StsError, ("Main runtime failed: %s", ex.what()));
 		}
 
-		if(!GlobalState::isMain()) {
+		if(!displayThread) {
 			plan->clearGraph();
 			CV_LOG_DEBUG(nullptr, "Starting teardown on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
 			try {
@@ -1268,12 +1314,16 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 		// (including its teardown graph) here, on the display thread, before the
 		// caller returns -- otherwise the engine leaks threads that race the
 		// exit-time destructors of the global/static state they use.
-		if(GlobalState::isMain()) {
+		if(displayThread) {
 			for(std::thread* t : threads) {
 				if(t->joinable()) t->join();
 				delete t;
 			}
 			threads.clear();
+			plan->runtime()->releaseIo();
+			// Detach the finished run's session: this thread may start another
+			// plan later, and a leftover session would be picked up again.
+			GlobalState::setSession(previousSession);
 		}
 	}
 

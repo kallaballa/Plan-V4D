@@ -137,7 +137,7 @@ cpack DEB
 # big buck bunny video
 wget -O bunny.webm https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm
 # dance video
-yt-dlp -o dance.webm "https://www.youtube.com/watch?v=yg6LZtNeO_8"
+yt-dlp -o dance.mp4 "https://www.youtube.com/watch?v=yg6LZtNeO_8"
 # kristen video
 yt-dlp -o kristen.webm "https://www.youtube.com/watch?v=hUAT8Jm_dvw&t=11s"
 ```
@@ -162,8 +162,8 @@ bin/example_v4d_video-demo bunny.webm
 bin/example_v4d_nanovg-demo bunny.webm
 bin/example_v4d_shader-demo bunny.webm
 bin/example_v4d_font-demo
-bin/example_v4d_pedestrian-demo dance.webm
-bin/example_v4d_optflow-demo dance.webm
+bin/example_v4d_pedestrian-demo dance.mp4
+bin/example_v4d_optflow-demo dance.mp4
 bin/example_v4d_beauty-demo kristen.webm
 
 ```

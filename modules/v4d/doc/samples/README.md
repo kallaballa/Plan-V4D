@@ -23,7 +23,7 @@
 | 12 | [Advanced NanoVG and Processing Pipelines](#tutorial-12--advanced-nanovg-and-processing-pipelines) | `assign()`, `F()`, function wrappers, hue-shifting chain |
 | 13 | [Interactive Custom Shaders](#tutorial-13--interactive-custom-shaders) | `E<T>` events, GLSL shaders, `branch` stateful control flow |
 | 14 | [Advanced Font Effects Demo](#tutorial-14--advanced-font-effects-demo) | Render-to-texture, conditional execution, performance optimization |
-| 15 | [Pedestrian Detection and Tracking Demo](#tutorial-15--pedestrian-detection-and-tracking-demo) | HOG detection, KCF tracking, `branch`/`elseBranch` |
+| 15 | [Pedestrian Detection and Tracking Demo](#tutorial-15--pedestrian-detection-and-tracking-demo) | HOG detection, NMS, multi-object KCF tracking, ImGui controls |
 | 16 | [Sparse Optical Flow Demo](#tutorial-16--sparse-optical-flow-demo) | FAST features, Lucas-Kanade, multi-layer compositing |
 | 17 | [Real-Time "Beauty Filter" Demo](#tutorial-17--real-time-beauty-filter-demo) | Sub-plans (`_sub`/`subInfer`), DNN models, `MultiBandBlender` |
 | 18 | [Parallel Rendering with Multiple OpenGL Contexts](#tutorial-18--parallel-rendering-with-multiple-opengl-contexts) | `gl<-1>` multi-context, parallel OpenGL execution |
@@ -1232,7 +1232,52 @@ fb<3>(&Warp::perform, RWS(warp_), RS(text_.rendering_), RS(stars_.rendering_));
 
 > [Advanced Font Effects Demo](#tutorial-14--advanced-font-effects-demo) | [Next: Sparse Optical Flow Demo](#tutorial-16--sparse-optical-flow-demo)
 
-This tutorial implements a classic "detect-then-track" strategy for finding pedestrians: an efficient pattern for real-time object tracking using HOG detection and KCF tracking.
+This tutorial implements a multi-object detect-then-track pipeline. It displays a video in a V4D window and draws a smoothed orange ellipse around every pedestrian it tracks. The HOG detector runs periodically, while one KCF tracker per pedestrian carries the position between detections. Non-maximum suppression removes overlapping detections, and lost tracks can be reinitialized when a later detection overlaps them.
+
+## Running the Demo
+
+The executable takes exactly one video path. It is display-only; no annotated video is written because the `Sink` setup is disabled in the sample.
+
+Build the example from a configured OpenCV/V4D build:
+
+```bash
+cmake --build /path/to/opencv/build \
+  --target example_v4d_pedestrian-demo \
+  --parallel 4
+```
+
+Run it with a video file:
+
+```bash
+/path/to/opencv/build/bin/example_v4d_pedestrian-demo \
+  /path/to/video.mp4
+```
+
+A sample input is bundled at `modules/v4d/assets/videos/dance.mp4`. The demo needs a graphical OpenGL-capable environment and an FFmpeg-enabled OpenCV build.
+
+## The Pipeline
+
+1. `capture()` reads a BGRA frame. The frame is converted to RGB, resized to a quarter of the viewport, converted to grayscale, and copied for the final display.
+2. On a fixed cadence, `HOGDescriptor` detects pedestrians with the default linear-SVM people detector. NMS filters overlapping rectangles.
+3. Existing KCF trackers are updated on a staggered schedule. Successful updates are smoothed into each track's published box; failed updates increment its miss count.
+4. On a detection pass, rectangles are associated with live tracks by intersection over union (IoU). A live track is re-anchored, a lost track is reinitialized, and an unmatched detection starts a new track when the track budget allows it. Tracks that exceed the miss threshold are removed.
+5. The current boxes are copied to shared state, drawn as NanoVG ellipses, and composited over the original frame with `fb()`.
+
+## Runtime Controls
+
+The ImGui `Tracking` window exposes the current tuning parameters:
+
+| Control | Current default | Effect |
+|---|---:|---|
+| Re-detect interval | 2 frames | Frames between HOG detection passes. |
+| Max pedestrians | 15 | Maximum number of simultaneous tracks. |
+| Miss threshold | 2 | Failed tracker updates before a lost track is removed. |
+| Tracker refresh period | 2 frames | KCF updates are staggered so each tracker is refreshed periodically. |
+| Box smoothing | 0.10 | Smoothing applied to successful tracker updates. |
+| Re-anchor factor | 0.50 | Smoothing applied when a detection is associated with a live track. |
+| Active tracks | read-only | Number of tracks currently being rendered. |
+
+The sliders are evaluated at runtime, so detection frequency, tracker load, and smoothing can be tuned without rebuilding.
 
 ## The Code
 
@@ -1242,18 +1287,18 @@ You can find the complete source in [`pedestrian-demo.cpp`](https://github.com/k
 void infer() override {
     capture(RW(frames_.videoFrame_));
 
-    plain(cv::cvtColor, R(frames_.videoFrame_), RW(frames_.videoFrameBGR_), V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
-    ->plain(prepare_frames, R(params_), RW(frames_));
+    plain(cv::cvtColor, R(frames_.videoFrame_), RW(frames_.videoFrameBGR_),
+          V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
+        ->plain(prepare_frames, R(params_), RW(frames_));
 
-    branch(doRedect_, R(detection_))
-        ->plain(&HOG::detect, R(hog), R(frames_.videoFrameDownGrey_), RW(detection_), RW(nms), RW(params_))
-    ->elseBranch()
-        ->plain(&Tracking::perform, R(tracking), R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
+    branch(BranchType::SINGLE, always_)
+        ->plain(update_tracking, R(frames_.videoFrameDownGrey_), RWS(detection_),
+                RW(nms), CS(trackParams_), RW(outBoxes_))
+        ->plain(copy_boxes, R(outBoxes_), RWS(trackedBoxes_))
     ->endBranch();
 
-    plain(&Tracking::save, R(tracking), R(params_), size_, RWS(tracked_))
-    ->nvg(&ObjectMarker::draw, R(marker_), size_, R(params_), CS(tracked_))
-    ->fb(present, R(frames_.background_));
+    nvg(&ObjectMarker::draw, R(marker_), size_, R(params_), CS(trackedBoxes_))
+        ->fb(present, R(frames_.background_));
 
     write();
 }
@@ -1261,26 +1306,24 @@ void infer() override {
 
 ## Code Breakdown
 
-### The "Detect-then-Track" Strategy
+### Detection and Tracking State
 
-1. **Detect**: Run the expensive HOG detector once to find the object.
-2. **Track**: Initialize a lightweight KCF tracker with the location.
-3. **Update**: Run the fast tracker on subsequent frames.
-4. **Re-detect**: If the tracker loses the object, run the full detector again.
+`Detection` owns the HOG descriptor and the active `Track` objects. Each `Track` contains its KCF tracker, smoothed rectangle, and miss count. The tracking helper is a plain CPU node: detection, NMS, association, reinitialization, and cleanup all happen in one stateful operation.
 
-### Implementing with `branch`/`elseBranch`
+### Serializing the Tracking Region
 
-The `Detection` struct holds `trackerInit_` and `redetect_` flags. The branch condition `doRedect_` returns `true` when detection is needed; otherwise the `elseBranch` runs the fast tracker — a perfect fit for state-based control flow.
+`V4DPlan::run<PedestrianDemoPlan>(2)` starts three workers in addition to the main/display thread. The tracking region uses `BranchType::SINGLE`, so mutable KCF and detection state is touched by only one worker at a time. The result is published to `trackedBoxes_`; the NanoVG node receives a copy with `CS()` and can render safely alongside the tracking work.
 
-### Visualization
+### Visualization and Output
 
-A final chain composites the visualization: `Tracking::save` (smoothing), `ObjectMarker::draw` (nvg ellipse), and `present` (fb compositing) with the original video frame.
+`ObjectMarker::draw` uses NanoVG to clear its layer and draw one ellipse per smoothed box. `present()` composites that layer over the captured frame. `write()` presents the final framebuffer to the display; it is not a file-writing `Sink` in this demo.
 
 ## Summary
 
-- Complex logic can be organized into helper classes.
-- `branch`/`elseBranch` is perfect for state-based control flow.
-- Standard OpenCV algorithms (`HOGDescriptor`, `TrackerKCF`) integrate seamlessly.
+- Periodic HOG detection is combined with one KCF tracker per pedestrian.
+- NMS and IoU-based association keep overlapping detections and tracks manageable.
+- `BranchType::SINGLE` protects mutable tracking state while shared snapshots feed rendering.
+- ImGui controls make the detection, tracker, and smoothing behavior tunable at runtime.
 
 ---
 

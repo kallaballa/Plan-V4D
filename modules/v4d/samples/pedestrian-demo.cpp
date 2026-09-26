@@ -59,7 +59,7 @@ private:
 	//the shared mutex via RWS) and snapshotted by the tracking worker (via CS).
 	struct TrackParams {
 		//Frames between HOG re-detection passes while tracks are healthy
-		int detectInterval_ = 8;
+		int detectInterval_ = 2;
 		//Maximum number of simultaneously tracked pedestrians. Bounds the cost of
 		//the per-frame KCF updates (one tracker per pedestrian).
 		int maxTracks_ = 15;
@@ -68,7 +68,7 @@ private:
 		//Refresh every KCF tracker every kcfEvery_ frames (1 = every frame)
 		int kcfEvery_ = 2;
 		//Exponential smoothing of the published box toward tracker output
-		float smoothFactor_ = 0.3f;
+		float smoothFactor_ = 0.1f;
 		//Exponential smoothing of a live track's box toward its re-detection
 		float anchorFactor_ = 0.5f;
 	};
@@ -342,7 +342,7 @@ private:
 				float height = box.height * params.scale_.height;
 				float cx = (params.scale_.width * box.x + (width / 2));
 				float cy = (params.scale_.height * box.y + (height / 2));
-				ellipse(cx, cy, (width / 1.25), (height / 1.5));
+				ellipse(cx, cy, (width / 2), (height / 2));
 			}
 			stroke();
 		}
@@ -374,7 +374,7 @@ public:
     		detection.params_.compressed_size = 1;
     		detection.hog_.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
     		params.downSize_ = { sz.width / 4 , sz.height / 4 };
-    		params.scale_ = { 4.0f, 4.0f };
+    		params.scale_ = { 2.0f, 2.0f };
     		frames.videoFrame_.create(sz, CV_8UC4);
     		frames.videoFrameBGR_.create(sz, CV_8UC3);
     		frames.videoFrameDownGrey_.create(sz, CV_8UC1);

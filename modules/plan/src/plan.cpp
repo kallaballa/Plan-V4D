@@ -21,9 +21,23 @@ Transaction::Transaction() : btype_(BranchType::NONE) {
 }
 
 static thread_local cv::Ptr<PlanRuntime> g_currentRuntime_;
+static thread_local std::shared_ptr<PlanSession> g_currentSession_;
 
 cv::Ptr<PlanRuntime>& PlanRuntime::current() {
 	return g_currentRuntime_;
+}
+
+std::shared_ptr<PlanSession>& GlobalState::currentSessionRef() {
+	return g_currentSession_;
+}
+
+PlanSession& GlobalState::session() {
+	if(g_currentSession_)
+		return *g_currentSession_;
+	// Threads that never join a run (helpers, unit tests, shutdown code) share
+	// one fallback session, which is what all the state used to be.
+	static PlanSession& fallback = *new PlanSession();
+	return fallback;
 }
 
 bool Transaction::isBranch() {
@@ -47,15 +61,6 @@ std::function<cv::Ptr<cv::plan::detail::PlanContext>()> Transaction::getContextC
 }
 
 // GlobalState static member definitions
-CV_EXPORTS ThreadSafeAnyMap<GlobalState::Keys::Enum> GlobalState::map_;
-CV_EXPORTS std::mutex GlobalState::threadIDMtx_;
-CV_EXPORTS const std::thread::id GlobalState::defaultThreadID_;
-CV_EXPORTS std::thread::id GlobalState::mainThreadID_;
-CV_EXPORTS bool GlobalState::isFirstRun_ = true;
-CV_EXPORTS std::set<string> GlobalState::once_;
-CV_EXPORTS std::mutex GlobalState::nodeLockMtx_;
-CV_EXPORTS std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> GlobalState::nodeLockMap_;
-CV_EXPORTS SharedVariables GlobalState::sharedVars_;
 CV_EXPORTS thread_local ThreadSafeAnyMap<LocalState::Keys::Enum> LocalState::map_;
 
 CV_EXPORTS size_t cnz(const cv::UMat& m) {

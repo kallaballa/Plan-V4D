@@ -191,7 +191,7 @@ modules/v4d/
 │   ├── shader-demo.cpp            GLSL fragment shader on a quad
 │   ├── custom_source_and_sink.cpp custom I/O + conditional writing
 │   ├── montage-demo.cpp           many windows in one process
-│   ├── pedestrian-demo.cpp        HOG detection + KCF tracking
+│   ├── pedestrian-demo.cpp        HOG/NMS detection + KCF tracking + ImGui controls
 │   ├── optflow-demo.cpp           Farneback optical flow
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
 │   ├── imshow_reimplementation.cpp   full GUI image viewer
@@ -219,12 +219,14 @@ modules/v4d/
    smallest program that does something visible. 32 lines.
 3. [`samples/video_editing.cpp`](samples/video_editing.cpp) — the
    canonical "capture → render → write" pipeline.
-4. [`samples/beauty-demo.cpp`](samples/beauty-demo.cpp) — the most
+4. [`samples/pedestrian-demo.cpp`](samples/pedestrian-demo.cpp) — HOG/NMS
+   detection, multi-pedestrian KCF tracking, and interactive ImGui controls.
+5. [`samples/beauty-demo.cpp`](samples/beauty-demo.cpp) — the most
    representative real program. Shared state, sub-plans, branching
    with `IF`, mouse events, NanoVG, framebuffer writes, ImGui GUI.
-5. [`samples/imshow_reimplementation.cpp`](samples/imshow_reimplementation.cpp)
+6. [`samples/imshow_reimplementation.cpp`](samples/imshow_reimplementation.cpp)
    — a full GUI image viewer; a tour de force.
-6. [`samples/image_carousel.cpp`](samples/image_carousel.cpp) — animated
+7. [`samples/image_carousel.cpp`](samples/image_carousel.cpp) — animated
    glossy cards with reflections, keyboard/mouse navigation, and an ImGui HUD.
 
 For the language itself (edges, operators, control flow,
@@ -244,6 +246,17 @@ cmake -DOPENCV_EXTRA_MODULES_PATH=../modules \
 cmake --build . --target example_v4d_video_editing
 ./bin/example_v4d_video_editing in.mp4 out.mkv
 ```
+
+The pedestrian demo can be built and run separately. It displays the video and
+tracked pedestrian ellipses; it does not write an annotated output file:
+
+```bash
+cmake --build . --target example_v4d_pedestrian-demo
+./bin/example_v4d_pedestrian-demo modules/v4d/assets/videos/dance.mp4
+```
+
+The `Tracking` ImGui window exposes the detection interval, maximum track
+count, tracker refresh period, miss threshold, and smoothing parameters.
 
 V4D requires:
 

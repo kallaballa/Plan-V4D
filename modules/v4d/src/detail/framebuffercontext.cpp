@@ -34,8 +34,21 @@ namespace detail {
 static void glfw_error_callback(int error, const char* description) {
     CV_UNUSED(error);
     CV_UNUSED(description);
-    CV_LOG_DEBUG(nullptr, "GLFW Error: (" + std::to_string(error) + ") "+ description);
+    CV_LOG_DEBUG(nullptr, "GLFW Error: (" + std::to_string(error) + ")+ " + description);
 }
+
+/*!
+ * GLFW's initialization, window creation and the GL/CL interop setup are global
+ * process state, and GLFW is not thread-safe. Two plans that each display a
+ * window create their windows from their own display thread, so those steps are
+ * serialized process-wide. The rest of the frame (rendering, event dispatch) is
+ * not affected: it stays parallel.
+ */
+static std::mutex& glfw_init_mtx() {
+	static std::mutex mtx;
+	return mtx;
+}
+
 
 static void draw_quad()
 {
@@ -201,13 +214,22 @@ void FrameBufferContext::init() {
             onscreenTextureID_ = parent_->onscreenTextureID_;
             onscreenRenderBufferID_ = parent_->onscreenRenderBufferID_;
         }
-    } else if (glfwInit() != GLFW_TRUE) {
+    }
+
+    // See glfw_init_mtx(): window creation is not thread-safe, and two plans may
+    // create their window at the same time from their own display thread. The
+    // lock is held for the whole creation, released before the first frame.
+    std::lock_guard<std::mutex> glfwInitGuard(glfw_init_mtx());
+
+    if(!parent_ && glfwInit() != GLFW_TRUE) {
     	cerr << "Can't init GLFW" << endl;
     	exit(1);
     }
 
     glfwSetErrorCallback(cv::v4d::detail::glfw_error_callback);
-    glfwSetTime(0);
+    // glfwSetTime() is process-wide, so only the first window resets the clock.
+    static std::once_flag timeOnce;
+    std::call_once(timeOnce, []() { glfwSetTime(0); });
 #ifdef __APPLE__
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
@@ -296,50 +318,42 @@ void FrameBufferContext::init() {
     	context_ = CLExecContext_t::getCurrent();
 
     setup();
-    if(GlobalState::isMain() && !parent_) {
+    if(!parent_) {
+        // The callbacks below run on whichever thread called glfwPollEvents(),
+        // so they must not use the runtime of the calling thread: they look the
+        // runtime up by the window the event belongs to. That also keeps the
+        // input of one window out of the GUI of another one.
+        auto imguiOf = [](GLFWwindow* window) -> detail::ImGuiContextImpl* {
+            V4D* rt = V4D::runtimeForWindow(window);
+            return rt ? rt->imgui() : nullptr;
+        };
         gwe::init<cv::Point>(
-          [](GLFWwindow *window, int key, int scancode, int action, int mods){
-              ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
-              if(ImGui::GetCurrentContext()) {
-                  return ImGui::GetIO().WantCaptureKeyboard;
-              } else {
-                  return false;
-              }
-          }, [](GLFWwindow *window, int button, int action, int mods) {
-              ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
-              if(ImGui::GetCurrentContext()) {
-                  return ImGui::GetIO().WantCaptureMouse;
-              } else {
-                  return false;
-              }
-          }, [](GLFWwindow *window, double xoffset, double yoffset) {
-              ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-              if(ImGui::GetCurrentContext()) {
-                  return ImGui::GetIO().WantCaptureMouse;
-              }
-              return false;
+          [imguiOf](GLFWwindow *window, int key, int scancode, int action, int mods){
+              auto imgui = imguiOf(window);
+              return imgui ? imgui->forwardKeyCallback(window, key, scancode, action, mods) : false;
+          }, [imguiOf](GLFWwindow *window, int button, int action, int mods) {
+              auto imgui = imguiOf(window);
+              return imgui ? imgui->forwardMouseButtonCallback(window, button, action, mods) : false;
+          }, [imguiOf](GLFWwindow *window, double xoffset, double yoffset) {
+              auto imgui = imguiOf(window);
+              return imgui ? imgui->forwardScrollCallback(window, xoffset, yoffset) : false;
           }, [](GLFWwindow *window, int w, int h) {
-              CV_UNUSED(window);
-              V4D::instance()->set(V4D::Keys::WINDOW_SIZE, cv::Size(w, h), false);
+              V4D::runtimeForWindow(window)->setProperty(V4D::Keys::WINDOW_SIZE, cv::Size(w, h), false);
               return false;
           }, gwe::WindowPosCallback(), gwe::WindowFocusCallback(), gwe::WindowCloseCallback(),
-          [](GLFWwindow *window, double xpos, double ypos) {
-              ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
-              if(ImGui::GetCurrentContext()) {
-                  return ImGui::GetIO().WantCaptureMouse;
-              }
-              return false;
+          [imguiOf](GLFWwindow *window, double xpos, double ypos) {
+              auto imgui = imguiOf(window);
+              return imgui ? imgui->forwardCursorPosCallback(window, xpos, ypos) : false;
           }, gwe::CursorEnterCallback(),
-          [](GLFWwindow *window, unsigned int codepoint) {
-              ImGui_ImplGlfw_CharCallback(window, codepoint);
-              if(ImGui::GetCurrentContext()) {
-                  return ImGui::GetIO().WantCaptureKeyboard;
-              } else {
-                  return false;
-              }
+          [imguiOf](GLFWwindow *window, unsigned int codepoint) {
+              auto imgui = imguiOf(window);
+              return imgui ? imgui->forwardCharCallback(window, codepoint) : false;
           }
       );
     }
+    // Consume the events of this window in the thread that created it, so two
+    // plans running side by side don't receive each other's input.
+    gwe::detail::register_thread_window(glfwWindow_);
 }
 
 void FrameBufferContext::setup() {

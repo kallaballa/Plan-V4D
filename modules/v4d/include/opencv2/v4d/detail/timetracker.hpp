@@ -8,6 +8,7 @@
 #include <ostream>
 #include <iomanip>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <opencv2/core/cvdef.h>
 
@@ -71,6 +72,11 @@ struct TimeSortCompare {
 class CV_EXPORTS TimeTracker {
 private:
     static TimeTracker *instance_;
+    // Tracker of the plan running on the calling thread (if any). Two plans
+    // running at the same time must not report into each other's statistics,
+    // so each run gets its own tracker while code outside of a run (e.g. an
+    // after-run summary in main) keeps using the process-wide instance.
+    static thread_local TimeTracker *threadInstance_;
     mutex mapMtx_;
     map<string, TimeInfo> tiMap_;
     bool enabled_;
@@ -133,10 +139,29 @@ public:
     }
 
     static TimeTracker* getInstance() {
+        if (threadInstance_ != NULL)
+            return threadInstance_;
+
         if (instance_ == NULL)
             instance_ = new TimeTracker();
 
         return instance_;
+    }
+
+    /*!
+     * Binds a tracker to the calling thread, i.e. to the plan that thread
+     * takes part in. Pass nullptr to detach it again.
+     */
+    static void setThreadInstance(TimeTracker* tracker) {
+        threadInstance_ = tracker;
+    }
+
+    /*!
+     * A tracker of its own, for a plan that needs its statistics separate from
+     * the process-wide tracker.
+     */
+    static std::shared_ptr<TimeTracker> create() {
+        return std::shared_ptr<TimeTracker>(new TimeTracker());
     }
 
     static void destroy() {
@@ -144,6 +169,7 @@ public:
             delete instance_;
 
         instance_ = NULL;
+        threadInstance_ = NULL;
     }
 
     void newCount() {

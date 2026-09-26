@@ -946,7 +946,8 @@ Study the samples (`modules/v4d/samples/`), roughly in this order:
 | `font_with_gui.cpp` | GUI feeding NanoVG |
 | `custom_source_and_sink.cpp` | Rolling your own I/O + conditional `write()` in a branch |
 | `cube-demo.cpp` / `many_cubes-demo.cpp` | Pure GL; multiple parallel GL contexts |
-| `pedestrian-demo.cpp` / `optflow-demo.cpp` | Non-trivial detection + tracking pipelines |
+| `pedestrian-demo.cpp` | HOG/NMS detection, multi-pedestrian KCF tracking, and interactive tuning |
+| `optflow-demo.cpp` | Non-trivial detection + tracking pipelines |
 | `imshow_reimplementation.cpp` | A full GUI image viewer |
 | `beauty-demo.cpp` | The kitchen sink: shared state, sub-plans, `IF` toggling, events, GUI |
 

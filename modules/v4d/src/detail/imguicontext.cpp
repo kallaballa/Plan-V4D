@@ -21,24 +21,38 @@ namespace detail {
 ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext) :
         mainFbContext_(fbContext) {
 	IMGUI_CHECKVERSION();
-	context_ = ImGui::CreateContext();
+	// ImGui::CreateContext() makes the new context current, which would break a
+	// window that is already set up, so the previous current context is restored
+	// when this one is initialized.
+	ImGuiContext* prevCtx = ImGui::GetCurrentContext();
+	ctx_ = ImGui::CreateContext();
 
-	ImGuiIO& io = ImGui::GetIO();
-	(void)io;
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    ImGuiIO& io = ImGui::GetIO();
+    (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 //	io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
 //	io.ConfigFlags |= ImGuiConfigFlags_NoKeyboard;
 //	io.BackendUsingLegacyNavInputArray = false;
-	ImGui::StyleColorsDark();
+    ImGui::StyleColorsDark();
 
-	ImGui_ImplGlfw_InitForOpenGL(mainFbContext_->getGLFWWindow(), false);
+    ImGui_ImplGlfw_InitForOpenGL(mainFbContext_->getGLFWWindow(), false);
 //	ImGui_ImplGlfw_SetCallbacksChainForAllWindows(true);
 #if !defined(OPENCV_V4D_USE_ES3)
-	ImGui_ImplOpenGL3_Init("#version 330");
+    ImGui_ImplOpenGL3_Init("#version 330");
 #else
-	ImGui_ImplOpenGL3_Init("#version 300 es");
+    ImGui_ImplOpenGL3_Init("#version 300 es");
 #endif
+    // Creating the context made it current; hand the current context back to
+    // whoever had it, so that a second window does not steal it.
+    ImGui::SetCurrentContext(prevCtx);
+}
+
+ImGuiContextImpl::~ImGuiContextImpl() {
+    if(ImGui::GetCurrentContext() == ctx_)
+        ImGui::SetCurrentContext(nullptr);
+    ImGui::DestroyContext(ctx_);
+    ctx_ = nullptr;
 }
 
 ImGuiContext* ImGuiContextImpl::getContext() {
@@ -49,6 +63,51 @@ void ImGuiContextImpl::setContext(ImGuiContext* ctx) {
 	context_ = ctx;
 }
 
+void ImGuiContextImpl::makeCurrent() {
+    if(ctx_ && ImGui::GetCurrentContext() != ctx_)
+        ImGui::SetCurrentContext(ctx_);
+}
+
+bool ImGuiContextImpl::forwardKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    if(!ctx_)
+        return false;
+    makeCurrent();
+    ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+    return ImGui::GetCurrentContext() ? ImGui::GetIO().WantCaptureKeyboard : false;
+}
+
+bool ImGuiContextImpl::forwardMouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+    if(!ctx_)
+        return false;
+    makeCurrent();
+    ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+    return ImGui::GetCurrentContext() ? ImGui::GetIO().WantCaptureMouse : false;
+}
+
+bool ImGuiContextImpl::forwardScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
+    if(!ctx_)
+        return false;
+    makeCurrent();
+    ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+    return ImGui::GetCurrentContext() ? ImGui::GetIO().WantCaptureMouse : false;
+}
+
+bool ImGuiContextImpl::forwardCursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
+    if(!ctx_)
+        return false;
+    makeCurrent();
+    ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
+    return ImGui::GetCurrentContext() ? ImGui::GetIO().WantCaptureMouse : false;
+}
+
+bool ImGuiContextImpl::forwardCharCallback(GLFWwindow* window, unsigned int codepoint) {
+    if(!ctx_)
+        return false;
+    makeCurrent();
+    ImGui_ImplGlfw_CharCallback(window, codepoint);
+    return ImGui::GetCurrentContext() ? ImGui::GetIO().WantCaptureKeyboard : false;
+}
+
 void ImGuiContextImpl::setTransaction(cv::Ptr<Transaction> tx) {
     renderCallback_ = tx;
 }
@@ -56,12 +115,15 @@ void ImGuiContextImpl::setTransaction(cv::Ptr<Transaction> tx) {
 int ImGuiContextImpl::execute(const cv::Rect& vp, std::function<void()> fn) {
 	CV_UNUSED(fn);
 	CV_UNUSED(vp);
-	if (context_ && GlobalState::get<bool>(GlobalState::Keys::SHOW_GUI)) {
+	if (ctx_ && GlobalState::get<bool>(GlobalState::Keys::SHOW_GUI)) {
+	    // The GUI of this window is drawn from its display thread, so it must be
+	    // the current context even if another plan's context is more recent.
+	    makeCurrent();
 	    ImGui_ImplOpenGL3_NewFrame();
 	    ImGui_ImplGlfw_NewFrame();
 	    ImGui::NewFrame();
 
-	    static bool open_ptr[1] = { true };
+	    bool open_ptr[1] = { true };
 		static ImGuiWindowFlags window_flags = 0;
 //            window_flags |= ImGuiWindowFlags_NoBackground;
 		window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus;

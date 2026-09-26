@@ -26,6 +26,16 @@ namespace v4d {
 CV_EXPORTS std::mutex V4D::instance_mtx_;
 CV_EXPORTS thread_local cv::Ptr<V4D> V4D::instance_;
 CV_EXPORTS thread_local ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
+CV_EXPORTS std::mutex V4D::windowRegistry_mtx_;
+CV_EXPORTS std::map<GLFWwindow*, V4D*> V4D::windowRegistry_;
+
+V4D* V4D::runtimeForWindow(GLFWwindow* window) {
+	std::lock_guard guard(windowRegistry_mtx_);
+	auto it = windowRegistry_.find(window);
+	if(it == windowRegistry_.end())
+		return nullptr;
+	return it->second;
+}
 
 cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
 	GlobalState::init_keys();
@@ -67,7 +77,7 @@ cv::Ptr<V4D> V4D::init(const V4D& other, const string& title) {
 }
 
 V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) :
-        allocateFlags_(allocFlags), configFlags_(confFlags), debugFlags_(debFlags), samples_(samples) {
+        runState_(new RunState()), allocateFlags_(allocFlags), configFlags_(confFlags), debugFlags_(debFlags), samples_(samples) {
 
     int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::VSYNC : 0)
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
@@ -85,12 +95,18 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, Allocat
         imguiContext_ = new detail::ImGuiContextImpl(mainFbContext_);
 
     if(allocateFlags() & AllocateFlags::NANOVG)
-       	nvgContext_ = new detail::NanoVGContext(mainFbContext_);
+   		nvgContext_ = new detail::NanoVGContext(mainFbContext_);
 
+    {
+    	// GLFW reports the events of this window on whichever thread polls, so
+    	// the window has to be mapped back to its runtime.
+    	std::lock_guard guard(windowRegistry_mtx_);
+    	windowRegistry_[mainFbContext_->getGLFWWindow()] = this;
+    }
 }
 
 V4D::V4D(const V4D& other, const string& title) :
-		allocateFlags_(other.allocateFlags_), configFlags_(other.configFlags_), debugFlags_(other.debugFlags_), samples_(other.samples_) {
+		runState_(other.runState_), allocateFlags_(other.allocateFlags_), configFlags_(other.configFlags_), debugFlags_(other.debugFlags_), samples_(other.samples_) {
 	int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::DISPLAY_MODE : 0)
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
 			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : FBConfigFlags::OFFSCREEN);
@@ -105,10 +121,17 @@ V4D::V4D(const V4D& other, const string& title) :
     sourceContext_ = new detail::SourceContext(mainFbContext_);
     sinkContext_ = new detail::SinkContext(mainFbContext_);
     plainContext_ = new cv::plan::detail::PlainContext();
+    {
+    	std::lock_guard guard(windowRegistry_mtx_);
+    	windowRegistry_[mainFbContext_->getGLFWWindow()] = this;
+    }
 }
 
 V4D::~V4D() {
-
+	if(mainFbContext_) {
+		std::lock_guard guard(windowRegistry_mtx_);
+		windowRegistry_.erase(mainFbContext_->getGLFWWindow());
+	}
 }
 
 std::string V4D::title() const {
@@ -399,7 +422,10 @@ bool V4D::display() {
 		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
 		bool keepOpen = !glfwWindowShouldClose(getGLFWWindow());
 		if(!keepOpen) {
-			cv::v4d::request_finish();
+			// Only this run stops; other plans (windows) of this process keep
+			// running. A SIGINT still ends the whole process, because
+			// keepRunning() also honours the global finish request.
+			requestFinish();
 		}
 		return keepOpen;
 	} else {
@@ -453,6 +479,100 @@ ConfigFlags::Enum V4D::configFlags() {
 
 DebugFlags::Enum V4D::debugFlags() {
 	return debugFlags_;
+}
+
+void V4D::run(std::function<void()> runGraph) {
+	// Backwards compatible entry point: the frame synchronization of a run now
+	// lives in the runtime instead of in function-local statics.
+	V4D::run(V4D::instance(), runGraph);
+}
+
+void V4D::run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
+	if(!runtime || !runtime->runState_)
+		return;
+	RunState& state = *runtime->runState_;
+	Resequence& reseq = *state.reseq;
+	try {
+		if(GlobalState::isMain()) {
+			CV_LOG_INFO(&v4d_tag, "Display thread started.");
+			while(runtime->keepRunning()) {
+				bool result = true;
+				state.timer->execute("display", [&result, runtime, &state](){
+					if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
+						event::poll();
+						state.frameSyncSemaSwap.acquire();
+						if(!runtime->display()) {
+							result = false;
+						} else {
+							state.frameSyncRender.release();
+						}
+					} else {
+						event::poll();
+						if(!runtime->display()) {
+							result = false;
+						}
+					}
+				});
+				if(!result)
+					break;
+			}
+		} else {
+			while(runtime->keepRunning()) {
+				bool result = true;
+				state.timer->execute("worker", [&result, runtime, runGraph, &state, &reseq](){
+					event::poll();
+					GlobalState::apply<size_t>(GlobalState::Keys::RUN_CNT, [runtime](size_t& s) {
+						++s;
+						return s;
+					});
+
+					size_t seq = GlobalState::apply<size_t>(GlobalState::Keys::FRAME_CNT, [runtime](size_t& s) {
+						++s;
+						return s;
+					});
+
+					if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
+						state.frameSyncSemaSwap.release();
+						reseq.waitFor(seq, [&state](uint64_t s) {
+							CV_UNUSED(s);
+							state.frameSyncRender.acquire();
+						});
+						runGraph();
+
+						if(!runtime->display()) {
+							state.frameSyncSemaSwap.release();
+							result = false;
+						}
+					} else {
+						runGraph();
+						reseq.waitFor(seq, [&result, runtime](uint64_t s) {
+							CV_UNUSED(s);
+							result = runtime->display();
+						});
+					}
+				});
+				if(!result)
+					break;
+			}
+		}
+	} catch(std::runtime_error& ex) {
+		CV_LOG_WARNING(&v4d_tag, "Pipeline terminated: " << ex.what());
+	} catch(std::exception& ex) {
+		CV_LOG_WARNING(&v4d_tag, "Pipeline terminated: " << ex.what());
+	} catch(...) {
+		CV_LOG_WARNING(&v4d_tag, "Pipeline terminated with unknown error.");
+	}
+	// Stop the other participants of this run, so they leave their loops too.
+	runtime->requestFinish();
+	if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
+		if(GlobalState::isMain()) {
+			for(size_t i = 0; i < GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED); ++i)
+				state.frameSyncRender.release();
+		} else {
+			state.frameSyncSemaSwap.release();
+		}
+	}
+	reseq.finish();
 }
 
 }

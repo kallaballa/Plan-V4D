@@ -39,7 +39,9 @@ using namespace cv::plan;
 #include <string>
 #include <memory>
 #include <vector>
+#include <atomic>
 #include <barrier>
+#include <semaphore>
 #include <type_traits>
 #include <sys/resource.h>
 #include <sys/syscall.h>
@@ -134,6 +136,42 @@ private:
     CV_EXPORTS static thread_local cv::Ptr<V4D> instance_;
     CV_EXPORTS static thread_local ThreadSafeAnyMap<Keys::Enum> properties_;
 
+public:
+    /*!
+     * State that belongs to one #Plan::run of this runtime and is shared with
+     * the runtime clones (one per worker thread) that run the same plan.
+     *
+     * It used to be a set of function-local statics in V4D::run(), which made
+     * a second, concurrently running plan resequence against the first plan's
+     * frames and made closing one window stop every plan in the process.
+     */
+    struct CV_EXPORTS RunState {
+        // Frame synchronization of one run. Counting semaphores rather than
+        // binary ones: during startup/shutdown or when a worker stalls (e.g.
+        // slow fallback path) more than one token may be in flight. Binary
+        // semaphores would trip their release assertion in those situations.
+        std::counting_semaphore<1024> frameSyncRender { 0 };
+        std::counting_semaphore<1024> frameSyncSemaSwap { 0 };
+        std::unique_ptr<Resequence> reseq;
+        // False once this run was asked to stop: its window was closed, one of
+        // its pipelines failed, or the process got a SIGINT/SIGTERM.
+        std::atomic<bool> keepRunning { true };
+        // Timing statistics of this run (see TimeTracker).
+        std::shared_ptr<TimeTracker> timer;
+
+        RunState() : reseq(new Resequence(1)), timer(TimeTracker::create()) {
+        }
+    };
+
+private:
+    std::shared_ptr<RunState> runState_;
+
+    // The window of a runtime is needed to route GLFW/ImGui callbacks that GLFW
+    // invokes on whichever thread polled, which is not necessarily the thread
+    // that owns the window.
+    static std::mutex windowRegistry_mtx_;
+    static std::map<GLFWwindow*, V4D*> windowRegistry_;
+
     AllocateFlags::Enum allocateFlags_;
     ConfigFlags::Enum configFlags_;
     DebugFlags::Enum  debugFlags_;
@@ -145,6 +183,10 @@ private:
     cv::Ptr<NanoVGContext> nvgContext_ = nullptr;
     cv::Ptr<BgfxContext> bgfxContext_ = nullptr;
     cv::Ptr<ImGuiContextImpl> imguiContext_ = nullptr;
+    // The property map of the thread this runtime belongs to. properties_ is
+    // thread-local, so a runtime needs to remember its own map to be able to
+    // update it from another thread.
+    ThreadSafeAnyMap<Keys::Enum>* ownProperties_ = nullptr;
     cv::Ptr<PlainContext> plainContext_ = nullptr;
     std::mutex glCtxMtx_;
     std::map<int32_t,cv::Ptr<GLContext>> glContexts_;
@@ -164,8 +206,21 @@ public:
     	return instance_;
     }
 
+    /*!
+     * The runtime that owns a GLFW window, or nullptr for a window V4D does not
+     * know (e.g. a window of another library). GLFW invokes the event callbacks
+     * on the thread that called glfwPollEvents(), so a callback must not rely on
+     * V4D::instance() of the calling thread to find the runtime of the window
+     * the event belongs to.
+     *
+     * The returned pointer is only valid as long as that window exists, so use
+     * it right away and do not store it.
+     */
+    CV_EXPORTS static V4D* runtimeForWindow(GLFWwindow* window);
+
     static void init_keys() {
         auto fb = std::dynamic_pointer_cast<FrameBufferContext>(instance_->fbCtx());
+        instance_->ownProperties_ = &properties_;
         create<true>(Keys::SIZE, fb->size());
         create<false>(Keys::VIEWPORT, cv::Rect(0,0,fb->size().width, fb->size().height));
         create<false, cv::Size>(Keys::WINDOW_SIZE, fb->size(), [](const cv::Size& sz){ std::dynamic_pointer_cast<FrameBufferContext>(V4D::instance()->fbCtx())->setWindowSize(sz); });
@@ -252,6 +307,23 @@ public:
     bool hasSinkCtx() override;
     bool hasImguiCtx() override;
 
+    // The GUI of this runtime, or nullptr if it was not allocated. Used to
+    // forward the input events of this window to ImGui from whichever thread
+    // GLFW happened to deliver them on.
+    CV_EXPORTS detail::ImGuiContextImpl* imgui() {
+        return imguiContext_.get();
+    }
+
+    /*!
+     * Sets a property of *this* runtime, even when called from a thread other
+     * than the one that owns it (GLFW reports a window resize on whichever
+     * thread polls).
+     */
+    CV_EXPORTS void setProperty(Keys::Enum key, const cv::Size& val, bool fire = true) {
+        if(ownProperties_)
+            ownProperties_->set(key, val, fire);
+    }
+
     uint32_t debugFlagsVal() const { return static_cast<uint32_t>(debugFlags_); }
     uint32_t debugFlags() const override { return static_cast<uint32_t>(debugFlags_); }
 
@@ -278,6 +350,16 @@ public:
             if (sink) {
                 worker->setSink(sink);
             }
+            // The worker joins the run of the runtime that spawned it: it
+            // synchronizes frames with the other participants of that run and
+            // reports its timings into that run's TimeTracker.
+            worker->runState_ = runState_;
+            TimeTracker::setThreadInstance(worker->runState_->timer.get());
+            // The current ImGui context is per thread, so a worker that touches
+            // the GUI (a plan node, an event callback) has to be pointed at the
+            // context of the window of its run.
+            if(imguiContext_)
+                detail::ImGuiContextImpl::setContext(imguiContext_->context());
         }
 
         if(debugFlagsVal() & DebugFlags::LOWER_WORKER_PRIORITY) {
@@ -295,18 +377,49 @@ public:
         V4D::set(V4D::Keys::NAMESPACE, plan->space());
     }
 
+    /*!
+     * Starts a run. Called on the display thread before the workers are
+     * spawned, so this is the place to build the frame synchronization of the
+     * new run: it must not be shared with a run that may still be in progress.
+     */
+    void onRunStart(int32_t workers) override {
+        CV_UNUSED(workers);
+        runState_ = std::make_shared<RunState>();
+        TimeTracker::setThreadInstance(runState_->timer.get());
+        runState_->timer->setEnabled(GlobalState::get<bool>(GlobalState::Keys::TIME_TRACKER));
+    }
+
+    /*!
+     * True while the run this runtime takes part in shall continue. A closed
+     * window only stops its own run; #request_finish stops the whole process.
+     */
+    bool keepRunning() const {
+        // keep_running() covers the process-wide shutdown request (SIGINT).
+        return keep_running() && runState_ && runState_->keepRunning.load();
+    }
+
+    /*!
+     * Asks the run of this runtime to stop (e.g. because its window was closed
+     * or one of its pipelines failed). Other plans keep running.
+     */
+    void requestFinish() {
+        if(runState_)
+            runState_->keepRunning.store(false);
+    }
+
     void runFrameLoop(std::function<void()> frameFn) override {
-	if(!keep_running())
-		return;
-	try {
+        if(!runState_ || !keepRunning())
+            return;
+        try {
             if(GlobalState::isMain()) {
                 instance()->printSystemInfo();
                 CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
                 cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
             }
             CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED) << " workers.");
-            V4D::run(instance(), [frameFn](){
-                TimeTracker::getInstance()->execute("iteration", [frameFn](){
+            auto timer = runState_->timer;
+            run([frameFn, timer](){
+                timer->execute("iteration", [frameFn](){
                     frameFn();
                     GL_CHECK(glFlush());
                 });
@@ -319,98 +432,14 @@ public:
     void releaseIo() override {
         setSink(nullptr);
         setSource(nullptr);
+        // Detach this thread from the run it just finished: a plan started
+        // later on the same thread must not report into the finished run's
+        // TimeTracker.
+        TimeTracker::setThreadInstance(nullptr);
     }
 
-    static void run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
-		static Resequence reseq(1);
-    	// Counting semaphores rather than binary ones: during startup/shutdown
-    	// or when a worker stalls (e.g. slow fallback path) more than one token
-    	// may be in flight. Binary semaphores would trip their release assertion
-    	// in those situations.
-		static std::counting_semaphore<1024> frame_sync_render(0);
-		static std::counting_semaphore<1024> frame_sync_sema_swap(0);
-
-		try {
-			if(GlobalState::isMain()) {
-				CV_LOG_INFO(&v4d_tag, "Display thread started.");
-				while(keep_running()) {
-					bool result = true;
-					TimeTracker::getInstance()->execute("display", [&result, runtime](){
-				if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-					event::poll();
-					frame_sync_sema_swap.acquire();
-						if(!runtime->display()) {
-							result = false;
-						} else {
-							frame_sync_render.release();
-						}
-					} else {
-						event::poll();
-						if(!runtime->display()) {
-							result = false;
-						}
-					}
-					});
-					if(!result)
-						break;
-				}
-			} else {
-				while(keep_running()) {
-					bool result = true;
-					TimeTracker::getInstance()->execute("worker", [&result, runtime, runGraph](){
-						event::poll();
-                        GlobalState::apply<size_t>(GlobalState::Keys::RUN_CNT, [runtime](size_t& s) {
-                            ++s;
-                            return s;
-                        });
-
-                        size_t seq = GlobalState::apply<size_t>(GlobalState::Keys::FRAME_CNT, [runtime](size_t& s) {
-                            ++s;
-                            return s;
-                        });
-
-						if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-							frame_sync_sema_swap.release();
-							reseq.waitFor(seq, [](uint64_t s) {
-								CV_UNUSED(s);
-								frame_sync_render.acquire();
-							});
-							runGraph();
-
-							if(!runtime->display()) {
-								frame_sync_sema_swap.release();
-								result = false;
-							}
-						} else {
-							runGraph();
-							reseq.waitFor(seq, [&result, runtime](uint64_t s) {
-								CV_UNUSED(s);
-								result = runtime->display();
-							});
-						}
-					});
-					if(!result)
-						break;
-				}
-			}
-		} catch(std::runtime_error& ex) {
-			CV_LOG_WARNING(&v4d_tag, "Pipeline terminated: " << ex.what());
-		} catch(std::exception& ex) {
-			CV_LOG_WARNING(&v4d_tag, "Pipeline terminated: " << ex.what());
-		} catch(...) {
-			CV_LOG_WARNING(&v4d_tag, "Pipeline terminated with unknown error.");
-		}
-		request_finish();
-		if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-			if(GlobalState::isMain()) {
-				for(size_t i = 0; i < GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED); ++i)
-					frame_sync_render.release();
-			} else {
-				frame_sync_sema_swap.release();
-			}
-		}
-		reseq.finish();
-    }
+    static void run(cv::Ptr<V4D> runtime, std::function<void()> runGraph);
+    void run(std::function<void()> runGraph);
 private:
     V4D(const V4D& v4d, const string& title);
     V4D(const cv::Rect& size, cv::Size fbsize,
