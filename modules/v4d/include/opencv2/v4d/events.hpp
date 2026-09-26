@@ -11,6 +11,7 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <atomic>
 #include <queue>
 #include <vector>
 #include <memory>
@@ -236,75 +237,78 @@ private:
 
 // ---------- detail ----------
 namespace detail {
-inline double js_repeat_delay = 0.40;      // seconds to first repeat
-inline double js_repeat_rate  = 1.0 / 60;  // seconds between repeats
 
-// Per-axis next repeat time: jid -> per-axis timestamps (init to -1.0)
-inline static std::map<int, std::array<double, GLFW_GAMEPAD_AXIS_LAST + 1>> axis_next_repeat_at;
-
-// Global locks & mappings
-inline static std::mutex queue_access_mtx;
-inline static std::map<std::thread::id, size_t> thread_id_map;
-
-// Window -> indexes of the event queues that consume its events, and the
-// reverse mapping. Events are routed to the queues of the window that produced
-// them, so two plans (windows) running in the same process do not see each
-// other's input. A queue without a window (a thread that never registered one)
-// still receives every event, which keeps single-window programs - and code
-// that registers nothing - behaving as before.
-inline static std::map<GLFWwindow*, std::vector<size_t>> window_queues;
-inline static std::vector<GLFWwindow*> queue_windows;
-
-// Configurable queue capacity (applies to new queues; existing queues can be updated)
-inline static size_t default_queue_capacity = 1000;
+// ============================================================================
+// Process-wide configuration
+//
+// Knobs, not run state: a program sets them once at startup and every window of
+// the process reads the same value. They are atomic because a plan running on
+// its own thread may adjust them while another plan is polling, and because
+// they are read from event callbacks without holding a lock.
+// ============================================================================
+inline std::atomic<double> js_repeat_delay { 0.40 };      // seconds to first repeat
+inline std::atomic<double> js_repeat_rate  { 1.0 / 60 };  // seconds between repeats
 
 // Double-click detection params
-inline static double dblclick_time_sec  = 0.30;  // time threshold
-inline static double dblclick_dist2_px2 = 25.0;  // squared pixel distance (5px)^2
+inline std::atomic<double> dblclick_time_sec  { 0.30 };  // time threshold
+inline std::atomic<double> dblclick_dist2_px2 { 25.0 };  // squared pixel distance (5px)^2
 
-// Per-button last click time/pos (use GLFW enums: 0..GLFW_MOUSE_BUTTON_LAST)
-inline static std::array<double, GLFW_MOUSE_BUTTON_LAST + 1> last_click_time = {0};
-inline static std::array<double, GLFW_MOUSE_BUTTON_LAST + 1> last_click_x    = {0};
-inline static std::array<double, GLFW_MOUSE_BUTTON_LAST + 1> last_click_y    = {0};
+// Configurable queue capacity (applies to new queues; existing queues can be updated)
+inline std::atomic<size_t> default_queue_capacity { 1000 };
 
-// Joystick axis state, per joystick id -> 6 axes
-constexpr float AXIS_NO_VALUE = std::numeric_limits<float>::max();
-inline static std::map<int, std::array<float, GLFW_GAMEPAD_AXIS_LAST + 1>> prev_axis_values;
-inline static std::map<int, std::array<float, GLFW_GAMEPAD_AXIS_LAST + 1>> init_axis_values;
+// ============================================================================
+// Serialization of the event source
+//
+// glfwPollEvents() dispatches the events of *every* window of the process, so
+// only one thread may call it at a time. poll() takes this mutex, and because
+// the callbacks and poll_joystick_events() only ever run from inside
+// glfwPollEvents(), holding it also serializes everything those read and write.
+// That is what makes it sound for the gamepad reader below to keep a single
+// snapshot of the device state: whichever plan polls first observes an edge and
+// dispatches it to every queue, so all plans see the same stream exactly once.
+// ============================================================================
+inline static std::mutex poll_mtx;
 
-class EventQueue;
-
-// Holder of global GLFW state and user callbacks
-class EVENT_API_EXPORT Holder {
+/*!
+ * The state of one GLFW window.
+ *
+ * Everything an event callback has to remember about the window the event came
+ * from. This used to be a set of process-wide globals - one "main window", one
+ * window size, one double-click history, one cursor position, one set of user
+ * callbacks - so the second window of a process overwrote the first one's size
+ * and callbacks and two plans shared a single double-click history, i.e. a
+ * click in one window turned the next click of the other window into a double
+ * click.
+ *
+ * GLFW invokes the callbacks on whichever thread called glfwPollEvents(), so
+ * the state is looked up by window and never by thread.
+ */
+class EVENT_API_EXPORT WindowState {
 public:
-    static std::pair<int, int>   window_size;
-    static GLFWwindow*           main_window;
-    static KeyCallback           keyboardCallback;
-    static CharCallback          charCallback;
-    static MouseButtonCallback   mouseButtonCallback;
-    static ScrollCallback        scrollCallback;
-    static CursorPosCallback     cursorPosCallback;
-    static CursorEnterCallback   cursorEnterCallback;
-    static WindowSizeCallback    windowSizeCallback;
-    static WindowPosCallback     windowPosCallback;
-    static WindowFocusCallback   windowFocusCallback;
-    static WindowCloseCallback   windowCloseCallback;
-    static std::vector<EventQueue*> queue_vector;
-};
+    // ---- window geometry ----
+    std::pair<int, int> size { 0, 0 };
 
-// Inline definitions (header-only ODR-safe)
-inline std::pair<int, int> Holder::window_size = {0, 0};
-inline GLFWwindow*         Holder::main_window = nullptr;
-inline KeyCallback         Holder::keyboardCallback = {};
-inline CharCallback        Holder::charCallback = {};
-inline MouseButtonCallback Holder::mouseButtonCallback = {};
-inline ScrollCallback      Holder::scrollCallback = {};
-inline CursorPosCallback   Holder::cursorPosCallback = {};
-inline CursorEnterCallback Holder::cursorEnterCallback = {};
-inline WindowSizeCallback  Holder::windowSizeCallback = {};
-inline WindowPosCallback   Holder::windowPosCallback = {};
-inline WindowFocusCallback Holder::windowFocusCallback = {};
-inline WindowCloseCallback Holder::windowCloseCallback = {};
+    // ---- double-click detection, per button (use GLFW enums) ----
+    std::array<double, GLFW_MOUSE_BUTTON_LAST + 1> last_click_time { 0 };
+    std::array<double, GLFW_MOUSE_BUTTON_LAST + 1> last_click_x    { 0 };
+    std::array<double, GLFW_MOUSE_BUTTON_LAST + 1> last_click_y    { 0 };
+
+    // Cursor position of the last drag event, needed to compute the delta of
+    // the next one. Per window, or a drag would continue across windows.
+    std::pair<double, double> prev_cursor_pos { 0, 0 };
+
+    // ---- user callbacks of this window ----
+    KeyCallback         keyboardCallback;
+    CharCallback        charCallback;
+    MouseButtonCallback mouseButtonCallback;
+    ScrollCallback      scrollCallback;
+    CursorPosCallback   cursorPosCallback;
+    CursorEnterCallback cursorEnterCallback;
+    WindowSizeCallback  windowSizeCallback;
+    WindowPosCallback   windowPosCallback;
+    WindowFocusCallback windowFocusCallback;
+    WindowCloseCallback windowCloseCallback;
+};
 
 inline double monotonic_seconds() {
     using clock = std::chrono::steady_clock;
@@ -512,7 +516,7 @@ class EventQueue: public std::deque<std::shared_ptr<Event>> {
     size_t capacity_;
     using parent_t = std::deque<std::shared_ptr<Event>>;
 public:
-    EventQueue() : capacity_(default_queue_capacity) { assert(capacity_ > 0); }
+    EventQueue() : capacity_(default_queue_capacity.load()) { assert(capacity_ > 0); }
 
     void set_capacity(size_t c) {
         assert(c > 0);
@@ -590,21 +594,125 @@ private:
     }
 };
 
+// ============================================================================
+// Queues and routing
+//
+// One queue per thread that produces or consumes input, plus the routing that
+// keeps the input of one window out of the queues of another window's plan.
+// The queues are owned here so that a program that starts and stops plans does
+// not leak one queue per thread it ever used.
+//
+// Everything below is guarded by queue_access_mtx. Note that the callbacks
+// reach it while poll() holds poll_mtx, so the lock order is always
+// poll_mtx -> queue_access_mtx.
+// ============================================================================
+inline static std::mutex queue_access_mtx;
+inline static std::map<std::thread::id, size_t> thread_id_map;
+
+// Window -> indexes of the event queues that consume its events, and the
+// reverse mapping. Events are routed to the queues of the window that produced
+// them, so two plans (windows) running in the same process do not see each
+// other's input. A queue without a window (a thread that never registered one)
+// still receives every event, which keeps single-window programs - and code
+// that registers nothing - behaving as before.
+inline static std::map<GLFWwindow*, std::vector<size_t>> window_queues;
+inline static std::vector<GLFWwindow*> queue_windows;
+inline static std::vector<std::unique_ptr<EventQueue>> queues;
+inline static std::map<GLFWwindow*, std::shared_ptr<WindowState>> window_states;
+
+// Creates the queue and the window slot of the calling thread if they do not
+// exist yet and returns its index. Caller holds queue_access_mtx.
+static size_t index_for_calling_thread() {
+    auto tid = std::this_thread::get_id();
+    auto [it, inserted] = thread_id_map.emplace(tid, thread_id_map.size());
+    size_t index = it->second;
+    GWE_UNUSED(inserted);
+    if(index >= queues.size()) {
+        while(queues.size() <= index) queues.push_back(std::make_unique<EventQueue>());
+        while(queue_windows.size() <= index) queue_windows.push_back(nullptr);
+    }
+    return index;
+}
+
+// The state of a window, created on first use. Caller holds queue_access_mtx.
+static std::shared_ptr<WindowState> stateForLocked(GLFWwindow* window) {
+    auto& state = window_states[window];
+    if(!state)
+        state = std::make_shared<WindowState>();
+    return state;
+}
+
+/*!
+ * The state of a window, for use from an event callback.
+ *
+ * The returned pointer keeps the state alive even if the window is destroyed
+ * while the callback runs, so it is safe to hold on to it for the duration of
+ * the call. A window that was never registered yields private state, so a
+ * program that uses the callbacks without initializing a window keeps working.
+ */
+static std::shared_ptr<WindowState> stateFor(GLFWwindow* window) {
+    if(window == nullptr)
+        return std::make_shared<WindowState>();
+    std::lock_guard<std::mutex> guard(queue_access_mtx);
+    return stateForLocked(window);
+}
+
+// The window bound to the calling thread, or nullptr if it registered none.
+static GLFWwindow* own_window() {
+    std::lock_guard<std::mutex> guard(queue_access_mtx);
+    size_t index = index_for_calling_thread();
+    return index < queue_windows.size() ? queue_windows[index] : nullptr;
+}
+
+static void set_window_size(GLFWwindow* window, int width, int height) {
+    std::lock_guard<std::mutex> guard(queue_access_mtx);
+    stateForLocked(window)->size = {width, height};
+}
+
+static std::pair<int, int> window_size(GLFWwindow* window) {
+    std::lock_guard<std::mutex> guard(queue_access_mtx);
+    auto it = window_states.find(window);
+    return it == window_states.end() ? std::pair<int, int>{0, 0} : it->second->size;
+}
+
+static std::pair<int, int> own_window_size() {
+    std::lock_guard<std::mutex> guard(queue_access_mtx);
+    size_t index = index_for_calling_thread();
+    if(index >= queue_windows.size())
+        return {0, 0};
+    auto it = window_states.find(queue_windows[index]);
+    return it == window_states.end() ? std::pair<int, int>{0, 0} : it->second->size;
+}
+
+static bool has_windows() {
+    std::lock_guard<std::mutex> guard(queue_access_mtx);
+    return !window_states.empty() || !window_queues.empty();
+}
+
+/*!
+ * Records a click in the history of a window and reports whether it completes
+ * a double click. Per window, so that a click in one window can never be
+ * mistaken for the second click of a double click in another one.
+ */
+static bool record_click(GLFWwindow* window, int button, double x, double y, double now) {
+    std::lock_guard<std::mutex> guard(queue_access_mtx);
+    auto state = stateForLocked(window);
+    const double dt = now - state->last_click_time[button];
+    const double dx = x - state->last_click_x[button];
+    const double dy = y - state->last_click_y[button];
+    const double d2 = dx * dx + dy * dy;
+    const bool isDoubleClick = dt <= dblclick_time_sec.load() && d2 <= dblclick_dist2_px2.load();
+
+    state->last_click_time[button] = now;
+    state->last_click_x[button] = x;
+    state->last_click_y[button] = y;
+    return isDoubleClick;
+}
+
 // Per-thread queue access
 static EventQueue& queue() {
     std::lock_guard<std::mutex> guard(queue_access_mtx);
-    auto tid = std::this_thread::get_id();
-    auto it_ins = thread_id_map.emplace(tid, thread_id_map.size());
-    size_t index = it_ins.first->second;
-
-    std::vector<EventQueue*>& qs = Holder::queue_vector;
-    while (qs.size() <= index) {
-        qs.push_back(new EventQueue());
-    }
-    while (queue_windows.size() <= index) {
-        queue_windows.push_back(nullptr);
-    }
-    return *qs[index];
+    return *queues[index_for_calling_thread()];
 }
 
 /*!
@@ -616,50 +724,93 @@ static EventQueue& queue() {
 static void register_thread_window(GLFWwindow* window) {
     if (window == nullptr) return;
     std::lock_guard<std::mutex> guard(queue_access_mtx);
-    auto tid = std::this_thread::get_id();
-    auto it_ins = thread_id_map.emplace(tid, thread_id_map.size());
-    size_t index = it_ins.first->second;
+    size_t index = index_for_calling_thread();
 
-    if (queue_windows.size() <= index) queue_windows.resize(index + 1, nullptr);
     queue_windows[index] = window;
+    stateForLocked(window);
 
-    auto& queues = window_queues[window];
-    if (std::find(queues.begin(), queues.end(), index) == queues.end()) {
-        queues.push_back(index);
+    auto& indices = window_queues[window];
+    if (std::find(indices.begin(), indices.end(), index) == indices.end()) {
+        indices.push_back(index);
     }
 }
 
-static void push(const std::shared_ptr<Event>& event) {
+/*!
+ * Drops everything remembered about a window, so a program that starts and
+ * stops plans does not accumulate one entry per window it ever opened. Call
+ * this when the window is destroyed.
+ */
+static void forget_window(GLFWwindow* window) {
+    if (window == nullptr) return;
     std::lock_guard<std::mutex> guard(queue_access_mtx);
-    auto& qs = Holder::queue_vector;
-    for (size_t i = 0; i < qs.size(); ++i) {
-        qs[i]->push(event);
+    window_queues.erase(window);
+    window_states.erase(window);
+    for(auto* w : queue_windows) {
+        if(w == window) w = nullptr;
+    }
+}
+
+// Delivers an event to every queue of the process. Used for the gamepads, which
+// are not owned by a window.
+static void broadcast(const std::shared_ptr<Event>& event) {
+    std::lock_guard<std::mutex> guard(queue_access_mtx);
+    for (auto& q : queues) {
+        q->push(event);
     }
 }
 
 static void push(const std::shared_ptr<Event>& event, GLFWwindow* window) {
     std::lock_guard<std::mutex> guard(queue_access_mtx);
-    auto& qs = Holder::queue_vector;
     auto it = window_queues.find(window);
     if (it == window_queues.end()) {
         // No thread registered for that window: fall back to broadcasting.
-        for (size_t i = 0; i < qs.size(); ++i) {
-            qs[i]->push(event);
+        for (auto& q : queues) {
+            q->push(event);
         }
         return;
     }
     for (size_t i : it->second) {
-        if (i < qs.size())
-            qs[i]->push(event);
+        if (i < queues.size())
+            queues[i]->push(event);
     }
 }
 
-// Per-joystick button snapshot
-inline std::map<int, GLFWgamepadstate> last_states;
+// ============================================================================
+// Gamepad state
+//
+// Joysticks are devices of the process, not of a window, so their readings are
+// kept in one snapshot and their events are broadcast to every queue. Sharing
+// the snapshot is what makes an edge observable by every plan exactly once,
+// whichever of them polls first.
+//
+// Guarded by poll_mtx: only poll_joystick_events() touches it, and that only
+// runs from inside poll().
+// ============================================================================
+constexpr float AXIS_NO_VALUE = std::numeric_limits<float>::max();
 
-// Joystick polling
+struct JoystickState {
+    // Last raw reading per joystick id (zero-initialized on first use).
+    std::map<int, GLFWgamepadstate> last_states;
+    // Per button/axis: when the next auto-repeat is due (-1.0 = unarmed).
+    std::map<int, std::array<double, GLFW_GAMEPAD_BUTTON_LAST + 1>> button_next_repeat_at;
+    std::map<int, std::array<double, GLFW_GAMEPAD_AXIS_LAST + 1>> axis_next_repeat_at;
+    // Per axis: previous reading and the reading the axis rested at, which is
+    // what the trigger axis is measured against.
+    std::map<int, std::array<float, GLFW_GAMEPAD_AXIS_LAST + 1>> prev_axis_values;
+    std::map<int, std::array<float, GLFW_GAMEPAD_AXIS_LAST + 1>> init_axis_values;
+};
+
+inline JoystickState& joystick_state() {
+    static JoystickState state;
+    return state;
+}
+
+// Joystick polling. Caller holds poll_mtx.
 static void poll_joystick_events() {
     const double now = monotonic_seconds();
+    const double repeatDelay = js_repeat_delay.load();
+    const double repeatRate = js_repeat_rate.load();
+    JoystickState& joysticks = joystick_state();
 
     for (int jid = 0; jid <= GLFW_JOYSTICK_LAST; ++jid) {
         if (!(glfwJoystickPresent(jid) && glfwJoystickIsGamepad(jid))) continue;
@@ -667,12 +818,9 @@ static void poll_joystick_events() {
         GLFWgamepadstate state{};
         if (!glfwGetGamepadState(jid, &state)) continue;
 
-        // init per-joystick snapshots
-        GLFWgamepadstate& last = last_states[jid]; // zero-inited on first use
+        GLFWgamepadstate& last = joysticks.last_states[jid]; // zero-inited on first use
 
-        // per-button next repeat time (init to -1)
-        static std::map<int, std::array<double, GLFW_GAMEPAD_BUTTON_LAST + 1>> next_repeat_at;
-        auto [repIt, repNew] = next_repeat_at.try_emplace(jid);
+        auto [repIt, repNew] = joysticks.button_next_repeat_at.try_emplace(jid);
         if (repNew) repIt->second.fill(-1.0);
         auto& nextRep = repIt->second;
 
@@ -683,21 +831,21 @@ static void poll_joystick_events() {
 
             if (down_now != down_prev) {
                 auto type = v4d_joystick_event_type(state.buttons[b]); // PRESS/RELEASE
-                push(std::make_shared<Joystick>(type, jid, v4d_joystick_button(b)));
-                nextRep[b] = down_now ? now + js_repeat_delay : -1.0;
+                broadcast(std::make_shared<Joystick>(type, jid, v4d_joystick_button(b)));
+                nextRep[b] = down_now ? now + repeatDelay : -1.0;
             } else if (down_now) {
                 if (nextRep[b] >= 0.0 && now >= nextRep[b]) {
-                    push(std::make_shared<Joystick>(Joystick::REPEAT, jid, v4d_joystick_button(b)));
-                    nextRep[b] += js_repeat_rate;
+                    broadcast(std::make_shared<Joystick>(Joystick::REPEAT, jid, v4d_joystick_button(b)));
+                    nextRep[b] += repeatRate;
                 }
             }
         }
         last = state;
 
         // Axes: edges + repeats while held past deadzone
-        auto [initIt, newInit] = init_axis_values.try_emplace(jid);
-        auto [prevIt, newPrev] = prev_axis_values.try_emplace(jid);
-        auto [axisRepIt, newAxisRep] = axis_next_repeat_at.try_emplace(jid);
+        auto [initIt, newInit] = joysticks.init_axis_values.try_emplace(jid);
+        auto [prevIt, newPrev] = joysticks.prev_axis_values.try_emplace(jid);
+        auto [axisRepIt, newAxisRep] = joysticks.axis_next_repeat_at.try_emplace(jid);
 
         if (newInit)    initIt->second.fill(AXIS_NO_VALUE);
         if (newPrev)    prevIt->second.fill(AXIS_NO_VALUE);
@@ -732,16 +880,16 @@ static void poll_joystick_events() {
 
             if (moved) {
                 // Normal motion event
-                detail::push(std::make_shared<Joystick>(jid, a, init[axis], val, delta));
+                broadcast(std::make_shared<Joystick>(jid, a, init[axis], val, delta));
                 // Arm repeats to start after a hold
-                nextRepA[axis] = now + js_repeat_delay;
+                nextRepA[axis] = now + repeatDelay;
             } else {
                 // Held steady past deadzone — emit periodic repeats
                 if (nextRepA[axis] < 0.0) {
-                    nextRepA[axis] = now + js_repeat_delay; // just became active
+                    nextRepA[axis] = now + repeatDelay; // just became active
                 } else if (now >= nextRepA[axis]) {
-                    detail::push(std::make_shared<Joystick>(jid, a, init[axis], val, 0.0f)); // repeat 'MOVE'
-                    nextRepA[axis] += js_repeat_rate;
+                    broadcast(std::make_shared<Joystick>(jid, a, init[axis], val, 0.0f)); // repeat 'MOVE'
+                    nextRepA[axis] += repeatRate;
                 }
             }
         }
@@ -752,29 +900,57 @@ static void poll_joystick_events() {
 
 // ---------- Public configuration knobs ----------
 inline void set_queue_capacity(std::size_t cap) {
-    std::lock_guard<std::mutex> guard(detail::queue_access_mtx);
     assert(cap > 0);
-    detail::default_queue_capacity = cap;
-    for (auto* q : detail::Holder::queue_vector) {
+    detail::default_queue_capacity.store(cap);
+    std::lock_guard<std::mutex> guard(detail::queue_access_mtx);
+    for (auto& q : detail::queues) {
         if (q) q->set_capacity(cap);
     }
 }
 
 inline void set_double_click_time(double seconds) {
-    detail::dblclick_time_sec = seconds;
+    detail::dblclick_time_sec.store(seconds);
 }
 inline void set_double_click_distance(double pixels) {
-    detail::dblclick_dist2_px2 = pixels * pixels;
+    detail::dblclick_dist2_px2.store(pixels * pixels);
 }
 
 inline void set_js_repeat_delay(double seconds) {
-    detail::js_repeat_delay = seconds;
+    detail::js_repeat_delay.store(seconds);
 }
+
 inline void set_js_repeat_rate(double rate) {
-    detail::js_repeat_rate = rate;
+    detail::js_repeat_rate.store(rate);
+}
+
+// ---------- Public window queries ----------
+
+/*!
+ * Size of a window, as last reported by the window system. Per window, so with
+ * several plans running this reports the size of the window asked for and not
+ * of whichever window happened to be resized last.
+ */
+inline std::pair<int, int> window_size(GLFWwindow* window) {
+    return detail::window_size(window);
+}
+
+// Size of the window of the calling thread. Returns {0, 0} if the thread is not
+// bound to a window.
+inline std::pair<int, int> window_size() {
+    return detail::own_window_size();
+}
+
+// The window the calling thread is bound to, or nullptr.
+inline GLFWwindow* own_window() {
+    return detail::own_window();
 }
 
 // ---------- init (register callbacks) ----------
+//
+// The callbacks are stored per window, not process-wide, so that the second
+// window of a process does not replace the callbacks of the first one. GLFW
+// invokes them on whichever thread called glfwPollEvents(), so each of them
+// looks the state up by the window the event belongs to.
 template<typename Tpoint>
 inline void init(
     KeyCallback         keyboardCallback     = KeyCallback(),
@@ -790,74 +966,75 @@ inline void init(
 ) {
     GLFWwindow* win = glfwGetCurrentContext();
     assert(win);
-    detail::Holder::main_window         = win;
-    detail::Holder::keyboardCallback    = keyboardCallback;
-    detail::Holder::charCallback        = charCallback;
-    detail::Holder::mouseButtonCallback = mouseButtonCallback;
-    detail::Holder::scrollCallback      = scrollCallback;
-    detail::Holder::cursorPosCallback   = cursorPosCallback;
-    detail::Holder::cursorEnterCallback = cursorEnterCallback;
-    detail::Holder::windowSizeCallback  = windowSizeCallback;
-    detail::Holder::windowPosCallback   = windowPosCallback;
-    detail::Holder::windowFocusCallback = windowFocusCallback;
-    detail::Holder::windowCloseCallback = windowCloseCallback;
+    auto state = detail::stateFor(win);
+    state->keyboardCallback    = keyboardCallback;
+    state->charCallback        = charCallback;
+    state->mouseButtonCallback = mouseButtonCallback;
+    state->scrollCallback      = scrollCallback;
+    state->cursorPosCallback   = cursorPosCallback;
+    state->cursorEnterCallback = cursorEnterCallback;
+    state->windowSizeCallback  = windowSizeCallback;
+    state->windowPosCallback   = windowPosCallback;
+    state->windowFocusCallback = windowFocusCallback;
+    state->windowCloseCallback = windowCloseCallback;
 
-    glfwGetWindowSize(win, &detail::Holder::window_size.first, &detail::Holder::window_size.second);
+    int width = 0, height = 0;
+    glfwGetWindowSize(win, &width, &height);
+    detail::set_window_size(win, width, height);
 
     // Keyboard
     glfwSetKeyCallback(win,
         [](GLFWwindow *window, int key, int scancode, int action, int mods) {
-            if (!detail::Holder::keyboardCallback || !detail::Holder::keyboardCallback(window, key, scancode, action, mods)) {
-                if (key != GLFW_KEY_UNKNOWN) {
-                    Keyboard::Key k = detail::v4d_key(key);
-                    Keyboard::Type type = detail::v4d_keyboard_event_type(action);
-                    auto event = std::make_shared<Keyboard>(type, k);
-                    detail::push(event, window);
-                }
+            auto state = detail::stateFor(window);
+            if (state->keyboardCallback && state->keyboardCallback(window, key, scancode, action, mods)) {
+                return;
+            }
+            if (key != GLFW_KEY_UNKNOWN) {
+                Keyboard::Key k = detail::v4d_key(key);
+                Keyboard::Type type = detail::v4d_keyboard_event_type(action);
+                auto event = std::make_shared<Keyboard>(type, k);
+                detail::push(event, window);
             }
         });
 
     // Character input (needed by ImGui text fields and text-aware apps)
     glfwSetCharCallback(win,
         [](GLFWwindow *window, unsigned int codepoint) {
-            if (!detail::Holder::charCallback ||
-                !detail::Holder::charCallback(window, codepoint)) {
-                // No native text event; reserved for future use.
+            auto state = detail::stateFor(window);
+            if (state->charCallback && state->charCallback(window, codepoint)) {
+                return;
             }
+            // No native text event; reserved for future use.
         });
 
     // Mouse button (+ double click)
     glfwSetMouseButtonCallback(win,
         [](GLFWwindow *window, int button, int action, int mods) {
-            if (!detail::Holder::mouseButtonCallback || !detail::Holder::mouseButtonCallback(window, button, action, mods)) {
-                if (button < GLFW_MOUSE_BUTTON_1 || button > GLFW_MOUSE_BUTTON_LAST) return;
-                auto mouseButton = detail::v4d_mouse_button<Tpoint>(button);
-                auto type = detail::v4d_mouse_event_type<Tpoint>(action);
+            auto state = detail::stateFor(window);
+            if (state->mouseButtonCallback && state->mouseButtonCallback(window, button, action, mods)) {
+                return;
+            }
+            if (button < GLFW_MOUSE_BUTTON_1 || button > GLFW_MOUSE_BUTTON_LAST) return;
+            auto mouseButton = detail::v4d_mouse_button<Tpoint>(button);
+            auto type = detail::v4d_mouse_event_type<Tpoint>(action);
 
-                double x, y;
-                glfwGetCursorPos(window, &x, &y);
-                Tpoint position = point_traits<Tpoint>::make(x, y);
+            double x, y;
+            glfwGetCursorPos(window, &x, &y);
+            Tpoint position = point_traits<Tpoint>::make(x, y);
 
-                // Emit PRESS/RELEASE event
-                auto event = std::make_shared<Mouse_<Tpoint>>(type, mouseButton, position);
-                detail::push(event, window);
+            // Emit PRESS/RELEASE event
+            auto event = std::make_shared<Mouse_<Tpoint>>(type, mouseButton, position);
+            detail::push(event, window);
 
-                // Double-click detection on PRESS
-                if (type == Mouse_<Tpoint>::PRESS) {
-                    const double now = detail::monotonic_seconds();
-                    const double px = point_traits<Tpoint>::x(position);
-                    const double py = point_traits<Tpoint>::y(position);
-                    const double dt = now - detail::last_click_time[button];
-                    const double dx = px - detail::last_click_x[button];
-                    const double dy = py - detail::last_click_y[button];
-                    const double d2 = dx*dx + dy*dy;
-                    if (dt <= detail::dblclick_time_sec && d2 <= detail::dblclick_dist2_px2) {
-                        auto dbl = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::DOUBLE_CLICK, mouseButton, position);
-                        detail::push(dbl, window);
-                    }
-                    detail::last_click_time[button] = now;
-                    detail::last_click_x[button] = px;
-                    detail::last_click_y[button] = py;
+            // Double-click detection on PRESS, against the history of *this*
+            // window.
+            if (type == Mouse_<Tpoint>::PRESS) {
+                const double now = detail::monotonic_seconds();
+                const double px = point_traits<Tpoint>::x(position);
+                const double py = point_traits<Tpoint>::y(position);
+                if (detail::record_click(window, button, px, py, now)) {
+                    auto dbl = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::DOUBLE_CLICK, mouseButton, position);
+                    detail::push(dbl, window);
                 }
             }
         });
@@ -865,99 +1042,114 @@ inline void init(
     // Scroll
     glfwSetScrollCallback(win,
         [](GLFWwindow *window, double xoffset, double yoffset) {
-            if (!detail::Holder::scrollCallback || !detail::Holder::scrollCallback(window, xoffset, yoffset)) {
-                Tpoint offset = point_traits<Tpoint>::make(xoffset, yoffset);
-                double x, y;
-                glfwGetCursorPos(window, &x, &y);
-                Tpoint position = point_traits<Tpoint>::make(x, y);
-                auto event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::SCROLL, position, offset);
-                detail::push(event, window);
+            auto state = detail::stateFor(window);
+            if (state->scrollCallback && state->scrollCallback(window, xoffset, yoffset)) {
+                return;
             }
+            Tpoint offset = point_traits<Tpoint>::make(xoffset, yoffset);
+            double x, y;
+            glfwGetCursorPos(window, &x, &y);
+            Tpoint position = point_traits<Tpoint>::make(x, y);
+            auto event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::SCROLL, position, offset);
+            detail::push(event, window);
         });
 
     // Cursor move / drag
     glfwSetCursorPosCallback(win,
         [](GLFWwindow *window, double xpos, double ypos) {
-            static Tpoint prevMousePos = point_traits<Tpoint>::make(0, 0);
-
-            if (!detail::Holder::cursorPosCallback || !detail::Holder::cursorPosCallback(window, xpos, ypos)) {
-                Tpoint position = point_traits<Tpoint>::make(xpos, ypos);
-                bool pressed = false;
-                for (int button = 0; button <= GLFW_MOUSE_BUTTON_LAST; ++button) {
-                    if (glfwGetMouseButton(window, button) == GLFW_PRESS) {
-                        pressed = true;
-                        break;
-                    }
-                }
-                if (pressed) {
-                    Tpoint delta = point_traits<Tpoint>::sub(position, prevMousePos);
-                    for (int button = 0; button <= GLFW_MOUSE_BUTTON_LAST; ++button) {
-                        if (glfwGetMouseButton(window, button) == GLFW_PRESS) {
-                            auto v4d_button = detail::v4d_mouse_button<Tpoint>(button);
-                            auto event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::DRAG, v4d_button, position, delta);
-                            detail::push(event, window);
-                        }
-                    }
-                    prevMousePos = position;
-                } else {
-                    auto event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::MOVE, position);
-                    detail::push(event, window);
-                    prevMousePos = position;
+            auto state = detail::stateFor(window);
+            if (state->cursorPosCallback && state->cursorPosCallback(window, xpos, ypos)) {
+                return;
+            }
+            Tpoint position = point_traits<Tpoint>::make(xpos, ypos);
+            // The drag delta is measured against the previous position *of this
+            // window*, not of whichever window the cursor was in last.
+            Tpoint prevPosition = point_traits<Tpoint>::make(state->prev_cursor_pos.first,
+                                                             state->prev_cursor_pos.second);
+            bool pressed = false;
+            for (int button = 0; button <= GLFW_MOUSE_BUTTON_LAST; ++button) {
+                if (glfwGetMouseButton(window, button) == GLFW_PRESS) {
+                    pressed = true;
+                    break;
                 }
             }
+            if (pressed) {
+                Tpoint delta = point_traits<Tpoint>::sub(position, prevPosition);
+                for (int button = 0; button <= GLFW_MOUSE_BUTTON_LAST; ++button) {
+                    if (glfwGetMouseButton(window, button) == GLFW_PRESS) {
+                        auto v4d_button = detail::v4d_mouse_button<Tpoint>(button);
+                        auto event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::DRAG, v4d_button, position, delta);
+                        detail::push(event, window);
+                    }
+                }
+            } else {
+                auto event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::MOVE, position);
+                detail::push(event, window);
+            }
+            state->prev_cursor_pos = {xpos, ypos};
         });
 
     // Cursor enter/leave (hover)
     glfwSetCursorEnterCallback(win,
         [](GLFWwindow* window, int entered) {
-            if (!detail::Holder::cursorEnterCallback || !detail::Holder::cursorEnterCallback(window, entered)) {
-                double x, y;
-                glfwGetCursorPos(window, &x, &y);
-                Tpoint position = point_traits<Tpoint>::make(x, y);
-                auto type = entered ? Mouse_<Tpoint>::HOVER_ENTER : Mouse_<Tpoint>::HOVER_EXIT;
-                auto event = std::make_shared<Mouse_<Tpoint>>(type, position);
-                detail::push(event, window);
+            auto state = detail::stateFor(window);
+            if (state->cursorEnterCallback && state->cursorEnterCallback(window, entered)) {
+                return;
             }
+            double x, y;
+            glfwGetCursorPos(window, &x, &y);
+            Tpoint position = point_traits<Tpoint>::make(x, y);
+            auto type = entered ? Mouse_<Tpoint>::HOVER_ENTER : Mouse_<Tpoint>::HOVER_EXIT;
+            auto event = std::make_shared<Mouse_<Tpoint>>(type, position);
+            detail::push(event, window);
         });
 
     // Window size (no Y-flip; reports raw width/height)
     glfwSetWindowSizeCallback(win,
         [](GLFWwindow *window, int width, int height) {
-            detail::Holder::window_size = {width, height};
-            if (!detail::Holder::windowSizeCallback || !detail::Holder::windowSizeCallback(window, width, height)) {
-                Tpoint sz = point_traits<Tpoint>::make(width, height);
-                auto event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::RESIZE, sz);
-                detail::push(event, window);
+            detail::set_window_size(window, width, height);
+            auto state = detail::stateFor(window);
+            if (state->windowSizeCallback && state->windowSizeCallback(window, width, height)) {
+                return;
             }
+            Tpoint sz = point_traits<Tpoint>::make(width, height);
+            auto event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::RESIZE, sz);
+            detail::push(event, window);
         });
 
     // Window pos (RAW OS COORDINATES — NO Y-FLIP, per your decision)
     glfwSetWindowPosCallback(win,
         [](GLFWwindow *window, int xpos, int ypos) {
-            if (!detail::Holder::windowPosCallback || !detail::Holder::windowPosCallback(window, xpos, ypos)) {
-                Tpoint position = point_traits<Tpoint>::make(xpos, ypos);
-                auto event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::MOVE, position);
-                detail::push(event, window);
+            auto state = detail::stateFor(window);
+            if (state->windowPosCallback && state->windowPosCallback(window, xpos, ypos)) {
+                return;
             }
+            Tpoint position = point_traits<Tpoint>::make(xpos, ypos);
+            auto event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::MOVE, position);
+            detail::push(event, window);
         });
 
     // Focus
     glfwSetWindowFocusCallback(win,
         [](GLFWwindow *window, int focused) {
-            if (!detail::Holder::windowFocusCallback || !detail::Holder::windowFocusCallback(window, focused)) {
-                typename Window_<Tpoint>::Type type = focused ? Window_<Tpoint>::FOCUS : Window_<Tpoint>::UNFOCUS;
-                auto event = std::make_shared<Window_<Tpoint>>(type);
-                detail::push(event, window);
+            auto state = detail::stateFor(window);
+            if (state->windowFocusCallback && state->windowFocusCallback(window, focused)) {
+                return;
             }
+            typename Window_<Tpoint>::Type type = focused ? Window_<Tpoint>::FOCUS : Window_<Tpoint>::UNFOCUS;
+            auto event = std::make_shared<Window_<Tpoint>>(type);
+            detail::push(event, window);
         });
 
     // Close
     glfwSetWindowCloseCallback(win,
         [](GLFWwindow *window) {
-            if (!detail::Holder::windowCloseCallback || !detail::Holder::windowCloseCallback(window)) {
-                auto event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::CLOSE);
-                detail::push(event, window);
+            auto state = detail::stateFor(window);
+            if (state->windowCloseCallback && state->windowCloseCallback(window)) {
+                return;
             }
+            auto event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::CLOSE);
+            detail::push(event, window);
         });
 }
 
@@ -1030,10 +1222,17 @@ inline std::vector<std::shared_ptr<Tevent>> fetch(std::function<bool(const Teven
 EVENT_API_EXPORT inline void poll() {
     // glfwPollEvents() dispatches the events of every window of the process, so
     // it is serialized process-wide; the callbacks route each event to the
-    // queues of the window it belongs to (see detail::push).
-    static std::mutex mtx;
-    std::lock_guard<std::mutex> lock(mtx);
-    assert(detail::Holder::main_window || !detail::window_queues.empty());
+    // queues of the window it belongs to (see detail::push). Holding poll_mtx
+    // also serializes the gamepad reader, whose snapshot is shared on purpose
+    // so that every plan observes each gamepad edge exactly once.
+    std::lock_guard<std::mutex> lock(detail::poll_mtx);
+    // A plan can call poll() while its own window is already gone, e.g. because
+    // it stopped its run and is tearing down, and with more than one plan in a
+    // process it must not depend on the other plans' windows still being
+    // there. There is nothing to dispatch in that case, so this is not an
+    // error and must not stop the windows that are left from being served.
+    if(!detail::has_windows())
+        return;
     glfwPollEvents();
     detail::poll_joystick_events();
 }

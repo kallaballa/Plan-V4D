@@ -181,8 +181,39 @@ CV_EXPORTS std::string get_gl_info();
 CV_EXPORTS std::string get_cl_info();
 CV_EXPORTS bool is_intel_va_supported();
 CV_EXPORTS bool is_clgl_sharing_supported();
-CV_EXPORTS bool keep_running();
+/*!
+ * Asks every plan of this process to stop.
+ *
+ * This is process-wide on purpose - use V4D::requestFinish() to stop a single
+ * run - and it is sticky: #reset_finish() is the only way to undo it.
+ */
 CV_EXPORTS void request_finish();
+
+/*! Whether #request_finish (or a SIGINT/SIGTERM, see below) was called. */
+CV_EXPORTS bool finish_requested();
+
+/*! Clears the process-wide finish request, e.g. to run another plan afterwards. */
+CV_EXPORTS void reset_finish();
+
+/*!
+ * Whether the process shall keep going, i.e. no finish was requested. A pure
+ * query: it does not install any signal handler.
+ */
+CV_EXPORTS bool keep_running();
+
+/*!
+ * Installs the SIGINT/SIGTERM handlers that set the process-wide finish request,
+ * remembering the handlers that were in place before. Reference counted: the
+ * handlers are installed by the first caller and restored to what they were
+ * once the last caller removed them again, so a run does not permanently change
+ * the signal disposition of the process it is embedded in. While installed, a
+ * handler that was already in place is chained to.
+ */
+CV_EXPORTS void install_shutdown_handlers();
+
+/*! Balances one #install_shutdown_handlers. */
+CV_EXPORTS void remove_shutdown_handlers();
+
 CV_EXPORTS float aspect_preserving_scale(const cv::Size& scaled, const cv::Size& unscaled);
 CV_EXPORTS void resize_preserving_aspect_ratio(const cv::UMat& src, cv::UMat& output, const cv::Size& dstSize, const cv::Scalar& bgcolor = {0,0,0,255});
 

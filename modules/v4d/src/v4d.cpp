@@ -13,13 +13,6 @@
 #include "../include/opencv2/v4d/detail/gl.hpp"
 #include "../../third/imgui/backends/imgui_impl_glfw.h"
 
-namespace gwe {
-namespace detail {
-CV_EXPORTS std::vector<EventQueue*> Holder::queue_vector;
-}
-}
-
-
 namespace cv {
 namespace v4d {
 
@@ -129,8 +122,15 @@ V4D::V4D(const V4D& other, const string& title) :
 
 V4D::~V4D() {
 	if(mainFbContext_) {
-		std::lock_guard guard(windowRegistry_mtx_);
-		windowRegistry_.erase(mainFbContext_->getGLFWWindow());
+		GLFWwindow* window = mainFbContext_->getGLFWWindow();
+		{
+			std::lock_guard guard(windowRegistry_mtx_);
+			windowRegistry_.erase(window);
+		}
+		// Drop the event system's bookkeeping for this window, so a program
+		// that starts and stops plans does not accumulate an entry per window
+		// it ever opened.
+		gwe::detail::forget_window(window);
 	}
 }
 

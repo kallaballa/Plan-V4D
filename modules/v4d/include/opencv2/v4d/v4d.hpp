@@ -153,8 +153,10 @@ public:
         std::counting_semaphore<1024> frameSyncRender { 0 };
         std::counting_semaphore<1024> frameSyncSemaSwap { 0 };
         std::unique_ptr<Resequence> reseq;
-        // False once this run was asked to stop: its window was closed, one of
-        // its pipelines failed, or the process got a SIGINT/SIGTERM.
+        // False once this run was asked to stop: its window was closed or one
+        // of its pipelines failed. Deliberately not set by SIGINT: a signal
+        // goes to the process, so it is tracked process-wide instead (see
+        // #keepRunning and #requestFinish).
         std::atomic<bool> keepRunning { true };
         // Timing statistics of this run (see TimeTracker).
         std::shared_ptr<TimeTracker> timer;
@@ -387,11 +389,19 @@ public:
         runState_ = std::make_shared<RunState>();
         TimeTracker::setThreadInstance(runState_->timer.get());
         runState_->timer->setEnabled(GlobalState::get<bool>(GlobalState::Keys::TIME_TRACKER));
+        // A signal goes to the process, so Ctrl-C has to reach every run in it.
+        // The handlers are reference counted and released in #releaseIo, so they
+        // are back to what they were once the last plan of the process ends.
+        install_shutdown_handlers();
     }
 
     /*!
-     * True while the run this runtime takes part in shall continue. A closed
-     * window only stops its own run; #request_finish stops the whole process.
+     * True while the run this runtime takes part in shall continue.
+     *
+     * Two independent things can end a run: its own RunState, which is what
+     * #requestFinish, a closed window or a failed pipeline sets, and the
+     * process-wide finish request of #request_finish / a SIGINT. The first stops
+     * this plan only, the second stops the whole process.
      */
     bool keepRunning() const {
         // keep_running() covers the process-wide shutdown request (SIGINT).
@@ -400,7 +410,8 @@ public:
 
     /*!
      * Asks the run of this runtime to stop (e.g. because its window was closed
-     * or one of its pipelines failed). Other plans keep running.
+     * or one of its pipelines failed), from any thread. Other plans keep
+     * running; use the free function #request_finish to stop the whole process.
      */
     void requestFinish() {
         if(runState_)
@@ -436,6 +447,9 @@ public:
         // later on the same thread must not report into the finished run's
         // TimeTracker.
         TimeTracker::setThreadInstance(nullptr);
+        // Give back the SIGINT/SIGTERM handlers taken in #onRunStart. Only
+        // actually restores them once the last plan of the process ended.
+        remove_shutdown_handlers();
     }
 
     static void run(cv::Ptr<V4D> runtime, std::function<void()> runGraph);

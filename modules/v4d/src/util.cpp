@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <chrono>
 #include <mutex>
+#include <atomic>
+#include <cstring>
 #include <functional>
 #include <iostream>
 #include <cmath>
@@ -325,32 +327,121 @@ bool is_clgl_sharing_supported() {
 #endif
     return false;
 }
-static std::mutex finish_mtx;
-static bool finish_requested = false;
-static bool signal_handlers_installed = false;
+// ============================================================================
+// Process-wide shutdown
+//
+// A signal is delivered to the process, not to one plan, so a request to stop
+// cannot be scoped to a run: SIGINT has to end every plan that is running. That
+// makes this the one piece of state that is deliberately shared process-wide.
+// The counterpart - stopping a single run - lives in V4D::RunState and is
+// reached through V4D::requestFinish().
+//
+// Three properties matter here:
+//
+//  * the flag is written from a signal handler, so it is a lock free atomic and
+//    the handler does nothing else (the previous version took a std::mutex in
+//    the handler, which is undefined behaviour and can deadlock);
+//  * the handlers are installed once per set of runs instead of on every call
+//    to keep_running() (the previous version re-installed them on every query,
+//    because it never recorded that it had done so);
+//  * they are restored when the last run ends, so a run does not permanently
+//    change the signal disposition of the process it happens to be embedded in.
+// ============================================================================
+namespace {
+std::atomic<bool> g_finish_requested { false };
 
-static void request_finish(int ignore) {
-	std::lock_guard guard(finish_mtx);
-    CV_UNUSED(ignore);
-    finish_requested = true;
+// Number of runs that currently rely on the handlers being installed.
+std::atomic<int> g_handler_users { 0 };
+
+// Handlers that were in place before we installed ours, restored on the way out
+// and chained to while we are installed.
+void (*g_prev_int)(int) = nullptr;
+void (*g_prev_term)(int) = nullptr;
+std::mutex g_handler_mtx;
+
+extern "C" void on_shutdown_signal(int sig);
+
+void chain_to_previous(void (*previous)(int), int sig) {
+    // SIG_DFL/SIG_IGN are not callable, and chaining to ourselves would loop.
+    if(previous == nullptr || previous == SIG_DFL || previous == SIG_IGN ||
+       previous == on_shutdown_signal)
+        return;
+    previous(sig);
 }
 
-static void install_signal_handlers() {
-    signal(SIGINT, request_finish);
-    signal(SIGTERM, request_finish);
-}
-
-bool keep_running() {
-	std::lock_guard guard(finish_mtx);
-    if (!signal_handlers_installed) {
-        install_signal_handlers();
+extern "C" void on_shutdown_signal(int sig) {
+    g_finish_requested.store(true);
+    if(sig == SIGTERM) {
+        chain_to_previous(g_prev_term, sig);
+    } else {
+        chain_to_previous(g_prev_int, sig);
     }
-    return !finish_requested;
+}
+} // namespace
+
+void install_shutdown_handlers() {
+    std::lock_guard<std::mutex> guard(g_handler_mtx);
+    if(g_handler_users.fetch_add(1) > 0)
+        return; // already installed for another run
+
+    // Read the disposition that is in place *before* touching anything, so the
+    // remembered handler is the one of the host program and not our own.
+    struct sigaction old_int, old_term;
+    sigaction(SIGINT, nullptr, &old_int);
+    sigaction(SIGTERM, nullptr, &old_term);
+    g_prev_int = old_int.sa_handler;
+    g_prev_term = old_term.sa_handler;
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = on_shutdown_signal;
+    sigemptyset(&action.sa_mask);
+    // Deliberately no SA_RESTART: a run blocked in a syscall should get the
+    // chance to observe the request instead of being restarted into it.
+    action.sa_flags = 0;
+
+    sigaction(SIGINT, &action, nullptr);
+    sigaction(SIGTERM, &action, nullptr);
+}
+
+void remove_shutdown_handlers() {
+    std::lock_guard<std::mutex> guard(g_handler_mtx);
+    if(g_handler_users.fetch_sub(1) != 1)
+        return; // other runs still rely on them
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = g_prev_int;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGINT, &action, nullptr);
+    action.sa_handler = g_prev_term;
+    sigaction(SIGTERM, &action, nullptr);
+    g_prev_int = nullptr;
+    g_prev_term = nullptr;
+}
+
+bool finish_requested() {
+    return g_finish_requested.load();
 }
 
 void request_finish() {
-	request_finish(0);
+    g_finish_requested.store(true);
 }
+
+void reset_finish() {
+    g_finish_requested.store(false);
+}
+
+/*!
+ * Whether the process shall keep going. Note that this is a pure query: it no
+ * longer installs the signal handlers as a side effect. A run installs them for
+ * as long as it lasts (see #install_shutdown_handlers), so a program that never
+ * starts a plan keeps the signal disposition it had.
+ */
+bool keep_running() {
+    return !finish_requested();
+}
+
 
 float aspect_preserving_scale(const cv::Size& scaled, const cv::Size& unscaled) {
 	double scale;

@@ -46,6 +46,12 @@ ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext) :
     // Creating the context made it current; hand the current context back to
     // whoever had it, so that a second window does not steal it.
     ImGui::SetCurrentContext(prevCtx);
+    // A thread that had no context of its own is the one that displays this
+    // window, so this window's context has to become that thread's current
+    // context. Without this, a plan displayed on a non-main thread (e.g. a
+    // second plan in its own thread) would run its gui() with a null GImGui.
+    if(prevCtx == nullptr)
+        setContext(ctx_);
 }
 
 ImGuiContextImpl::~ImGuiContextImpl() {
