@@ -98,7 +98,7 @@ public:
     plans_ = {_sub<CubeDemoPlan>(this),       _sub<ManyCubesDemoPlan>(this),
               _sub<VideoDemoPlan>(this),      _sub<NanoVGDemoPlan>(this),
               _sub<ShaderDemoPlan>(this, 15), _sub<BlankPlan>(this),
-              _sub<BlankPlan>(this), _sub<BlankPlan>(this),
+              _sub<BlankPlan>(this),          _sub<BlankPlan>(this),
               _sub<BlankPlan>(this)};
 
     labels_ = {"Cube",        "Many Contexts", "Video Overlay",
@@ -175,12 +175,15 @@ public:
         ->plain(
             [](const Mouse::List &motion, const Mouse::List &reLeft,
                const Mouse::List &reRight,
-               const std::vector<cv::Rect> &targetViewports, const cv::Rect& vp, State &state) {
+               const std::vector<cv::Rect> &targetViewports, const cv::Rect &vp,
+               State &state) {
               {
                 using namespace cv::v4d::event;
 
                 if (!motion.empty()) {
-                  cv::Point loc = cv::Point(motion[0]->position().x, vp.height - motion[0]->position().y);
+                  cv::Point loc =
+                      cv::Point(motion[0]->position().x,
+                                vp.height - motion[0]->position().y);
                   for (size_t i = 0; i < targetViewports.size(); ++i) {
                     if (targetViewports[i].contains(loc)) {
                       state.focus_ = i;
@@ -206,8 +209,8 @@ public:
                 }
               }
             },
-            motion_, releaseLeft_, releaseRight_, R(targetViewports_), R(defaultVP_),
-            RWS(globalState_))
+            motion_, releaseLeft_, releaseRight_, R(targetViewports_),
+            R(defaultVP_), RWS(globalState_))
         ->endBranch();
 
     set(V4D::Keys::DISABLE_INPUT_EVENTS, V(true));
@@ -236,10 +239,10 @@ int main(int argc, char **argv) {
   cv::Ptr<V4D> runtime = V4D::init(viewport, "Montage Demo",
                                    AllocateFlags::NANOVG | AllocateFlags::IMGUI,
                                    ConfigFlags::DISPLAY_MODE);
-//  auto sink = Sink::make(runtime, "montage-demo.mkv", 60, viewport.size());
+  //  auto sink = Sink::make(runtime, "montage-demo.mkv", 60, viewport.size());
   auto src = Source::make(runtime, videoFile);
   runtime->setSource(src);
-//  runtime->setSink(sink);
+  //  runtime->setSink(sink);
   V4DPlan::run<MontageDemoPlan>(0);
 
   return 0;

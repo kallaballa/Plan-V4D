@@ -1,72 +1,77 @@
-#include <opencv2/v4d/v4d.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/v4d/v4d.hpp>
 
 using namespace cv;
 using namespace cv::v4d;
 
 class DisplayImageNVG : public V4DPlan {
-    Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
+  Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 
-    // Struct to hold image metadata and NanoVG paint object
-    struct Image_t {
-        std::string filename_; // Image file name
-        nvg::Paint paint_;     // NanoVG paint object for the image
-        int w_;                // Image width
-        int h_;                // Image height
-    } image_;
+  // Struct to hold image metadata and NanoVG paint object
+  struct Image_t {
+    std::string filename_; // Image file name
+    nvg::Paint paint_;     // NanoVG paint object for the image
+    int w_;                // Image width
+    int h_;                // Image height
+  } image_;
 
 public:
-    // Constructor to initialize the image file name
-    DisplayImageNVG(const std::string& filename) {
-        image_.filename_ = filename;
-    }
+  // Constructor to initialize the image file name
+  DisplayImageNVG(const std::string &filename) { image_.filename_ = filename; }
 
-    // Setup phase: Create the NanoVG context and load the image
-    void setup() override {
-        nvg([](Image_t& img) {
-            using namespace cv::v4d::nvg;
+  // Setup phase: Create the NanoVG context and load the image
+  void setup() override {
+    nvg(
+        [](Image_t &img) {
+          using namespace cv::v4d::nvg;
 
-            // Load the image and get a NanoVG handle
-            int handle = createImage(img.filename_.c_str(), NVG_IMAGE_NEAREST);
-            CV_Assert(handle > 0); // Ensure the image was loaded successfully
+          // Load the image and get a NanoVG handle
+          int handle = createImage(img.filename_.c_str(), NVG_IMAGE_NEAREST);
+          CV_Assert(handle > 0); // Ensure the image was loaded successfully
 
-            // Retrieve the image dimensions
-            imageSize(handle, &img.w_, &img.h_);
+          // Retrieve the image dimensions
+          imageSize(handle, &img.w_, &img.h_);
 
-            // Create a NanoVG paint object using the loaded image
-            img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f / 180.0f * NVG_PI, handle, 1.0);
-        }, RW(image_)); // `RW` denotes read-write access to the shared image data
-    }
+          // Create a NanoVG paint object using the loaded image
+          img.paint_ = imagePattern(0, 0, img.w_, img.h_,
+                                    0.0f / 180.0f * NVG_PI, handle, 1.0);
+        },
+        RW(image_)); // `RW` denotes read-write access to the shared image data
+  }
 
-    // Inference phase: Render the loaded image to the screen
-    void infer() override {
-        nvg([](const cv::Size& sz, const Image_t& img) {
-            using namespace cv::v4d::nvg;
+  // Inference phase: Render the loaded image to the screen
+  void infer() override {
+    nvg(
+        [](const cv::Size &sz, const Image_t &img) {
+          using namespace cv::v4d::nvg;
 
-            beginPath();
+          beginPath();
 
-            // Scale further rendering calls to match the viewport size
-            scale(double(sz.width) / img.w_, double(sz.height) / img.h_);
+          // Scale further rendering calls to match the viewport size
+          scale(double(sz.width) / img.w_, double(sz.height) / img.h_);
 
-            // Create a rounded rectangle matching the scaled image dimensions
-            roundedRect(0, 0, img.w_, img.h_, 50);
+          // Create a rounded rectangle matching the scaled image dimensions
+          roundedRect(0, 0, img.w_, img.h_, 50);
 
-            // Fill the rectangle with the loaded image pattern
-            fillPaint(img.paint_);
-            fill();
-        }, size_, RW(image_)); // Pass viewport and image data to the graph node
-    }
+          // Fill the rectangle with the loaded image pattern
+          fillPaint(img.paint_);
+          fill();
+        },
+        size_, RW(image_)); // Pass viewport and image data to the graph node
+  }
 };
 
 int main() {
-    cv::v4d::add_asset_search_paths();
+  cv::v4d::add_asset_search_paths();
 
-    // Define the viewport dimensions
-    cv::Rect viewport(0, 0, 960, 960);
+  // Define the viewport dimensions
+  cv::Rect viewport(0, 0, 960, 960);
 
-    // Initialize the V4D runtime with NanoVG and IMGUI subsystems
-    Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+  // Initialize the V4D runtime with NanoVG and IMGUI subsystems
+  Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG",
+                               AllocateFlags::NANOVG | AllocateFlags::IMGUI,
+                               ConfigFlags::DISPLAY_MODE);
 
-    // Run the Plan with the specified image file
-    V4DPlan::run<DisplayImageNVG>(2, samples::findFile("lena.png"));
+  // Run the Plan with the specified image file
+  V4DPlan::run<DisplayImageNVG>(2, samples::findFile("lena.png"));
 }

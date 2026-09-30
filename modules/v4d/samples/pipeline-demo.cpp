@@ -30,13 +30,9 @@ public:
   std::vector<cv::Ptr<Plan>> plans_;
 
   PipelineDemoPlan() {
-    plans_ = {
-            _sub<PedestrianDemoPlan>(this),
-	    _sub<VideoDemoPlan>(this),
-	    _sub<NanoVGDemoPlan>(this),
-            _sub<ShaderDemoPlan>(this, 15),
-	    _sub<OptflowDemoPlan>(this)
-    };
+    plans_ = {_sub<PedestrianDemoPlan>(this), _sub<VideoDemoPlan>(this),
+              _sub<NanoVGDemoPlan>(this), _sub<ShaderDemoPlan>(this, 15),
+              _sub<OptflowDemoPlan>(this)};
   }
 
   void setup() override {

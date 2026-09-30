@@ -10,16 +10,14 @@
 using std::pair;
 using std::vector;
 
-TimeTracker* TimeTracker::instance_;
-thread_local TimeTracker* TimeTracker::threadInstance_ = NULL;
+TimeTracker *TimeTracker::instance_;
+thread_local TimeTracker *TimeTracker::threadInstance_ = NULL;
 
-TimeTracker::TimeTracker() : enabled_(false) {
-}
+TimeTracker::TimeTracker() : enabled_(false) {}
 
-TimeTracker::~TimeTracker() {
-}
+TimeTracker::~TimeTracker() {}
 
 vector<pair<string, TimeInfo>> TimeTracker::snapshot() const {
-    std::unique_lock lock(mapMtx_);
-    return vector<pair<string, TimeInfo>>(tiMap_.begin(), tiMap_.end());
+  std::unique_lock lock(mapMtx_);
+  return vector<pair<string, TimeInfo>>(tiMap_.begin(), tiMap_.end());
 }

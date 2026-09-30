@@ -4,12 +4,12 @@
 #ifdef HAVE_OPENCL
 
 #ifndef CL_TARGET_OPENCL_VERSION
-#  define CL_TARGET_OPENCL_VERSION 120
+#define CL_TARGET_OPENCL_VERSION 120
 #endif
 #ifdef __APPLE__
-#  include <OpenCL/cl_gl_ext.h>
+#include <OpenCL/cl_gl_ext.h>
 #else
-#  include <CL/cl_gl.h>
+#include <CL/cl_gl.h>
 #endif
 
 #endif

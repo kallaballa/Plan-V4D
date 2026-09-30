@@ -1,24 +1,23 @@
 // This file is part of OpenCV project.
-// It is subject to the license terms in the LICENSE file found in the top-level directory
-// of this distribution and at http://opencv.org/license.html.
+// It is subject to the license terms in the LICENSE file found in the top-level
+// directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
-#include <sstream>
 #include <algorithm>
 #include <opencv2/core.hpp>
-#include <vector>
 #include <semaphore>
+#include <sstream>
+#include <vector>
 
-#include "../include/opencv2/v4d/v4d.hpp"
-#include "../include/opencv2/v4d/detail/gl.hpp"
 #include "../../third/imgui/backends/imgui_impl_glfw.h"
+#include "../include/opencv2/v4d/detail/gl.hpp"
+#include "../include/opencv2/v4d/v4d.hpp"
 
 namespace gwe {
 namespace detail {
-CV_EXPORTS std::vector<EventQueue*> Holder::queue_vector;
+CV_EXPORTS std::vector<EventQueue *> Holder::queue_vector;
 }
-}
-
+} // namespace gwe
 
 namespace cv {
 namespace v4d {
@@ -27,571 +26,575 @@ CV_EXPORTS std::mutex V4D::instance_mtx_;
 CV_EXPORTS thread_local cv::Ptr<V4D> V4D::instance_;
 CV_EXPORTS thread_local ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
 CV_EXPORTS std::mutex V4D::windowRegistry_mtx_;
-CV_EXPORTS std::map<GLFWwindow*, V4D*> V4D::windowRegistry_;
+CV_EXPORTS std::map<GLFWwindow *, V4D *> V4D::windowRegistry_;
 
-V4D* V4D::runtimeForWindow(GLFWwindow* window) {
-	std::lock_guard guard(windowRegistry_mtx_);
-	auto it = windowRegistry_.find(window);
-	if(it == windowRegistry_.end())
-		return nullptr;
-	return it->second;
+V4D *V4D::runtimeForWindow(GLFWwindow *window) {
+  std::lock_guard guard(windowRegistry_mtx_);
+  auto it = windowRegistry_.find(window);
+  if (it == windowRegistry_.end())
+    return nullptr;
+  return it->second;
 }
 
-cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
-	GlobalState::init_keys();
-	LocalState::init_keys();
-	{
-        std::lock_guard guard(instance_mtx_);
-        if(instance_ == nullptr)
-            instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
-    }
-    V4D::init_keys();
-    PlanRuntime::current() = instance_;
-	return instance_;
+cv::Ptr<V4D> V4D::init(const cv::Rect &viewport, const string &title,
+                       AllocateFlags::Enum allocFlags,
+                       ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags,
+                       int samples) {
+  GlobalState::init_keys();
+  LocalState::init_keys();
+  {
+    std::lock_guard guard(instance_mtx_);
+    if (instance_ == nullptr)
+      instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags,
+                          debFlags, samples);
+  }
+  V4D::init_keys();
+  PlanRuntime::current() = instance_;
+  return instance_;
 }
 
-cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbSize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
-	CV_UNUSED(fbSize);
-	GlobalState::init_keys();
-	LocalState::init_keys();
-	{
-        std::lock_guard guard(instance_mtx_);
-        if(instance_ == nullptr)
-            instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
-    }
+cv::Ptr<V4D> V4D::init(const cv::Rect &viewport, const cv::Size &fbSize,
+                       const string &title, AllocateFlags::Enum allocFlags,
+                       ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags,
+                       int samples) {
+  CV_UNUSED(fbSize);
+  GlobalState::init_keys();
+  LocalState::init_keys();
+  {
+    std::lock_guard guard(instance_mtx_);
+    if (instance_ == nullptr)
+      instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags,
+                          debFlags, samples);
+  }
 
-    V4D::init_keys();
-    PlanRuntime::current() = instance_;
-	return instance_;
+  V4D::init_keys();
+  PlanRuntime::current() = instance_;
+  return instance_;
 }
 
-cv::Ptr<V4D> V4D::init(const V4D& other, const string& title) {
-	LocalState::init_keys();
-	std::lock_guard guard(instance_mtx_);
-	if(instance_ == nullptr)
-	    instance_ = new V4D(other, title);
+cv::Ptr<V4D> V4D::init(const V4D &other, const string &title) {
+  LocalState::init_keys();
+  std::lock_guard guard(instance_mtx_);
+  if (instance_ == nullptr)
+    instance_ = new V4D(other, title);
 
-	V4D::init_keys();
-	PlanRuntime::current() = instance_;
-	return instance_;
+  V4D::init_keys();
+  PlanRuntime::current() = instance_;
+  return instance_;
 }
 
-V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) :
-        runState_(new RunState()), allocateFlags_(allocFlags), configFlags_(confFlags), debugFlags_(debFlags), samples_(samples) {
+V4D::V4D(const cv::Rect &viewport, cv::Size fbsize, const string &title,
+         AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags,
+         DebugFlags::Enum debFlags, int samples)
+    : runState_(new RunState()), allocateFlags_(allocFlags),
+      configFlags_(confFlags), debugFlags_(debFlags), samples_(samples) {
 
-    int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::VSYNC : 0)
-    		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
-			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : 0)
-			| (configFlags() &  ConfigFlags::OFFSCREEN ? FBConfigFlags::OFFSCREEN : 0)
-			| (configFlags() &  ConfigFlags::RESIZEABLE ? FBConfigFlags::RESIZEABLE : 0);
+  int fbFlags =
+      (configFlags() & ConfigFlags::DISPLAY_MODE ? FBConfigFlags::VSYNC : 0) |
+      (debugFlags() & DebugFlags::DEBUG_GL_CONTEXT
+           ? FBConfigFlags::DEBUG_GL_CONTEXT
+           : 0) |
+      (debugFlags() & DebugFlags::ONSCREEN_CONTEXTS
+           ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS
+           : 0) |
+      (configFlags() & ConfigFlags::OFFSCREEN ? FBConfigFlags::OFFSCREEN : 0) |
+      (configFlags() & ConfigFlags::RESIZEABLE ? FBConfigFlags::RESIZEABLE : 0);
 
-    mainFbContext_ = detail::FrameBufferContext::make(fbsize.empty() ? viewport.size() : fbsize, title, 3,
-                2, samples, nullptr, nullptr, true, fbFlags);
-    CLExecScope_t scope(mainFbContext_->getCLExecContext());
-    sourceContext_ = new detail::SourceContext(mainFbContext_);
-    sinkContext_ = new detail::SinkContext(mainFbContext_);
+  mainFbContext_ = detail::FrameBufferContext::make(
+      fbsize.empty() ? viewport.size() : fbsize, title, 3, 2, samples, nullptr,
+      nullptr, true, fbFlags);
+  CLExecScope_t scope(mainFbContext_->getCLExecContext());
+  sourceContext_ = new detail::SourceContext(mainFbContext_);
+  sinkContext_ = new detail::SinkContext(mainFbContext_);
 
-    if(allocateFlags() & AllocateFlags::IMGUI)
-        imguiContext_ = new detail::ImGuiContextImpl(mainFbContext_);
+  if (allocateFlags() & AllocateFlags::IMGUI)
+    imguiContext_ = new detail::ImGuiContextImpl(mainFbContext_);
 
-    if(allocateFlags() & AllocateFlags::NANOVG)
-   		nvgContext_ = new detail::NanoVGContext(mainFbContext_);
+  if (allocateFlags() & AllocateFlags::NANOVG)
+    nvgContext_ = new detail::NanoVGContext(mainFbContext_);
 
-    {
-    	// GLFW reports the events of this window on whichever thread polls, so
-    	// the window has to be mapped back to its runtime.
-    	std::lock_guard guard(windowRegistry_mtx_);
-    	windowRegistry_[mainFbContext_->getGLFWWindow()] = this;
-    }
+  {
+    // GLFW reports the events of this window on whichever thread polls, so
+    // the window has to be mapped back to its runtime.
+    std::lock_guard guard(windowRegistry_mtx_);
+    windowRegistry_[mainFbContext_->getGLFWWindow()] = this;
+  }
 }
 
-V4D::V4D(const V4D& other, const string& title) :
-		runState_(other.runState_), allocateFlags_(other.allocateFlags_), configFlags_(other.configFlags_), debugFlags_(other.debugFlags_), samples_(other.samples_) {
-	int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::DISPLAY_MODE : 0)
-    		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
-			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : FBConfigFlags::OFFSCREEN);
+V4D::V4D(const V4D &other, const string &title)
+    : runState_(other.runState_), allocateFlags_(other.allocateFlags_),
+      configFlags_(other.configFlags_), debugFlags_(other.debugFlags_),
+      samples_(other.samples_) {
+  int fbFlags =
+      (configFlags() & ConfigFlags::DISPLAY_MODE ? FBConfigFlags::DISPLAY_MODE
+                                                 : 0) |
+      (debugFlags() & DebugFlags::DEBUG_GL_CONTEXT
+           ? FBConfigFlags::DEBUG_GL_CONTEXT
+           : 0) |
+      (debugFlags() & DebugFlags::ONSCREEN_CONTEXTS
+           ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS
+           : FBConfigFlags::OFFSCREEN);
 
-    mainFbContext_ = detail::FrameBufferContext::make(other.mainFbContext_->size(), title, 3,
-                2, other.samples_, other.mainFbContext_->glfwWindow_, other.mainFbContext_, true, fbFlags);
-    CLExecScope_t scope(mainFbContext_->getCLExecContext());
-    if(allocateFlags() & AllocateFlags::NANOVG)
-    	nvgContext_ = new detail::NanoVGContext(mainFbContext_);
-    if(allocateFlags() & AllocateFlags::BGFX)
-        bgfxContext_ = new detail::BgfxContext(mainFbContext_);
-    sourceContext_ = new detail::SourceContext(mainFbContext_);
-    sinkContext_ = new detail::SinkContext(mainFbContext_);
-    plainContext_ = new cv::plan::detail::PlainContext();
-    {
-    	std::lock_guard guard(windowRegistry_mtx_);
-    	windowRegistry_[mainFbContext_->getGLFWWindow()] = this;
-    }
+  mainFbContext_ = detail::FrameBufferContext::make(
+      other.mainFbContext_->size(), title, 3, 2, other.samples_,
+      other.mainFbContext_->glfwWindow_, other.mainFbContext_, true, fbFlags);
+  CLExecScope_t scope(mainFbContext_->getCLExecContext());
+  if (allocateFlags() & AllocateFlags::NANOVG)
+    nvgContext_ = new detail::NanoVGContext(mainFbContext_);
+  if (allocateFlags() & AllocateFlags::BGFX)
+    bgfxContext_ = new detail::BgfxContext(mainFbContext_);
+  sourceContext_ = new detail::SourceContext(mainFbContext_);
+  sinkContext_ = new detail::SinkContext(mainFbContext_);
+  plainContext_ = new cv::plan::detail::PlainContext();
+  {
+    std::lock_guard guard(windowRegistry_mtx_);
+    windowRegistry_[mainFbContext_->getGLFWWindow()] = this;
+  }
 }
 
 V4D::~V4D() {
-	if(mainFbContext_) {
-		std::lock_guard guard(windowRegistry_mtx_);
-		windowRegistry_.erase(mainFbContext_->getGLFWWindow());
-	}
+  if (mainFbContext_) {
+    std::lock_guard guard(windowRegistry_mtx_);
+    windowRegistry_.erase(mainFbContext_->getGLFWWindow());
+  }
 }
 
-std::string V4D::title() const {
-    return mainFbContext_->title_;
-}
+std::string V4D::title() const { return mainFbContext_->title_; }
 
 cv::Ptr<cv::plan::detail::PlanContext> V4D::fbCtx() {
-    assert(mainFbContext_ != nullptr);
-    return mainFbContext_;
+  assert(mainFbContext_ != nullptr);
+  return mainFbContext_;
 }
 
 cv::Ptr<cv::plan::detail::PlanContext> V4D::sourceCtx() {
-    assert(sourceContext_ != nullptr);
-    return sourceContext_;
+  assert(sourceContext_ != nullptr);
+  return sourceContext_;
 }
 
 cv::Ptr<cv::plan::detail::PlanContext> V4D::sinkCtx() {
-    assert(sinkContext_ != nullptr);
-    return sinkContext_;
+  assert(sinkContext_ != nullptr);
+  return sinkContext_;
 }
 
 cv::Ptr<cv::plan::detail::PlanContext> V4D::nvgCtx() {
-    assert(nvgContext_ != nullptr);
-    return nvgContext_;
+  assert(nvgContext_ != nullptr);
+  return nvgContext_;
 }
 
 cv::Ptr<cv::plan::detail::PlanContext> V4D::bgfxCtx() {
-    assert(bgfxContext_ != nullptr);
-    return bgfxContext_;
+  assert(bgfxContext_ != nullptr);
+  return bgfxContext_;
 }
 
 cv::Ptr<cv::plan::detail::PlainContext> V4D::plainCtx() {
-    assert(plainContext_ != nullptr);
-    return plainContext_;
+  assert(plainContext_ != nullptr);
+  return plainContext_;
 }
 
 cv::Ptr<cv::plan::detail::PlanContext> V4D::imguiCtx() {
-    assert(imguiContext_ != nullptr);
-    return imguiContext_;
+  assert(imguiContext_ != nullptr);
+  return imguiContext_;
 }
 
 cv::Ptr<cv::plan::detail::PlanContext> V4D::glCtx(int32_t idx) {
-    auto it = glContexts_.find(idx);
-    if(it != glContexts_.end())
-        return (*it).second;
-    else {
-        cv::Ptr<GLContext> ctx = new GLContext(idx, mainFbContext_);
-        glContexts_.insert({idx, ctx});
-        return ctx;
-    }
+  auto it = glContexts_.find(idx);
+  if (it != glContexts_.end())
+    return (*it).second;
+  else {
+    cv::Ptr<GLContext> ctx = new GLContext(idx, mainFbContext_);
+    glContexts_.insert({idx, ctx});
+    return ctx;
+  }
 }
 
 cv::Ptr<cv::plan::detail::PlanContext> V4D::extCtx(int32_t idx) {
-    auto it = extContexts_.find(idx);
-    if(it != extContexts_.end())
-        return (*it).second;
-    else {
-        cv::Ptr<ExtContext> ctx = new ExtContext(idx, mainFbContext_);
-        extContexts_.insert({idx, ctx});
-        return ctx;
-    }
+  auto it = extContexts_.find(idx);
+  if (it != extContexts_.end())
+    return (*it).second;
+  else {
+    cv::Ptr<ExtContext> ctx = new ExtContext(idx, mainFbContext_);
+    extContexts_.insert({idx, ctx});
+    return ctx;
+  }
 }
 
-bool V4D::hasFbCtx() {
-    return mainFbContext_ != nullptr;
-}
+bool V4D::hasFbCtx() { return mainFbContext_ != nullptr; }
 
-bool V4D::hasSourceCtx() {
-    return sourceContext_ != nullptr;
-}
+bool V4D::hasSourceCtx() { return sourceContext_ != nullptr; }
 
-bool V4D::hasSinkCtx() {
-    return sinkContext_ != nullptr;
-}
+bool V4D::hasSinkCtx() { return sinkContext_ != nullptr; }
 
-bool V4D::hasNvgCtx() {
-    return nvgContext_ != nullptr;
-}
+bool V4D::hasNvgCtx() { return nvgContext_ != nullptr; }
 
-bool V4D::hasBgfxCtx() {
-    return bgfxContext_ != nullptr;
-}
+bool V4D::hasBgfxCtx() { return bgfxContext_ != nullptr; }
 
-bool V4D::hasPlainCtx() {
-    return plainContext_ != nullptr;
-}
+bool V4D::hasPlainCtx() { return plainContext_ != nullptr; }
 
-bool V4D::hasImguiCtx() {
-    return imguiContext_ != nullptr;
-}
+bool V4D::hasImguiCtx() { return imguiContext_ != nullptr; }
 
 bool V4D::hasGlCtx(uint32_t idx) {
-    return glContexts_.find(idx) != glContexts_.end();
+  return glContexts_.find(idx) != glContexts_.end();
 }
 
 bool V4D::hasExtCtx(uint32_t idx) {
-    return extContexts_.find(idx) != extContexts_.end();
+  return extContexts_.find(idx) != extContexts_.end();
 }
 
-void V4D::copyTo(cv::UMat& m) {
-	mainFbContext_->copyTo(m);
-}
+void V4D::copyTo(cv::UMat &m) { mainFbContext_->copyTo(m); }
 
-void V4D::copyFrom(const cv::UMat& m) {
-	mainFbContext_->copyFrom(m);
-}
+void V4D::copyFrom(const cv::UMat &m) { mainFbContext_->copyFrom(m); }
 
-void V4D::setSource(cv::Ptr<Source> src) {
-    source_ = src;
-}
-cv::Ptr<Source> V4D::getSource() {
-    return source_;
-}
+void V4D::setSource(cv::Ptr<Source> src) { source_ = src; }
+cv::Ptr<Source> V4D::getSource() { return source_; }
 
-bool V4D::hasSource() const {
-    return source_ != nullptr;
-}
+bool V4D::hasSource() const { return source_ != nullptr; }
 
-void V4D::setSink(cv::Ptr<Sink> sink) {
-    sink_ = sink;
-}
+void V4D::setSink(cv::Ptr<Sink> sink) { sink_ = sink; }
 
-cv::Ptr<Sink> V4D::getSink() {
-    return sink_;
-}
+cv::Ptr<Sink> V4D::getSink() { return sink_; }
 
-bool V4D::hasSink() const {
-    return sink_ != nullptr;
-}
+bool V4D::hasSink() const { return sink_ != nullptr; }
 
-cv::Vec2f V4D::position() {
-    return mainFbContext_->position();
-}
+cv::Vec2f V4D::position() { return mainFbContext_->position(); }
 
-float V4D::pixelRatioX() {
-    return mainFbContext_->pixelRatioX();
-}
+float V4D::pixelRatioX() { return mainFbContext_->pixelRatioX(); }
 
-float V4D::pixelRatioY() {
-    return mainFbContext_->pixelRatioY();
-}
+float V4D::pixelRatioY() { return mainFbContext_->pixelRatioY(); }
 
-const cv::Size& V4D::size() {
-    return get<cv::Size>(Keys::WINDOW_SIZE);
-}
+const cv::Size &V4D::size() { return get<cv::Size>(Keys::WINDOW_SIZE); }
 
-void V4D::setShowFPS(bool s) {
-    showFPS_ = s;
-}
+void V4D::setShowFPS(bool s) { showFPS_ = s; }
 
-bool V4D::getShowFPS() {
-    return showFPS_;
-}
+bool V4D::getShowFPS() { return showFPS_; }
 
-void V4D::setPrintFPS(bool p) {
-    printFPS_ = p;
-}
+void V4D::setPrintFPS(bool p) { printFPS_ = p; }
 
-bool V4D::getPrintFPS() {
-    return printFPS_;
-}
+bool V4D::getPrintFPS() { return printFPS_; }
 
-void V4D::setShowTracking(bool st) {
-    showTracking_ = st;
-}
+void V4D::setShowTracking(bool st) { showTracking_ = st; }
 
-bool V4D::getShowTracking() {
-    return showTracking_;
-}
+bool V4D::getShowTracking() { return showTracking_; }
 
 void V4D::swapContextBuffers() {
-	cv::Rect fbViewport(0, 0, mainFbContext_->size().width, mainFbContext_->size().height);
-	int32_t numGl = std::max(off_t(0), off_t(glContexts_.size()) - 1);
-    for(int32_t i = -1; i < numGl; ++i) {
-    	FrameBufferContext::WindowScope winScope(glContexts_[i]->fbCtx());
-        FrameBufferContext::GLScope glScope(glContexts_[i]->fbCtx(), GL_READ_FRAMEBUFFER);
-        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
-        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-        glContexts_[i]->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, mainFbContext_->size(), false);
-        GL_CHECK(glFinish());
-        glfwSwapBuffers(glContexts_[i]->fbCtx()->getGLFWWindow());
-    }
+  cv::Rect fbViewport(0, 0, mainFbContext_->size().width,
+                      mainFbContext_->size().height);
+  int32_t numGl = std::max(off_t(0), off_t(glContexts_.size()) - 1);
+  for (int32_t i = -1; i < numGl; ++i) {
+    FrameBufferContext::WindowScope winScope(glContexts_[i]->fbCtx());
+    FrameBufferContext::GLScope glScope(glContexts_[i]->fbCtx(),
+                                        GL_READ_FRAMEBUFFER);
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+    assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) ==
+           GL_FRAMEBUFFER_COMPLETE);
+    glContexts_[i]->fbCtx()->blitFrameBufferToFrameBuffer(
+        fbViewport, mainFbContext_->size(), false);
+    GL_CHECK(glFinish());
+    glfwSwapBuffers(glContexts_[i]->fbCtx()->getGLFWWindow());
+  }
 
-    if(hasNvgCtx()) {
-    	FrameBufferContext::WindowScope winScope(nvgContext_->fbCtx());
-		FrameBufferContext::GLScope glScope(nvgContext_->fbCtx(), GL_READ_FRAMEBUFFER);
+  if (hasNvgCtx()) {
+    FrameBufferContext::WindowScope winScope(nvgContext_->fbCtx());
+    FrameBufferContext::GLScope glScope(nvgContext_->fbCtx(),
+                                        GL_READ_FRAMEBUFFER);
 
-		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
-        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-		nvgContext_->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, mainFbContext_->size(), false);
-		glfwSwapBuffers(nvgContext_->fbCtx()->getGLFWWindow());
-    }
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+    assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) ==
+           GL_FRAMEBUFFER_COMPLETE);
+    nvgContext_->fbCtx()->blitFrameBufferToFrameBuffer(
+        fbViewport, mainFbContext_->size(), false);
+    glfwSwapBuffers(nvgContext_->fbCtx()->getGLFWWindow());
+  }
 
-    if(hasBgfxCtx()) {
-    	FrameBufferContext::WindowScope winScope(bgfxContext_->fbCtx());
-		FrameBufferContext::GLScope glScope(bgfxContext_->fbCtx(), GL_READ_FRAMEBUFFER);
+  if (hasBgfxCtx()) {
+    FrameBufferContext::WindowScope winScope(bgfxContext_->fbCtx());
+    FrameBufferContext::GLScope glScope(bgfxContext_->fbCtx(),
+                                        GL_READ_FRAMEBUFFER);
 
-        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
-        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-		bgfxContext_->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, mainFbContext_->size(), false);
-		glfwSwapBuffers(bgfxContext_->fbCtx()->getGLFWWindow());
-    }
-
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+    assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) ==
+           GL_FRAMEBUFFER_COMPLETE);
+    bgfxContext_->fbCtx()->blitFrameBufferToFrameBuffer(
+        fbViewport, mainFbContext_->size(), false);
+    glfwSwapBuffers(bgfxContext_->fbCtx()->getGLFWWindow());
+  }
 }
 
 bool V4D::display() {
-    auto startDisplayFuncNanos = get_epoch_nanos();
+  auto startDisplayFuncNanos = get_epoch_nanos();
 
-    if(!GlobalState::isMain()) {
-        GlobalState::apply<uint64_t>(GlobalState::Keys::FPS_CNT, [](uint64_t& v){ return v++; });
-        GlobalState::apply<uint64_t>(GlobalState::Keys::LCR_CNT, [](uint64_t& v){ return v++; });
+  if (!GlobalState::isMain()) {
+    GlobalState::apply<uint64_t>(GlobalState::Keys::FPS_CNT,
+                                 [](uint64_t &v) { return v++; });
+    GlobalState::apply<uint64_t>(GlobalState::Keys::LCR_CNT,
+                                 [](uint64_t &v) { return v++; });
 
-		if(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
-			swapContextBuffers();
-		}
+    if (debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
+      swapContextBuffers();
     }
-	if (GlobalState::isMain()) {
-		// Keys::FULLSCREEN is the *requested* state; the window is the real one.
-		// GLFW can put a full screen window into windowed mode behind our back
-		// (e.g. when its monitor is disconnected), which would leave the key
-		// claiming fullscreen forever - and since the key's callback only fires
-		// when the value changes, a later set(Keys::FULLSCREEN, true) would then
-		// be swallowed. Write the observed state back, so the key converges.
-		// Not fired: its callback only applies the value to the window, which is
-		// exactly what just changed. This runs in the run loop, never inside a
-		// property callback, so taking the property lock here cannot deadlock.
-		{
-			const bool fullscreen = mainFbContext_->isFullscreen();
-			if(get<bool>(Keys::FULLSCREEN) != fullscreen) {
-				set(Keys::FULLSCREEN, fullscreen, false);
-			}
-		}
+  }
+  if (GlobalState::isMain()) {
+    // Keys::FULLSCREEN is the *requested* state; the window is the real one.
+    // GLFW can put a full screen window into windowed mode behind our back
+    // (e.g. when its monitor is disconnected), which would leave the key
+    // claiming fullscreen forever - and since the key's callback only fires
+    // when the value changes, a later set(Keys::FULLSCREEN, true) would then
+    // be swallowed. Write the observed state back, so the key converges.
+    // Not fired: its callback only applies the value to the window, which is
+    // exactly what just changed. This runs in the run loop, never inside a
+    // property callback, so taking the property lock here cannot deadlock.
+    {
+      const bool fullscreen = mainFbContext_->isFullscreen();
+      if (get<bool>(Keys::FULLSCREEN) != fullscreen) {
+        set(Keys::FULLSCREEN, fullscreen, false);
+      }
+    }
 
-		bool countLockContention = debugFlags() & DebugFlags::PRINT_LOCK_CONTENTION;
-		auto start = GlobalState::get<uint64_t>(GlobalState::Keys::START_TIME);
-		auto now = get_epoch_nanos();
-		auto diff = now - start;
-		double diffSeconds = diff / 1000000000.0;
+    bool countLockContention = debugFlags() & DebugFlags::PRINT_LOCK_CONTENTION;
+    auto start = GlobalState::get<uint64_t>(GlobalState::Keys::START_TIME);
+    auto now = get_epoch_nanos();
+    auto diff = now - start;
+    double diffSeconds = diff / 1000000000.0;
 
-		if(GlobalState::get<double>(GlobalState::Keys::FPS) > 0 && diffSeconds > 1.0) {
-		    GlobalState::apply<uint64_t>(GlobalState::Keys::START_TIME, [diff](uint64_t& v) { return (v += (diff / 2.0)); } );
-		    GlobalState::apply<uint64_t>(GlobalState::Keys::FPS_CNT, [diff](uint64_t& v) { return (v *= 0.5); } );
+    if (GlobalState::get<double>(GlobalState::Keys::FPS) > 0 &&
+        diffSeconds > 1.0) {
+      GlobalState::apply<uint64_t>(
+          GlobalState::Keys::START_TIME,
+          [diff](uint64_t &v) { return (v += (diff / 2.0)); });
+      GlobalState::apply<uint64_t>(GlobalState::Keys::FPS_CNT,
+                                   [diff](uint64_t &v) { return (v *= 0.5); });
 
-            if(countLockContention) {
-	            GlobalState::apply<uint64_t>(GlobalState::Keys::LCR_CNT, [diff](uint64_t& v) { return (v *= 0.5); } );
-			}
-		} else {
-			double fps = GlobalState::get<double>(GlobalState::Keys::FPS);
-            uint64_t fpsCnt = GlobalState::get<uint64_t>(GlobalState::Keys::FPS_CNT);
+      if (countLockContention) {
+        GlobalState::apply<uint64_t>(
+            GlobalState::Keys::LCR_CNT,
+            [diff](uint64_t &v) { return (v *= 0.5); });
+      }
+    } else {
+      double fps = GlobalState::get<double>(GlobalState::Keys::FPS);
+      uint64_t fpsCnt = GlobalState::get<uint64_t>(GlobalState::Keys::FPS_CNT);
 
-			GlobalState::set(GlobalState::Keys::FPS, (fps * 3.0 + (fpsCnt / diffSeconds)) / 4.0);
-			if(countLockContention) {
-				double rate = GlobalState::get<double>(GlobalState::Keys::LOCK_CONTENTION_RATE);
-	            uint64_t lcrCnt = GlobalState::get<uint64_t>(GlobalState::Keys::LCR_CNT);
-				GlobalState::set(GlobalState::Keys::LOCK_CONTENTION_RATE, (rate * 3.0 + (lcrCnt / diffSeconds)) / 4.0);
-			}
-		}
+      GlobalState::set(GlobalState::Keys::FPS,
+                       (fps * 3.0 + (fpsCnt / diffSeconds)) / 4.0);
+      if (countLockContention) {
+        double rate =
+            GlobalState::get<double>(GlobalState::Keys::LOCK_CONTENTION_RATE);
+        uint64_t lcrCnt =
+            GlobalState::get<uint64_t>(GlobalState::Keys::LCR_CNT);
+        GlobalState::set(GlobalState::Keys::LOCK_CONTENTION_RATE,
+                         (rate * 3.0 + (lcrCnt / diffSeconds)) / 4.0);
+      }
+    }
 
-		if(countLockContention) {
-			std::cerr << "\rLPS:" << GlobalState::get<double>(GlobalState::Keys::LOCK_CONTENTION_RATE) << std::endl;
-		}
+    if (countLockContention) {
+      std::cerr << "\rLPS:"
+                << GlobalState::get<double>(
+                       GlobalState::Keys::LOCK_CONTENTION_RATE)
+                << std::endl;
+    }
 
-		if(getPrintFPS()) {
-			std::cerr << "\rFPS:" << GlobalState::get<double>(GlobalState::Keys::FPS) << std::endl;
-		}
+    if (getPrintFPS()) {
+      std::cerr << "\rFPS:" << GlobalState::get<double>(GlobalState::Keys::FPS)
+                << std::endl;
+    }
 
-                cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
-		cv::Size winSz = get<cv::Size>(Keys::WINDOW_SIZE);
-		{
-			FrameBufferContext::WindowScope winScope(mainFbContext_);
-			FrameBufferContext::GLScope glScope(mainFbContext_, GL_READ_FRAMEBUFFER);
-			GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
-			assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-			mainFbContext_->blitFrameBufferToFrameBuffer(vp, winSz, V4D::get<bool>(V4D::Keys::AUTO_SCALE), false);
-		}
-		{
-			if((allocateFlags() & AllocateFlags::IMGUI) && GlobalState::get<bool>(GlobalState::Keys::SHOW_GUI)) {
-				FrameBufferContext::WindowScope winScope(mainFbContext_);
-				FrameBufferContext::GLScope glScope(mainFbContext_, GL_DRAW_FRAMEBUFFER, 0);
+    cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
+    cv::Size winSz = get<cv::Size>(Keys::WINDOW_SIZE);
+    {
+      FrameBufferContext::WindowScope winScope(mainFbContext_);
+      FrameBufferContext::GLScope glScope(mainFbContext_, GL_READ_FRAMEBUFFER);
+      GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+      assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) ==
+             GL_FRAMEBUFFER_COMPLETE);
+      mainFbContext_->blitFrameBufferToFrameBuffer(
+          vp, winSz, V4D::get<bool>(V4D::Keys::AUTO_SCALE), false);
+    }
+    {
+      if ((allocateFlags() & AllocateFlags::IMGUI) &&
+          GlobalState::get<bool>(GlobalState::Keys::SHOW_GUI)) {
+        FrameBufferContext::WindowScope winScope(mainFbContext_);
+        FrameBufferContext::GLScope glScope(mainFbContext_, GL_DRAW_FRAMEBUFFER,
+                                            0);
 
 #if !defined(OPENCV_V4D_USE_ES3)
-				GL_CHECK(glDrawBuffer(GL_BACK));
+        GL_CHECK(glDrawBuffer(GL_BACK));
 #endif
-				if(hasImguiCtx())
-					imguiContext_->execute(vp, [](){});
-			}
-		}
+        if (hasImguiCtx())
+          imguiContext_->execute(vp, []() {});
+      }
+    }
 
-		TimeTracker::getInstance()->setEnabled(GlobalState::get<bool>(GlobalState::Keys::TIME_TRACKER));
-		TimeTracker::getInstance()->newCount();
-		GL_CHECK(glFinish());
-		glfwSwapBuffers(mainFbContext_->getGLFWWindow());
+    TimeTracker::getInstance()->setEnabled(
+        GlobalState::get<bool>(GlobalState::Keys::TIME_TRACKER));
+    TimeTracker::getInstance()->newCount();
+    GL_CHECK(glFinish());
+    glfwSwapBuffers(mainFbContext_->getGLFWWindow());
 
+    if (!(configFlags() & ConfigFlags::DISPLAY_MODE)) {
+      auto endDisplayFuncNanos = get_epoch_nanos();
+      auto displayDuration = endDisplayFuncNanos - startDisplayFuncNanos;
+      int64_t sleepNanos = std::round((1000000000.0 / 60.0) - displayDuration);
+      if (sleepNanos > 0) {
+        std::this_thread::sleep_for(std::chrono::nanoseconds(sleepNanos));
+      }
+    }
+    GlobalState::set(GlobalState::Keys::DISPLAY_READY, true);
+    GL_CHECK(glClearColor(0, 0, 0, 1));
+    GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
+    bool keepOpen = !glfwWindowShouldClose(getGLFWWindow());
+    if (!keepOpen) {
+      // Only this run stops; other plans (windows) of this process keep
+      // running. A SIGINT still ends the whole process, because
+      // keepRunning() also honours the global finish request.
+      requestFinish();
+    }
+    return keepOpen;
+  } else {
+    if (GlobalState::apply<bool>(GlobalState::Keys::DISPLAY_READY, [](bool &v) {
+          if (!v)
+            return v;
+          else {
+            bool ret = v;
+            v = !v;
+            return ret;
+          }
+        })) {
+      mainFbContext_->copyToRootWindow();
+    }
+    if (debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
+      cv::Size winSz = get<cv::Size>(Keys::WINDOW_SIZE);
+      FrameBufferContext::WindowScope winScope(mainFbContext_);
+      FrameBufferContext::GLScope glScope(mainFbContext_, GL_READ_FRAMEBUFFER);
+      cv::Rect initial = get<cv::Rect>(Keys::WINDOW_SIZE);
+      initial.y = (mainFbContext_->size().height - initial.height) + initial.y;
+      GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+      assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) ==
+             GL_FRAMEBUFFER_COMPLETE);
 
-		if(!(configFlags() &  ConfigFlags::DISPLAY_MODE)) {
-	        auto endDisplayFuncNanos = get_epoch_nanos();
-	        auto displayDuration = endDisplayFuncNanos - startDisplayFuncNanos;
-	        int64_t sleepNanos = std::round((1000000000.0/60.0) - displayDuration);
-	        if(sleepNanos > 0) {
-	            std::this_thread::sleep_for(std::chrono::nanoseconds(sleepNanos));
-		    }
-		}
-		GlobalState::set(GlobalState::Keys::DISPLAY_READY, true);
-		GL_CHECK(glClearColor(0,0,0,1));
-		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
-		bool keepOpen = !glfwWindowShouldClose(getGLFWWindow());
-		if(!keepOpen) {
-			// Only this run stops; other plans (windows) of this process keep
-			// running. A SIGINT still ends the whole process, because
-			// keepRunning() also honours the global finish request.
-			requestFinish();
-		}
-		return keepOpen;
-	} else {
-		if(GlobalState::apply<bool>(GlobalState::Keys::DISPLAY_READY, [](bool& v){
-			if(!v)
-				return v;
-			else {
-				bool ret = v;
-				v = !v;
-				return ret;
-			}
-		})) {
-			mainFbContext_->copyToRootWindow();
-		}
-		if(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
-	                cv::Size winSz = get<cv::Size>(Keys::WINDOW_SIZE);
-			FrameBufferContext::WindowScope winScope(mainFbContext_);
-			FrameBufferContext::GLScope glScope(mainFbContext_, GL_READ_FRAMEBUFFER);
-			cv::Rect initial = get<cv::Rect>(Keys::WINDOW_SIZE);
-			initial.y = (mainFbContext_->size().height - initial.height) + initial.y;
-	        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
-	        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+      mainFbContext_->blitFrameBufferToFrameBuffer(
+          initial, winSz, V4D::get<bool>(V4D::Keys::AUTO_SCALE), false);
+      glfwSwapBuffers(mainFbContext_->getGLFWWindow());
+    }
+    GL_CHECK(glFinish());
+  }
 
-			mainFbContext_->blitFrameBufferToFrameBuffer(initial, winSz, V4D::get<bool>(V4D::Keys::AUTO_SCALE), false);
-			glfwSwapBuffers(mainFbContext_->getGLFWWindow());
-		}
-		GL_CHECK(glFinish());
-	}
-
-    return true;
+  return true;
 }
 
-GLFWwindow* V4D::getGLFWWindow() const {
-    return mainFbContext_->getGLFWWindow();
+GLFWwindow *V4D::getGLFWWindow() const {
+  return mainFbContext_->getGLFWWindow();
 }
 
 void V4D::printSystemInfo() {
-	std::cerr << "OpenGL: " << get_gl_info() << std::endl;
+  std::cerr << "OpenGL: " << get_gl_info() << std::endl;
 #ifdef HAVE_OPENCL
-	if(cv::ocl::useOpenCL())
-		std::cerr << "OpenCL Platforms: " << get_cl_info() << endl;
+  if (cv::ocl::useOpenCL())
+    std::cerr << "OpenCL Platforms: " << get_cl_info() << endl;
 #endif
 }
 
-AllocateFlags::Enum V4D::allocateFlags() {
-	return allocateFlags_;
-}
+AllocateFlags::Enum V4D::allocateFlags() { return allocateFlags_; }
 
-ConfigFlags::Enum V4D::configFlags() {
-	return configFlags_;
-}
+ConfigFlags::Enum V4D::configFlags() { return configFlags_; }
 
-DebugFlags::Enum V4D::debugFlags() {
-	return debugFlags_;
-}
+DebugFlags::Enum V4D::debugFlags() { return debugFlags_; }
 
 void V4D::run(std::function<void()> runGraph) {
-	// Backwards compatible entry point: the frame synchronization of a run now
-	// lives in the runtime instead of in function-local statics.
-	V4D::run(V4D::instance(), runGraph);
+  // Backwards compatible entry point: the frame synchronization of a run now
+  // lives in the runtime instead of in function-local statics.
+  V4D::run(V4D::instance(), runGraph);
 }
 
 void V4D::run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
-	if(!runtime || !runtime->runState_)
-		return;
-	RunState& state = *runtime->runState_;
-	Resequence& reseq = *state.reseq;
-	try {
-		if(GlobalState::isMain()) {
-			CV_LOG_INFO(&v4d_tag, "Display thread started.");
-			while(runtime->keepRunning()) {
-				bool result = true;
-				state.timer->execute("display", [&result, runtime, &state](){
-					if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-						event::poll();
-						state.frameSyncSemaSwap.acquire();
-						if(!runtime->display()) {
-							result = false;
-						} else {
-							state.frameSyncRender.release();
-						}
-					} else {
-						event::poll();
-						if(!runtime->display()) {
-							result = false;
-						}
-					}
-				});
-				if(!result)
-					break;
-			}
-		} else {
-			while(runtime->keepRunning()) {
-				bool result = true;
-				state.timer->execute("worker", [&result, runtime, runGraph, &state, &reseq](){
-					event::poll();
-					GlobalState::apply<size_t>(GlobalState::Keys::RUN_CNT, [runtime](size_t& s) {
-						++s;
-						return s;
-					});
+  if (!runtime || !runtime->runState_)
+    return;
+  RunState &state = *runtime->runState_;
+  Resequence &reseq = *state.reseq;
+  try {
+    if (GlobalState::isMain()) {
+      CV_LOG_INFO(&v4d_tag, "Display thread started.");
+      while (runtime->keepRunning()) {
+        bool result = true;
+        state.timer->execute("display", [&result, runtime, &state]() {
+          if (runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
+            event::poll();
+            state.frameSyncSemaSwap.acquire();
+            if (!runtime->display()) {
+              result = false;
+            } else {
+              state.frameSyncRender.release();
+            }
+          } else {
+            event::poll();
+            if (!runtime->display()) {
+              result = false;
+            }
+          }
+        });
+        if (!result)
+          break;
+      }
+    } else {
+      while (runtime->keepRunning()) {
+        bool result = true;
+        state.timer->execute("worker", [&result, runtime, runGraph, &state,
+                                        &reseq]() {
+          event::poll();
+          GlobalState::apply<size_t>(GlobalState::Keys::RUN_CNT,
+                                     [runtime](size_t &s) {
+                                       ++s;
+                                       return s;
+                                     });
 
-					size_t seq = GlobalState::apply<size_t>(GlobalState::Keys::FRAME_CNT, [runtime](size_t& s) {
-						++s;
-						return s;
-					});
+          size_t seq = GlobalState::apply<size_t>(GlobalState::Keys::FRAME_CNT,
+                                                  [runtime](size_t &s) {
+                                                    ++s;
+                                                    return s;
+                                                  });
 
-					if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-						state.frameSyncSemaSwap.release();
-						reseq.waitFor(seq, [&state](uint64_t s) {
-							CV_UNUSED(s);
-							state.frameSyncRender.acquire();
-						});
-						runGraph();
+          if (runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
+            state.frameSyncSemaSwap.release();
+            reseq.waitFor(seq, [&state](uint64_t s) {
+              CV_UNUSED(s);
+              state.frameSyncRender.acquire();
+            });
+            runGraph();
 
-						if(!runtime->display()) {
-							state.frameSyncSemaSwap.release();
-							result = false;
-						}
-					} else {
-						runGraph();
-						reseq.waitFor(seq, [&result, runtime](uint64_t s) {
-							CV_UNUSED(s);
-							result = runtime->display();
-						});
-					}
-				});
-				if(!result)
-					break;
-			}
-		}
-	} catch(std::runtime_error& ex) {
-		CV_LOG_WARNING(&v4d_tag, "Pipeline terminated: " << ex.what());
-	} catch(std::exception& ex) {
-		CV_LOG_WARNING(&v4d_tag, "Pipeline terminated: " << ex.what());
-	} catch(...) {
-		CV_LOG_WARNING(&v4d_tag, "Pipeline terminated with unknown error.");
-	}
-	// Stop the other participants of this run, so they leave their loops too.
-	runtime->requestFinish();
-	if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
-		if(GlobalState::isMain()) {
-			for(size_t i = 0; i < GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED); ++i)
-				state.frameSyncRender.release();
-		} else {
-			state.frameSyncSemaSwap.release();
-		}
-	}
-	reseq.finish();
+            if (!runtime->display()) {
+              state.frameSyncSemaSwap.release();
+              result = false;
+            }
+          } else {
+            runGraph();
+            reseq.waitFor(seq, [&result, runtime](uint64_t s) {
+              CV_UNUSED(s);
+              result = runtime->display();
+            });
+          }
+        });
+        if (!result)
+          break;
+      }
+    }
+  } catch (std::runtime_error &ex) {
+    CV_LOG_WARNING(&v4d_tag, "Pipeline terminated: " << ex.what());
+  } catch (std::exception &ex) {
+    CV_LOG_WARNING(&v4d_tag, "Pipeline terminated: " << ex.what());
+  } catch (...) {
+    CV_LOG_WARNING(&v4d_tag, "Pipeline terminated with unknown error.");
+  }
+  // Stop the other participants of this run, so they leave their loops too.
+  runtime->requestFinish();
+  if (runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
+    if (GlobalState::isMain()) {
+      for (size_t i = 0;
+           i < GlobalState::get<size_t>(GlobalState::Keys::WORKERS_STARTED);
+           ++i)
+        state.frameSyncRender.release();
+    } else {
+      state.frameSyncSemaSwap.release();
+    }
+  }
+  reseq.finish();
 }
 
-}
-}
+} // namespace v4d
+} // namespace cv

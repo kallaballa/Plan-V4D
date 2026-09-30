@@ -1,6 +1,6 @@
 // This file is part of OpenCV project.
-// It is subject to the license terms in the LICENSE file found in the top-level directory
-// of this distribution and at http://opencv.org/license.html.
+// It is subject to the license terms in the LICENSE file found in the top-level
+// directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include "../../include/opencv2/v4d/detail/sinkcontext.hpp"
@@ -12,46 +12,39 @@ namespace cv {
 namespace v4d {
 namespace detail {
 
-SinkContext::SinkContext(cv::Ptr<FrameBufferContext> mainFbContext) : mainFbContext_(mainFbContext) {
+SinkContext::SinkContext(cv::Ptr<FrameBufferContext> mainFbContext)
+    : mainFbContext_(mainFbContext) {}
+
+int SinkContext::execute(const cv::Rect &vp, std::function<void()> fn) {
+  auto v4d = V4D::instance();
+  if (!v4d->hasSink())
+    return 1;
+
+  CV_UNUSED(vp);
+  if (hasContext()) {
+    CLExecScope_t scope(getCLExecContext());
+    fn();
+  } else {
+    fn();
+  }
+
+  if (v4d->getSink()->isOpen()) {
+    cvtColor(sinkBuffer(), rgba_, cv::COLOR_BGRA2RGBA);
+
+    v4d->getSink()->operator()(
+        GlobalState::get<size_t>(GlobalState::Keys::FRAME_CNT), rgba_);
+    return 1;
+  }
+  return 0;
 }
 
-int SinkContext::execute(const cv::Rect& vp, std::function<void()> fn) {
-    auto v4d = V4D::instance();
-    if(!v4d->hasSink())
-		return 1;
+bool SinkContext::hasContext() { return !context_.empty(); }
 
-	CV_UNUSED(vp);
-    if (hasContext()) {
-        CLExecScope_t scope(getCLExecContext());
-        fn();
-    } else {
-    	fn();
-    }
+void SinkContext::copyContext() { context_ = CLExecContext_t::getCurrent(); }
 
-	if(v4d->getSink()->isOpen()) {
-        cvtColor(sinkBuffer(), rgba_, cv::COLOR_BGRA2RGBA);
+CLExecContext_t SinkContext::getCLExecContext() { return context_; }
 
-        v4d->getSink()->operator ()(GlobalState::get<size_t>(GlobalState::Keys::FRAME_CNT), rgba_);
-        return 1;
-	}
-	return 0;
-}
-
-bool SinkContext::hasContext() {
-    return !context_.empty();
-}
-
-void SinkContext::copyContext() {
-    context_ = CLExecContext_t::getCurrent();
-}
-
-CLExecContext_t SinkContext::getCLExecContext() {
-    return context_;
-}
-
-cv::UMat& SinkContext::sinkBuffer() {
-	return sinkBuffer_;
-}
-}
-}
-}
+cv::UMat &SinkContext::sinkBuffer() { return sinkBuffer_; }
+} // namespace detail
+} // namespace v4d
+} // namespace cv

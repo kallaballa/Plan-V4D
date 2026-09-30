@@ -344,7 +344,7 @@ public:
             }
           }
           //	                std::cerr << "new points:" <<
-          //temp_.newPoints_.size() << std::endl;
+          // temp_.newPoints_.size() << std::endl;
           if (temp_.newPoints_.empty())
             return;
           float total = 0;
@@ -562,7 +562,7 @@ int main(int argc, char **argv) {
                                    ConfigFlags::DISPLAY_MODE);
   auto src = Source::make(runtime, videoFile);
   //	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280,
-  //720));
+  // 720));
   runtime->setSource(src);
   //	runtime->setSink(sink);
   V4DPlan::run<OptflowDemoPlan>(2);

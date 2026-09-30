@@ -1,12 +1,12 @@
 // Scratch probe: validate DSL patterns against real headers (syntax only).
 // Disabled — this file has a duplicate main() and is not a proper gtest.
 #if 0
-#include "opencv2/plan/plan.hpp"
 #include "MockPlanRuntime.hpp"
+#include "opencv2/plan/plan.hpp"
 
+#include <memory>
 #include <thread>
 #include <vector>
-#include <memory>
 
 namespace cv { namespace plan { namespace test {
 class ProbePlan : public TestedPlan {
