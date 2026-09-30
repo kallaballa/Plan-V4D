@@ -55,6 +55,7 @@ struct Detection {
 
 class PedestrianDemoPlan : public V4DPlan {
 private:
+        constexpr static auto UMAT_COPY_TO_= _OLMC_(void, cv::UMat, &cv::UMat::copyTo, cv::OutputArray);
 	//GUI-tunable tracking parameters. Written on the main thread by gui() (under
 	//the shared mutex via RWS) and snapshotted by the tracking worker (via CS).
 	struct TrackParams {
@@ -373,8 +374,8 @@ public:
     		detection.params_.compress_feature = false;
     		detection.params_.compressed_size = 1;
     		detection.hog_.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
-    		params.downSize_ = { sz.width / 4 , sz.height / 4 };
-    		params.scale_ = { 2.0f, 2.0f };
+    		params.scale_ = { 4.0f, 4.0f };
+		params.downSize_ = { sz.width / params.scale_.width , sz.height / params.scale_.height };
     		frames.videoFrame_.create(sz, CV_8UC4);
     		frames.videoFrameBGR_.create(sz, CV_8UC3);
     		frames.videoFrameDownGrey_.create(sz, CV_8UC1);
@@ -382,7 +383,7 @@ public:
 	}
 
 	void infer() override {
-		capture(RW(frames_.videoFrame_));
+                fb(UMAT_COPY_TO_, RW(frames_.videoFrame_));
 
 		plain(cv::cvtColor,R(frames_.videoFrame_), RW(frames_.videoFrameBGR_),V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->plain(prepare_frames, R(params_), RW(frames_));
@@ -397,9 +398,7 @@ public:
 		->endBranch();
 
 		nvg(&ObjectMarker::draw, R(marker_), size_, R(params_), CS(trackedBoxes_))
-        ->fb(present, R(frames_.background_));
-
-		write();
+                ->fb(present, R(frames_.background_));
 	}
 };
 
@@ -407,14 +406,17 @@ public:
 PedestrianDemoPlan::TrackParams PedestrianDemoPlan::trackParams_;
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::cerr << "Usage: pedestrian-demo <video-input>" << std::endl;
-        exit(1);
-    }
+    cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
 
+    std::string videoFile = (argc > 1) ? argv[1] : cv::samples::findFile("videos/dance.mp4");
+    if (videoFile.empty()) {
+        std::cerr << "Usage: pedestrian-demo <input-video-file>" << endl;
+        return 1;
+    }
+    
     cv::Rect viewport(0, 0, 1920, 1080);
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-    auto src = Source::make(runtime, argv[1]);
+    auto src = Source::make(runtime, videoFile);
 //    auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 60, viewport.size());
     runtime->setSource(src);
 //    runtime->setSink(sink);

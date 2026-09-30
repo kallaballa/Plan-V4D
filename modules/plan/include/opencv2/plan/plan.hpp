@@ -1274,7 +1274,9 @@ return LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX) == static_cast<si
 		} else {
 			try {
 				CV_LOG_DEBUG(nullptr, "Main inference on worker: " << LocalState::get<size_t>(LocalState::Keys::WORKER_INDEX));
+				plan->capture();
 				plan->infer();
+				plan->write();
 				plan->makeGraph();
 			} catch(std::exception& ex) {
 				CV_Error_(cv::Error::StsError, ("Main inference failed: %s", ex.what()));

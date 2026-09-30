@@ -66,13 +66,8 @@ class CustomSourceAndSinkPlan: public V4DPlan {
 	Property<cv::Size> size_ = P < cv::Size > (V4D::Keys::SIZE);
 public:
 	void infer() override {
-		capture();
-
 		fb < 1 > (&PureColor::find, RW(finder_));
 		nvg(&PureColor::draw, R(finder_), size_);
-
-		std::dynamic_pointer_cast<V4DPlan>(
-				branch(&PureColor::found, R(finder_)))->write()->endBranch();
 	}
 };
 

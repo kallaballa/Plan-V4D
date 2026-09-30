@@ -116,6 +116,7 @@ static void draw_color_wheel(cv::Size sz, float hue) {
 using namespace cv::v4d;
 
 class NanoVGDemoPlan : public V4DPlan {
+        constexpr static auto UMAT_COPY_TO_ = _OLMC_(void, cv::UMat, &cv::UMat::copyTo, cv::OutputArray);
 	std::vector<cv::UMat> hsvChannels_;
 	cv::UMat frame_;
 	cv::UMat bgra_;
@@ -135,7 +136,7 @@ public:
 		plain(RESIZE_VEC_, RW(hsvChannels_), V(size_t(3)));
 	}
 	void infer() override {
-		capture(RW(bgra_));
+		fb(UMAT_COPY_TO_,RW(bgra_));
 
 		assign(RW(hue_), (F(&sinf,(F(&cv::getTickCount) / F(&cv::getTickFrequency)) * V(0.12) + V(1))) * V(255.0));
 		//Acquire the framebuffer and convert it to RGB

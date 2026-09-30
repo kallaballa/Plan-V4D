@@ -684,16 +684,6 @@ public:
     	return self<V4DPlan>();
     }
 
-    template <typename Tedge>
-    cv::Ptr<V4DPlan> capture(Tedge&& edge) {
-        capture([](const cv::UMat& inputFrame, cv::UMat& f){
-    	    if(!inputFrame.empty())
-    			inputFrame.copyTo(f);
-    	}, edge);
-
-		return self<V4DPlan>();
-    }
-
     cv::Ptr<V4DPlan> capture() {
         capture([](const cv::UMat& inputFrame, cv::UMat& f){
             if(!inputFrame.empty())
@@ -724,6 +714,23 @@ public:
 		return self<V4DPlan>();
     }
 
+    cv::Ptr<V4DPlan> write() {
+        if(!getParentID().empty())
+            return self<V4DPlan>();
+
+        auto writerEdge = makeInternalEdge<false>(writerFrame_);
+        auto writerEdgeConst = makeInternalEdge<true>(writerFrame_);
+
+        fb([](const cv::UMat& framebuffer, cv::UMat& f) {
+            framebuffer.copyTo(f);
+        }, writerEdge);
+
+        write([](cv::UMat& outputFrame, const cv::UMat& f){
+                        f.copyTo(outputFrame);
+        }, writerEdgeConst);
+                return self<V4DPlan>();
+    }
+
     template<typename Tedge>
     cv::Ptr<V4DPlan> write(Tedge&& edge) {
         if(!getParentID().empty())
@@ -735,21 +742,14 @@ public:
         return self<V4DPlan>();
     }
 
-    cv::Ptr<V4DPlan> write() {
-        if(!getParentID().empty())
-            return self<V4DPlan>();
+    template <typename Tedge>
+    cv::Ptr<V4DPlan> capture(Tedge&& edge) {
+        plain([](const cv::UMat& inputFrame, cv::UMat& f){
+            if(!inputFrame.empty())
+                        inputFrame.copyTo(f);
+        }, makeInternalEdge<false>(std::dynamic_pointer_cast<SourceContext>(runtime()->sourceCtx())->sourceBuffer()), edge);
 
-        auto writerEdge = makeInternalEdge<false>(writerFrame_);
-    	auto writerEdgeConst = makeInternalEdge<true>(writerFrame_);
-
-        fb([](const cv::UMat& framebuffer, cv::UMat& f) {
-            framebuffer.copyTo(f);
-        }, writerEdge);
-
-     	write([](cv::UMat& outputFrame, const cv::UMat& f){
-   			f.copyTo(outputFrame);
-    	}, writerEdgeConst);
-		return self<V4DPlan>();
+        return self<V4DPlan>();
     }
 
     template <typename Tfn, typename ... Args>

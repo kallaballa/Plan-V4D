@@ -189,7 +189,7 @@ public:
         //contrast boost
         int contrastBoost_ = 30; //0.0-255
         //max fractal iterations
-        int maxIterations_ = 8000;
+        int maxIterations_ = 2000;
 
         bool autoZoom_ = true;
     };
@@ -319,15 +319,11 @@ public:
     void infer() override {
     	assign(RW(scale_), F(aspect_preserving_scale, winSz_, size_));
 
-    	capture();
-
     	branch(process_events, size_, winSz_, scroll_, release_, R(scale_), RWS(params_))
         	->plain(&Camera2D::updateAutoZoom, RWS(params_.camera_), R(params_.settings_.maxIterations_))
 		->endBranch();
 
         gl(&MandelbrotScene::render, R(scene_), size_, CS(params_.settings_), CS(params_.camera_));
-
-        write();
     }
 
     void teardown() override {

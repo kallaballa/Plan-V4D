@@ -20,9 +20,7 @@ public:
 	}
 
 	void infer() override {
-		capture();
 		gl(&CubeScene::render, R(scene_), V(false), V(0.0));
-		write();
 	}
 
 	void teardown() override {

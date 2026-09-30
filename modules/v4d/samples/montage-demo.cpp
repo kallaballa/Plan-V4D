@@ -141,7 +141,6 @@ public:
         branch(R(localState_.focus_) == V(int32_t(i)));
         {
           set(V4D::Keys::VIEWPORT, R(targetViewports_[i]));
-          capture();
           subInfer(plans_[i]);
           nvg(drawCell, R(defaultVP_));
         }
@@ -163,7 +162,6 @@ public:
       for (size_t i = 0; i < plans_.size(); ++i) {
         branch(R(localState_.zoomed_) == V(int32_t(i)));
         {
-          capture();
           subInfer(plans_[i]);
         }
         endBranch();
@@ -213,8 +211,6 @@ public:
         ->endBranch();
 
     set(V4D::Keys::DISABLE_INPUT_EVENTS, V(true));
-
-    write();
   }
 
   void teardown() override {

@@ -10,9 +10,6 @@ class VideoEditingPlan : public V4DPlan {
 	Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
 	void infer() override {
-		//Capture video from the source
-		capture();
-
 		//Render on top of the video
 		nvg([](const Size& sz, const string& str) {
 			using namespace cv::v4d::nvg;
@@ -23,9 +20,6 @@ public:
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 			text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
 		}, sz_, R(hv_));
-
-		//Write video to the sink
-		write();
 	}
 };
 
