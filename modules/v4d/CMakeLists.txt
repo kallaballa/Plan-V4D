@@ -307,7 +307,7 @@ if(NOT (TARGET ${the_module}))
     endif()
     add_binary_sample(example_v4d_montage-demo samples/montage-demo.cpp)
     add_binary_sample(example_v4d_pipeline-demo samples/pipeline-demo.cpp)
-    add_binary_sample(example_v4d_image_carousel samples/image_carousel-demo.cpp)
+    add_binary_sample(example_v4d_image_carousel-demo samples/image_carousel-demo.cpp)
   endif()
 
   if(OPENCV_V4D_ENABLE_ES3)
