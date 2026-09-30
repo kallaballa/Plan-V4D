@@ -143,6 +143,35 @@ auto src = new Source([](cv::UMat& frame) -> bool {
 }, /*fps=*/60.f);
 ```
 
+## Assets
+
+Samples and applications locate their assets (videos, models, fonts) with
+`cv::samples::findFile` after registering the V4D asset directories:
+
+```cpp
+cv::v4d::add_asset_search_paths();
+
+std::string video = cv::samples::findFile("videos/bunny.mp4");
+```
+
+The search path is a list of directories, not a single directory. It contains
+the build tree (`<build>/modules/v4d/assets`, `<build>/modules/v4d/samples/data`),
+the source tree (`modules/v4d/assets`, `modules/v4d/samples/data`) and the
+install directory (`share/opencv4`), in that order of priority — so the samples
+find their assets with or without `make install`. Only existing directories are
+searched. Directories that do not exist at build time but appear later are still
+searched for, as long as they exist at startup.
+
+Additional directories can be given at runtime with the `V4D_ASSET_PATH`
+environment variable, as a `:`-separated list (`;` on Windows). They take
+precedence over the built-in list:
+
+```bash
+V4D_ASSET_PATH=~/videos:/opt/shared/assets ./bin/example_v4d_video-demo
+```
+
+`cv::v4d::asset_search_paths()` returns the effective list.
+
 ## Files
 
 ```

@@ -149,88 +149,11 @@ int ImGuiContextImpl::execute(const cv::Rect& vp, std::function<void()> fn) {
 		        ImGui::PopStyleColor(1);
 		}
 		if(GlobalState::get<bool>(GlobalState::Keys::TIME_TRACKER)) {
-			struct TableEntry {
-				string name;
-				double totalAvg;
-				double iterAvg;
-				long count;
-				long last;
-			};
-
-			std::vector<TableEntry> entries;
-			{
-				std::unique_lock lock(TimeTracker::getInstance()->getMap());
-				for (const auto& pair : TimeTracker::getInstance()->getMap()) {
-					const TimeInfo& ti = pair.second;
-					entries.push_back({pair.first,
-						ti.totalCnt_ > 0 ? (ti.totalTime_ / 1000.0) / ti.totalCnt_ : 0.0,
-						ti.iterCnt_ > 0 ? (ti.iterTime_ / 1000.0) / ti.iterCnt_ : 0.0,
-						ti.totalCnt_,
-						ti.last_ / 1000.0});
-				}
-			}
-
-			ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
-			ImGui::Begin("Time Tracking", open_ptr,
-				ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollWithMouse
-				| ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings
-				| ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
-				| ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs);
-
-			ImGuiTableFlags table_flags =
-				ImGuiTableFlags_Sortable | ImGuiTableFlags_RowBg
-				| ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable
-				| ImGuiTableFlags_SizingFixedFit;
-
-			if (ImGui::BeginTable("time_tracking_table", 5, table_flags)) {
-				ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.0f, 0);
-				ImGui::TableSetupColumn("Avg Total (ms)", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortDescending | ImGuiTableColumnFlags_WidthFixed, 0.0f, 1);
-				ImGui::TableSetupColumn("Avg Frame (ms)", ImGuiTableColumnFlags_WidthFixed, 0.0f, 2);
-				ImGui::TableSetupColumn("Calls", ImGuiTableColumnFlags_WidthFixed, 0.0f, 3);
-				ImGui::TableSetupColumn("Last (ms)", ImGuiTableColumnFlags_WidthFixed, 0.0f, 4);
-				ImGui::TableHeadersRow();
-
-				if (ImGuiTableSortSpecs* sort_specs = ImGui::TableGetSortSpecs()) {
-					if (sort_specs->SpecsDirty && !entries.empty()) {
-						sort_specs->SpecsDirty = false;
-						for (int s = 0; s < sort_specs->SpecsCount; s++) {
-							const ImGuiTableColumnSortSpecs* col_sort = &sort_specs->Specs[s];
-							auto comparator = [col_sort](const TableEntry& a, const TableEntry& b) {
-								double va = 0.0, vb = 0.0;
-								switch (col_sort->ColumnUserID) {
-									case 1: va = a.totalAvg; vb = b.totalAvg; break;
-									case 2: va = a.iterAvg;  vb = b.iterAvg;  break;
-									case 3: va = (double)a.count; vb = (double)b.count; break;
-									case 4: va = (double)a.last;  vb = (double)b.last;  break;
-									default: va = (double)a.last; vb = (double)b.last; break;
-								}
-								if (va < vb) return col_sort->SortDirection == ImGuiSortDirection_Ascending;
-								if (va > vb) return col_sort->SortDirection == ImGuiSortDirection_Descending;
-								return col_sort->SortDirection == ImGuiSortDirection_Ascending;
-							};
-							std::stable_sort(entries.begin(), entries.end(), comparator);
-						}
-					}
-				}
-
-				for (const auto& e : entries) {
-					ImGui::TableNextRow();
-					ImGui::TableNextColumn();
-					ImGui::TextUnformatted(e.name.c_str());
-					ImGui::TableNextColumn();
-					ImGui::Text("%.4f", e.totalAvg);
-					ImGui::TableNextColumn();
-					ImGui::Text("%.4f", e.iterAvg);
-					ImGui::TableNextColumn();
-					ImGui::Text("%ld", e.count);
-					ImGui::TableNextColumn();
-					ImGui::Text("%.4f", (double)e.last);
-				}
-				ImGui::EndTable();
-			}
-
-			ImGui::End();
-			ImGui::PopStyleColor(1);
+			// The widget is the view of the TIME_TRACKER property: closing it
+			// clears the property, which also stops the workers from measuring
+			// for a widget nobody is looking at.
+			if(!timeTrackerWidget_.draw(*TimeTracker::getInstance()))
+				GlobalState::set(GlobalState::Keys::TIME_TRACKER, false);
 		}
 	    if (renderCallback_)
 	        renderCallback_->perform();

@@ -14,6 +14,7 @@
 #include "framebuffercontext.hpp"
 #include <opencv2/plan/detail/transaction.hpp>
 #include "imgui.h"
+#include "timetrackerwidget.hpp"
 
 struct ImGuiContext;
 struct GLFWwindow;
@@ -32,6 +33,9 @@ class CV_EXPORTS ImGuiContextImpl : public cv::plan::detail::PlanContext {
     // displays a window - its own current context for free.
     inline static thread_local ImGuiContext* context_;
     cv::Ptr<cv::plan::Transaction> renderCallback_;
+    // The TIME_TRACKER overlay of this window. It is a member because it holds
+    // the state of its filter field across frames.
+    TimeTrackerWidget timeTrackerWidget_;
     bool firstFrame_ = true;
 public:
     CV_EXPORTS ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext);

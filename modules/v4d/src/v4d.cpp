@@ -349,6 +349,22 @@ bool V4D::display() {
 		}
     }
 	if (GlobalState::isMain()) {
+		// Keys::FULLSCREEN is the *requested* state; the window is the real one.
+		// GLFW can put a full screen window into windowed mode behind our back
+		// (e.g. when its monitor is disconnected), which would leave the key
+		// claiming fullscreen forever - and since the key's callback only fires
+		// when the value changes, a later set(Keys::FULLSCREEN, true) would then
+		// be swallowed. Write the observed state back, so the key converges.
+		// Not fired: its callback only applies the value to the window, which is
+		// exactly what just changed. This runs in the run loop, never inside a
+		// property callback, so taking the property lock here cannot deadlock.
+		{
+			const bool fullscreen = mainFbContext_->isFullscreen();
+			if(get<bool>(Keys::FULLSCREEN) != fullscreen) {
+				set(Keys::FULLSCREEN, fullscreen, false);
+			}
+		}
+
 		bool countLockContention = debugFlags() & DebugFlags::PRINT_LOCK_CONTENTION;
 		auto start = GlobalState::get<uint64_t>(GlobalState::Keys::START_TIME);
 		auto now = get_epoch_nanos();
@@ -382,13 +398,14 @@ bool V4D::display() {
 			std::cerr << "\rFPS:" << GlobalState::get<double>(GlobalState::Keys::FPS) << std::endl;
 		}
 
-        cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
+                cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
+		cv::Size winSz = get<cv::Size>(Keys::WINDOW_SIZE);
 		{
 			FrameBufferContext::WindowScope winScope(mainFbContext_);
 			FrameBufferContext::GLScope glScope(mainFbContext_, GL_READ_FRAMEBUFFER);
 			GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 			assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-			mainFbContext_->blitFrameBufferToFrameBuffer(vp, mainFbContext_->size(), false, false);
+			mainFbContext_->blitFrameBufferToFrameBuffer(vp, winSz, V4D::get<bool>(V4D::Keys::AUTO_SCALE), false);
 		}
 		{
 			if((allocateFlags() & AllocateFlags::IMGUI) && GlobalState::get<bool>(GlobalState::Keys::SHOW_GUI)) {
@@ -441,14 +458,15 @@ bool V4D::display() {
 			mainFbContext_->copyToRootWindow();
 		}
 		if(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
+	                cv::Size winSz = get<cv::Size>(Keys::WINDOW_SIZE);
 			FrameBufferContext::WindowScope winScope(mainFbContext_);
 			FrameBufferContext::GLScope glScope(mainFbContext_, GL_READ_FRAMEBUFFER);
-			cv::Rect initial = get<cv::Rect>(Keys::SIZE);
+			cv::Rect initial = get<cv::Rect>(Keys::WINDOW_SIZE);
 			initial.y = (mainFbContext_->size().height - initial.height) + initial.y;
 	        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 	        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 
-			mainFbContext_->blitFrameBufferToFrameBuffer(initial, mainFbContext_->size(), false, false);
+			mainFbContext_->blitFrameBufferToFrameBuffer(initial, winSz, V4D::get<bool>(V4D::Keys::AUTO_SCALE), false);
 			glfwSwapBuffers(mainFbContext_->getGLFWWindow());
 		}
 		GL_CHECK(glFinish());

@@ -925,7 +925,7 @@ private:
 };
 
 int main(int argc, char** argv) {
-    cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
+    cv::v4d::add_asset_search_paths();
     cv::Rect viewport(0, 0, 1920, 1080);
     std::string filename;
     if (argc > 1) {

@@ -13,6 +13,8 @@
 #include "detail/framebuffercontext.hpp"
 #include <filesystem>
 #include <array>
+#include <string>
+#include <vector>
 
 namespace cv {
 namespace v4d {
@@ -25,6 +27,28 @@ namespace v4d {
 
 CV_EXPORTS void copy_cross(const cv::UMat& src, cv::UMat& dst);
 CV_EXPORTS void setThreadName(const char* threadName);
+
+/** @brief Directories that are searched for V4D assets (videos, models, fonts, ...)
+
+The list is the compilation time list of asset directories (`V4D_ASSET_PATH`, see
+CMakeLists.txt) extended by the directories listed in the `V4D_ASSET_PATH`
+environment variable. Entries that are not existing directories are dropped, and
+the environment variable entries come first, i.e. they have the highest priority.
+
+@see add_asset_search_paths
+*/
+CV_EXPORTS const std::vector<std::string>& asset_search_paths();
+
+/** @brief Register the V4D asset directories as sample data search paths
+
+After this call, `cv::samples::findFile` (and `cv::utils::findDataFile`) look for
+assets in the directories returned by `asset_search_paths`, in that order, before
+falling back to the default OpenCV lookup. Calling it more than once has no
+effect.
+
+@see asset_search_paths
+*/
+CV_EXPORTS void add_asset_search_paths();
 
 template<typename T>
 constexpr int matrix_depth() {

@@ -53,6 +53,27 @@ endif()
 
 set(V4D_MODULES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../")
 
+# Asset search path. An ordered list of directories that are searched for asset
+# files (videos, models, fonts, ...). The first existing directory has the
+# highest priority. The list is baked into the binaries as V4D_ASSET_PATH and can
+# be extended/overridden at runtime with the V4D_ASSET_PATH environment
+# variable (same separator), which takes precedence over the compiled-in list.
+set(V4D_ASSET_PATH_DIRS
+  "${CMAKE_CURRENT_BINARY_DIR}/assets"
+  "${CMAKE_CURRENT_BINARY_DIR}/samples/data"
+  "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/data"
+  "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATAROOTDIR}/opencv4"
+  "/usr/local/share/opencv4")
+list(REMOVE_DUPLICATES V4D_ASSET_PATH_DIRS)
+if(WIN32)
+  set(V4D_ASSET_PATH_SEPARATOR ";") # ':' would split windows drive letters
+else()
+  set(V4D_ASSET_PATH_SEPARATOR ":")
+endif()
+string(REPLACE ";" "${V4D_ASSET_PATH_SEPARATOR}" V4D_ASSET_PATH "${V4D_ASSET_PATH_DIRS}")
+message(STATUS "V4D asset search path: ${V4D_ASSET_PATH}")
+
 # Macro to download a file (or use local cache)
 macro(fetch_file download_name url hash)
   set(LOCAL_CACHE_DIR "$ENV{HOME}/.cache/opencv_v4d" CACHE PATH "Local cache for downloaded files")
@@ -118,7 +139,9 @@ macro(add_binary_sample sample source)
     endif()
     target_compile_features(${sample} PRIVATE cxx_std_20)
     target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
-    target_compile_definitions(${sample} PRIVATE "V4D_ASSETS_PATH=\"/usr/local/share/opencv4/\"")
+    target_compile_definitions(${sample} PRIVATE
+      "V4D_ASSET_PATH=\"${V4D_ASSET_PATH}\""
+      "V4D_ASSETS_PATH=\"${V4D_ASSET_PATH}\"") # V4D_ASSETS_PATH is the deprecated spelling of V4D_ASSET_PATH
     if(OPENCV_V4D_ENABLE_BGFX)
       set(BGFX_INC_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
     endif()
@@ -315,6 +338,7 @@ if(NOT (TARGET ${the_module}))
   endif()
 
   target_compile_features(${the_module} PRIVATE cxx_std_20)
+  target_compile_definitions(${the_module} PRIVATE "V4D_ASSET_PATH=\"${V4D_ASSET_PATH}\"")
 
   target_link_directories(${the_module} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
   ocv_target_link_libraries(${the_module} opencv_plan glfw nanovg)

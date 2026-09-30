@@ -9,6 +9,7 @@
 #include <opencv2/core/ocl.hpp>
 #include "opencv2/core/opengl.hpp"
 #include <opencv2/core/utils/logger.hpp>
+#include <algorithm>
 #include <exception>
 #include <iostream>
 #include "../../third/imgui/backends/imgui_impl_glfw.h"
@@ -606,46 +607,46 @@ CLExecContext_t& FrameBufferContext::getCLExecContext() {
 
 void FrameBufferContext::blitFrameBufferToFrameBuffer(const cv::Rect& srcViewport,
         const cv::Size& targetFbSize, bool stretch, bool flipY) {
-	double hf = double(targetFbSize.height) / framebufferSize_.height;
-    double wf = double(targetFbSize.width) / framebufferSize_.width;
-    double f;
-    if (hf > wf)
-        f = wf;
-    else
-        f = hf;
+    CV_Assert(framebufferSize_.width > 0 && framebufferSize_.height > 0);
+    CV_Assert(targetFbSize.width > 0 && targetFbSize.height > 0);
 
-    double fbws = framebufferSize_.width * f;
-    double fbhs = framebufferSize_.height * f;
+    // The source is the top-left corner of this context's framebuffer, sized after
+    // the requested ROI. A ROI larger than the framebuffer is clipped, otherwise
+    // the blit would read outside of the read framebuffer.
+    const int srcWidth = srcViewport.width;
+    const int srcHeight = srcViewport.height;
+    if(srcWidth <= 0 || srcHeight <= 0)
+        return;
 
-//    double diffw = (targetFbSize.width - srcViewport.width) / 2.0;
-//    double diffh = (targetFbSize.height - srcViewport.height) / 2.0;
-
-//    double marginw = (targetFbSize.width - framebufferSize_.width) / 2.0;
-//    double marginh = (targetFbSize.height - framebufferSize_.height) / 2.0;
-    double marginws = (targetFbSize.width - fbws) / 2.0;
-    double marginhs = (targetFbSize.height - fbhs) / 2.0;
-
-    GLint srcX0 = 0;
-    GLint srcY0 = 0;
-    GLint srcX1 = srcViewport.width;
-    GLint srcY1 = srcViewport.height;
-    GLint dstX0 = stretch ? marginws : srcViewport.x;
-    GLint dstY0 = stretch ? marginhs : srcViewport.y;
-    GLint dstX1 = stretch ? marginws + fbws : srcViewport.x + srcViewport.width;
-    GLint dstY1 = stretch ? marginhs + fbhs : srcViewport.y + srcViewport.height;
-    if(flipY) {
-        GLint tmp = dstY0;
-        dstY0 = dstY1;
-        dstY1 = tmp;
+    // Destination: either the very same rect in the target framebuffer or, if stretching,
+    // the ROI scaled to the full extent of the target framebuffer.
+    int dstWidth = srcWidth;
+    int dstHeight = srcHeight;
+    if(stretch) {
+        dstWidth = targetFbSize.width;
+        dstHeight = targetFbSize.height;
     }
+    if(dstWidth <= 0 || dstHeight <= 0)
+        return;
+
+    const GLint srcX0 = 0;
+    const GLint srcY0 = 0;
+    const GLint srcX1 = srcWidth;
+    const GLint srcY1 = srcHeight;
+    GLint dstX0 = stretch ? 0 : srcViewport.x;
+    GLint dstY0 = stretch ? 0 : srcViewport.y;
+    GLint dstX1 = dstX0 + dstWidth;
+    GLint dstY1 = dstY0 + dstHeight;
+    if(flipY)
+        std::swap(dstY0, dstY1);
+
+    // Filtering only matters if the blit scales: GL_NEAREST aliases badly.
+    const bool scaled = (dstWidth != srcWidth || dstHeight != srcHeight);
+    const GLenum filter = scaled ? GL_LINEAR : GL_NEAREST;
 
     GL_CHECK(glBlitFramebuffer( srcX0, srcY0, srcX1, srcY1,
             dstX0, dstY0, dstX1, dstY1,
-            GL_COLOR_BUFFER_BIT, GL_NEAREST));
-
-//    std::cerr << "BLIT: " << srcX0 <<  " " << srcY0 <<  " " << srcX1 <<  " " << srcY1 <<
-//            " " << dstX0 <<  " " << dstY0 <<  " " << dstX1 <<  " " << dstY1 << std::endl;
-
+            GL_COLOR_BUFFER_BIT, filter));
 }
 
 cv::UMat& FrameBufferContext::fb() {
@@ -788,7 +789,6 @@ void FrameBufferContext::setResizable(bool r) {
 }
 
 void FrameBufferContext::setWindowSize(const cv::Size& sz) {
-	std::cerr << "SZ: " << sz << std::endl;
     glfwSetWindowSize(getGLFWWindow(), sz.width, sz.height);
 }
 
@@ -803,17 +803,23 @@ bool FrameBufferContext::isFullscreen() {
 }
 
 void FrameBufferContext::setFullscreen(bool f) {
-	std::cerr << "FULL: " << f << std::endl;
-    auto monitor = glfwGetPrimaryMonitor();
-    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    auto window = getGLFWWindow();
     if (f) {
-    	glfwSetWindowMonitor(getGLFWWindow(), monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-//    	setWindowSize(cv::Size(mode->width, mode->height));
-        setWindowSize(size());
+        if (isFullscreen())
+            return;
+        glfwGetWindowPos(window, &windowedPos_.x, &windowedPos_.y);
+        glfwGetWindowSize(window, &windowedSize_.width, &windowedSize_.height);
+        auto monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+        // Request the monitor's current video mode. Do not follow this with
+        // glfwSetWindowSize(): on a fullscreen window that replaces the desired
+        // video mode and reconfigures the monitor instead of resizing the window.
+        glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
     } else {
-        glfwSetWindowMonitor(getGLFWWindow(), nullptr, 0, 0, size().width,
-                size().height, 0);
-        setWindowSize(size());
+        if (!isFullscreen())
+            return;
+        glfwSetWindowMonitor(window, nullptr, windowedPos_.x, windowedPos_.y,
+                windowedSize_.width, windowedSize_.height, 0);
     }
 }
 
@@ -853,6 +859,14 @@ bool FrameBufferContext::isRoot() {
 
 bool FrameBufferContext::hasParent() {
     return parent_;
+}
+
+cv::Ptr<FrameBufferContext> FrameBufferContext::visibleContext() {
+    cv::Ptr<FrameBufferContext> ctx = self();
+    while(ctx && !ctx->isVisible() && ctx->parent_) {
+        ctx = ctx->parent_;
+    }
+    return ctx;
 }
 
 }

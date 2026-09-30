@@ -298,7 +298,7 @@ fi
 echo "$BUILD_TYPE" > "$BUILD_MARKER"
 
 if [ "$TARGET" = plan+v4d ]; then
-  make -j"$JOBS" && sudo timeout 10 make install
+  make -j"$JOBS" && timeout -s SIGKILL 10 sudo make install
 else
   make -j"$JOBS" opencv_test_plan opencv_perf_plan
   if [ -x ./bin/opencv_test_plan ]; then

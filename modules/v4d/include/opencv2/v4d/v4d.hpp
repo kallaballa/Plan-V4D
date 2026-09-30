@@ -122,13 +122,14 @@ public:
     	enum Enum {
     		SIZE,
     		VIEWPORT,
-			WINDOW_SIZE,
-			FRAMEBUFFER_SIZE,
-			CLEAR_COLOR,
-			NAMESPACE,
-			FULLSCREEN,
-			DISABLE_INPUT_EVENTS,
-	        VISIBLE
+		WINDOW_SIZE,
+		FRAMEBUFFER_SIZE,
+		CLEAR_COLOR,
+		NAMESPACE,
+		FULLSCREEN,
+		DISABLE_INPUT_EVENTS,
+	        VISIBLE,
+		AUTO_SCALE
     	};
     };
 private:
@@ -218,18 +219,34 @@ public:
      */
     CV_EXPORTS static V4D* runtimeForWindow(GLFWwindow* window);
 
+    /*!
+     * The frame buffer context of the calling thread's runtime whose window is
+     * the visible one.
+     *
+     * properties_ is thread local and every worker clone of a run has a runtime
+     * (and a hidden window) of its own, so V4D::instance()->fbCtx() is *not*
+     * necessarily the window the user sees. The keys that configure "the
+     * window" - WINDOW_SIZE, FULLSCREEN, VISIBLE - have to act on the visible
+     * context of the run instead, no matter which worker sets them.
+     */
+    static cv::Ptr<FrameBufferContext> visibleFbCtx() {
+        auto ctx = std::dynamic_pointer_cast<FrameBufferContext>(instance()->fbCtx());
+        return ctx ? ctx->visibleContext() : ctx;
+    }
+
     static void init_keys() {
         auto fb = std::dynamic_pointer_cast<FrameBufferContext>(instance_->fbCtx());
         instance_->ownProperties_ = &properties_;
         create<true>(Keys::SIZE, fb->size());
         create<false>(Keys::VIEWPORT, cv::Rect(0,0,fb->size().width, fb->size().height));
-        create<false, cv::Size>(Keys::WINDOW_SIZE, fb->size(), [](const cv::Size& sz){ std::dynamic_pointer_cast<FrameBufferContext>(V4D::instance()->fbCtx())->setWindowSize(sz); });
+        create<false, cv::Size>(Keys::WINDOW_SIZE, fb->size(), [](const cv::Size& sz){ visibleFbCtx()->setWindowSize(sz); });
         create<true>(Keys::FRAMEBUFFER_SIZE, fb->size());
         create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
         create<false,string>(Keys::NAMESPACE, "default");
-        create<false, bool>(Keys::FULLSCREEN, false, [](const bool& fs){ std::dynamic_pointer_cast<FrameBufferContext>(V4D::instance()->fbCtx())->setFullscreen(fs); });
+        create<false, bool>(Keys::FULLSCREEN, fb->isFullscreen(), [](const bool& fs){ visibleFbCtx()->setFullscreen(fs); });
         create<false>(Keys::DISABLE_INPUT_EVENTS, false);
-        create<false, bool>(Keys::VISIBLE, fb->isVisible(), [](const bool& v){ std::dynamic_pointer_cast<FrameBufferContext>(V4D::instance()->fbCtx())->setVisible(v); });
+        create<false, bool>(Keys::VISIBLE, fb->isVisible(), [](const bool& v){ visibleFbCtx()->setVisible(v); });
+	create<false, bool>(Keys::AUTO_SCALE, true);
     }
 
     template<bool Tread, typename Tval>

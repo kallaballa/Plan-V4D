@@ -394,7 +394,7 @@ public:
 	void infer() override {
 		//emits a node setting the states for "fullscreen" during execution of the graph reading values from the shared data by copying it.
 		set(V_::FULLSCREEN, CS(params_.fullscreen_));
-
+		set(V_::AUTO_SCALE, CS(params_.stretch_));
 		//create a node the will capture video
 		capture(RW(frames_.orig_));
 		plain(prepare_frames, R(downSize_), RW(frames_));
@@ -529,7 +529,7 @@ BeautyDemoPlan::Params BeautyDemoPlan::params_;
 FaceFeatures BeautyDemoPlan::features_;
 
 int main(int argc, char **argv) {
-	cv::samples::addSamplesDataSearchPath (V4D_ASSETS_PATH);
+	cv::v4d::add_asset_search_paths();
 
 	std::string videoFile =
 			(argc > 1) ? argv[1] : cv::samples::findFile("videos/kristen.mp4");
@@ -538,10 +538,10 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	cv::Rect viewport(0, 0, 1920, 1080);
+	cv::Rect viewport(0, 0, 1280, 720);
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo",
 			AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-			ConfigFlags::DISPLAY_MODE);
+			ConfigFlags::DISPLAY_MODE | ConfigFlags::RESIZEABLE);
 	//V4D provides a source, sink system which is used mostly but not exclusively with video data.
 	auto src = Source::make(runtime, videoFile);
 //	auto sink = Sink::make(runtime, "beauty-demo.mkv", 60, cv::Size(1920, 1080));

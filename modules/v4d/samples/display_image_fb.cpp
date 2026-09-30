@@ -33,6 +33,7 @@ public:
 };
 
 int main() {
+    cv::v4d::add_asset_search_paths();
 	cv::Rect viewport(0, 0, 960,960);
 	//Creates a V4D object
     Ptr<V4D> runtime = V4D::init(viewport, "Display an Image through direct FB access", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);

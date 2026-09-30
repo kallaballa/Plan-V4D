@@ -406,7 +406,7 @@ public:
 PedestrianDemoPlan::TrackParams PedestrianDemoPlan::trackParams_;
 
 int main(int argc, char **argv) {
-    cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
+    cv::v4d::add_asset_search_paths();
 
     std::string videoFile = (argc > 1) ? argv[1] : cv::samples::findFile("videos/dance.mp4");
     if (videoFile.empty()) {

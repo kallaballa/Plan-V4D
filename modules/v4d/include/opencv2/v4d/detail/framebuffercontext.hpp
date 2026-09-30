@@ -123,6 +123,10 @@ class CV_EXPORTS FrameBufferContext : public cv::plan::detail::PlanContext {
 #endif
     CLExecContext_t context_;
     const cv::Size framebufferSize_;
+    // Windowed mode geometry of the GLFW window, remembered when going fullscreen
+    // so it can be restored on the way back (GLFW does not remember it).
+    cv::Point windowedPos_ = {0, 0};
+    cv::Size windowedSize_ = {0, 0};
     cv::Ptr<FrameBufferContext> parent_;
     bool isRoot_ = true;
     std::map<size_t, GLint> texture_hdls_;
@@ -326,10 +330,27 @@ public:
     bool hasParent();
 
     /*!
-     * Blit the framebuffer to the screen
-     * @param viewport ROI to blit
-     * @param windowSize The size of the window to blit to
-     * @param stretch if true stretch the framebuffer to window size
+     * The context whose window the user actually sees: this one if it is on
+     * screen, otherwise the nearest visible ancestor.
+     *
+     * Every worker clone of a run gets a context (and therefore a GLFW window)
+     * of its own, which is hidden unless the run is configured with on-screen
+     * child contexts. Settings that apply to "the window" - full screen, size,
+     * visibility - must therefore be applied to this context and not to the
+     * clone's own, or they would be applied to a window nobody can see.
+     */
+    cv::Ptr<FrameBufferContext> visibleContext();
+
+    /*!
+     * Blit the framebuffer to the (already bound as draw framebuffer) target framebuffer.
+     * The source is the region at the origin of this context's framebuffer, its size being
+     * srcViewport's size (clipped to the framebuffer).
+     * @param srcViewport size of the region to blit. Without stretch, it also determines
+     *        the position of the region in the target framebuffer.
+     * @param targetFbSize The size of the framebuffer to blit to.
+     * @param stretch if true the region is scaled to the full size of targetFbSize (aspect
+     *        ratio not preserved), else it is copied 1:1 at srcViewport's position.
+     * @param flipY if true the region is flipped vertically while blitting.
      */
     void blitFrameBufferToFrameBuffer(const cv::Rect& srcViewport, const cv::Size& targetFbSize,
     		bool stretch = true, bool flipY = false);

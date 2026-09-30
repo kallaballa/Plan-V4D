@@ -12,11 +12,13 @@
 
 #include <csignal>
 #include <unistd.h>
+#include <algorithm>
 #include <chrono>
 #include <mutex>
 #include <functional>
 #include <iostream>
 #include <cmath>
+#include <cstdlib>
 #include <regex>
 
 using std::cerr;
@@ -82,6 +84,85 @@ CV_EXPORTS void copy_cross(const cv::UMat& src, cv::UMat& dst) {
 		dst.create(src.size(), src.type());
 	Mat m = dst.getMat(cv::ACCESS_WRITE);
 	src.copyTo(m);
+}
+
+// The asset directories known at compile time, see CMakeLists.txt. Samples also
+// get it, but they should call add_asset_search_paths() instead of using it.
+#ifndef V4D_ASSET_PATH
+#define V4D_ASSET_PATH ""
+#endif
+
+static const char* V4D_ASSET_PATH_ENV = "V4D_ASSET_PATH";
+
+static std::vector<std::string> split_asset_path(const char* assetPath) {
+	std::vector<std::string> paths;
+	if(assetPath == nullptr) {
+		return paths;
+	}
+#ifdef _WIN32
+	// ':' can't be used as separator on windows since it separates drive letters
+	auto isSeparator = [](char c) { return c == ';'; };
+#else
+	auto isSeparator = [](char c) { return c == ':'; };
+#endif
+	std::string path;
+	for(const char* c = assetPath;; ++c) {
+		if(*c == '\0' || isSeparator(*c)) {
+			if(!path.empty()) {
+				paths.emplace_back(path);
+				path.clear();
+			}
+			if(*c == '\0') {
+				break;
+			}
+		} else {
+			path += *c;
+		}
+	}
+	return paths;
+}
+
+const std::vector<std::string>& asset_search_paths() {
+	static const std::vector<std::string> searchPaths = []() {
+		std::vector<std::string> paths;
+		auto append = [&paths](const std::vector<std::string>& candidates, const char* source) {
+			for(const auto& path : candidates) {
+				if(std::find(paths.begin(), paths.end(), path) != paths.end()) {
+					continue;
+				}
+				if(std::filesystem::is_directory(path)) {
+					paths.emplace_back(path);
+				} else {
+					CV_LOG_WARNING(nullptr, "V4D asset search path '" << path << "' from " << source << " is not a directory, ignoring it");
+				}
+			}
+		};
+		// The environment variable has a higher priority than the compile time paths
+		append(split_asset_path(std::getenv(V4D_ASSET_PATH_ENV)), V4D_ASSET_PATH_ENV);
+		append(split_asset_path(V4D_ASSET_PATH), "V4D_ASSET_PATH");
+		return paths;
+	}();
+	return searchPaths;
+}
+
+void add_asset_search_paths() {
+	static std::once_flag once;
+	std::call_once(once, []() {
+		const auto& paths = asset_search_paths();
+		// cv::samples searches the paths in LIFO order, so add them in reverse to
+		// keep the order of asset_search_paths() as the lookup order
+		for(auto path = paths.rbegin(); path != paths.rend(); ++path) {
+			cv::samples::addSamplesDataSearchPath(*path);
+		}
+		std::stringstream ss;
+		for(size_t i = 0; i < paths.size(); i++) {
+			ss << (i == 0 ? "V4D asset search path: " : "                       : ") << paths[i] << std::endl;
+		}
+		if(paths.empty()) {
+			ss << "V4D asset search path is empty" << std::endl;
+		}
+		CV_LOG_INFO(nullptr, ss.str());
+	});
 }
 
 void gl_check_error(const std::filesystem::path& file, unsigned int line, const char* expression) {

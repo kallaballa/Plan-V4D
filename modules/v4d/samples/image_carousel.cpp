@@ -577,7 +577,7 @@ private:
 CarouselState ImageCarousel::state_;
 
 int main(int argc, char** argv) {
-    cv::samples::addSamplesDataSearchPath(V4D_ASSETS_PATH);
+    cv::v4d::add_asset_search_paths();
 
     std::vector<std::string> paths;
     for (int i = 1; i < argc; ++i)
