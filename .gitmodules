@@ -4,3 +4,6 @@
 [submodule "modules/v4d/third/imgui"]
 	path = modules/v4d/third/imgui
 	url = https://github.com/kallaballa/imgui.git
+[submodule "opencv"]
+	path = opencv
+	url = git@github.com:kallaballa/opencv.git
