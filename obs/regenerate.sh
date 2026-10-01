@@ -89,11 +89,7 @@ fi
 # ====================================================================
 # Default OpenCV directory: project sibling or cache
 if [[ -z "${OPENCV_DIR:-}" ]]; then
-    if [[ -d "$HOME/devel/opencv/.git" ]]; then
-        OPENCV_DIR="$HOME/devel/opencv"
-    else
-        OPENCV_DIR="$SCRIPT_DIR/.cache/opencv"
-    fi
+  OPENCV_DIR="$PROJECT_DIR/opencv"
 fi
 
 if [[ ! -d "$OPENCV_DIR/.git" ]]; then
@@ -127,13 +123,13 @@ echo ""
 # ====================================================================
 # Optional local opencv/plan-v4d build (only with --build)
 # ====================================================================
-# Must run from the project root: build_plan_and_v4d.sh resolves its
+# Must run from the project root: build.sh resolves its
 # opencv checkout relative to the current directory (../opencv).
 if [[ "$BUILD_LOCAL" == true ]]; then
-    echo "--- Running local build (build_plan_and_v4d.sh) ---"
-    (cd "$PROJECT_DIR" && ./build_plan_and_v4d.sh)
+    echo "--- Running local build (build.sh) ---"
+    (cd "$PROJECT_DIR" && ./build.sh -t plan+v4d -b release -r)
 else
-    echo "(skipping local build; use --build to run build_plan_and_v4d.sh)"
+    echo "(skipping local build; use --build to run build.sh)"
 fi
 echo ""
 
