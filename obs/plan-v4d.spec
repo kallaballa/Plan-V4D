@@ -260,6 +260,8 @@ cmake -B build \
     -DBUILD_opencv_plot=ON \
     -DBUILD_opencv_tracking=ON \
     -DBUILD_opencv_ximgproc=ON \
+    -DBUILD_opencv_stereo=ON \
+    -DBUILD_opencv_xobjdetect=ON \
     -DBUILD_opencv_plan=ON \
     -DBUILD_opencv_v4d=ON \
     \
@@ -301,12 +303,10 @@ cmake -B build \
     -DBUILD_opencv_rgbd=OFF \
     -DBUILD_opencv_saliency=OFF \
     -DBUILD_opencv_sfm=OFF \
-    -DBUILD_opencv_stereo=OFF \
     -DBUILD_opencv_structured_light=OFF \
     -DBUILD_opencv_surface_matching=OFF \
     -DBUILD_opencv_text=OFF \
     -DBUILD_opencv_xfeatures2d=OFF \
-    -DBUILD_opencv_xobjdetect=OFF \
     -DBUILD_opencv_xphoto=OFF \
     -DBUILD_opencv_wechat_qrcode=OFF \
     -DGBFX_CONFIG_MULTITHREADED=OFF \
@@ -358,7 +358,8 @@ install -m 0644 %{_builddir}/extra_modules/v4d/README.md \
 install -m 0644 %{_builddir}/extra_modules/v4d/doc/v4d-application-programming-guide.markdown \
     %{buildroot}%{_docdir}/%{name}/v4d/v4d-application-programming-guide.markdown
 install -d %{buildroot}%{_docdir}/%{name}/v4d/samples
-for f in %{_builddir}/extra_modules/v4d/doc/samples/*.markdown; do
+for f in %{_builddir}/extra_modules/v4d/doc/samples/*; do
+    [ -e "$f" ] || continue
     install -m 0644 "$f" %{buildroot}%{_docdir}/%{name}/v4d/samples/
 done
 
@@ -388,15 +389,19 @@ install -m 0644 %{_builddir}/extra_modules/v4d/samples/fonts/*.ttf \
 # ====================================================================
 
 %files -n plan-v4d-data
+# OpenCV's own cascade classifiers land under opencv5; the V4D module
+# installs its assets (YuNet model, Roboto/entypo fonts, sample videos)
+# under opencv4. Both are runtime data.
+%dir %{_datadir}/opencv5
+%{_datadir}/opencv5/valgrind.supp
+%{_datadir}/opencv5/valgrind_3rdparty.supp
+%{_datadir}/opencv5/haarcascades/
+%{_datadir}/opencv5/lbpcascades/
 %dir %{_datadir}/opencv4
-%{_datadir}/opencv4/haarcascades/
-%{_datadir}/opencv4/lbpcascades/
-%{_datadir}/opencv4/models/
 %{_datadir}/opencv4/fonts/
+%{_datadir}/opencv4/models/
 %{_datadir}/opencv4/videos/
-%{_datadir}/opencv4/valgrind.supp
-%{_datadir}/opencv4/valgrind_3rdparty.supp
-%{_licensedir}/opencv4/
+%{_licensedir}/opencv5/
 
 %files -n plan-v4d-docs
 %dir %{_docdir}/%{name}
@@ -411,12 +416,12 @@ install -m 0644 %{_builddir}/extra_modules/v4d/samples/fonts/*.ttf \
 %{_libdir}/libnanovg.so*
 
 %files -n plan-v4d-devel
-%{_includedir}/opencv4/
+%{_includedir}/opencv5/
 %{_includedir}/nanovg/
-%{_bindir}/setup_vars_opencv4.sh
+%{_bindir}/setup_vars_opencv5.sh
 %{_libdir}/libopencv*.so
 %{_libdir}/pkgconfig/opencv*.pc
-%{_libdir}/cmake/opencv4/
+%{_libdir}/cmake/opencv5/
 %dir %{_datadir}/%{name}
 %dir %{_datadir}/%{name}/plan
 %{_datadir}/%{name}/plan/test/
@@ -427,7 +432,6 @@ install -m 0644 %{_builddir}/extra_modules/v4d/samples/fonts/*.ttf \
 
 %files -n plan-v4d-samples
 %{_bindir}/example_v4d_*
-%dir %{_datadir}/%{name}/v4d/samples/fonts
 %{_datadir}/%{name}/v4d/samples/fonts/
 
 %changelog

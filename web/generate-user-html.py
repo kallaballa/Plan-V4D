@@ -21,10 +21,29 @@ REPO_URL = "https://github.com/kallaballa/Plan-V4D"
 BRANCH = "rollback"
 
 DOCS = [
-    REPO_ROOT / "README.md",
-    REPO_ROOT / "modules/v4d/doc/v4d-application-programming-guide.markdown",
-    REPO_ROOT / "modules/plan/doc/plan-dsl-programming-guide.markdown",
-    REPO_ROOT / "modules/plan/doc/plan-dsl-reference.markdown",
+REPO_ROOT / "modules/v4d/tutorials/00-intro.markdown",
+REPO_ROOT / "modules/v4d/tutorials/01-dislay_image.markdown",
+REPO_ROOT / "modules/v4d/tutorials/02-dislay_image_fb.markdown",
+REPO_ROOT / "modules/v4d/tutorials/03-vector_graphics.markdown",
+REPO_ROOT / "modules/v4d/tutorials/04-vector_graphics_and_fb.markdown",
+REPO_ROOT / "modules/v4d/tutorials/05-render_opengl.markdown",
+REPO_ROOT / "modules/v4d/tutorials/06-font_rendering.markdown",
+REPO_ROOT / "modules/v4d/tutorials/07-video_editing.markdown",
+REPO_ROOT / "modules/v4d/tutorials/08-custom_source_and_sink.markdown",
+REPO_ROOT / "modules/v4d/tutorials/09-font_with_gui.markdown",
+REPO_ROOT / "modules/v4d/tutorials/10-cube.markdown",
+REPO_ROOT / "modules/v4d/tutorials/11-video.markdown",
+REPO_ROOT / "modules/v4d/tutorials/12-nanovg.markdown",
+REPO_ROOT / "modules/v4d/tutorials/13-shader.markdown",
+REPO_ROOT / "modules/v4d/tutorials/14-font.markdown",
+REPO_ROOT / "modules/v4d/tutorials/15-pedestrian.markdown",
+REPO_ROOT / "modules/v4d/tutorials/16-optflow.markdown",
+REPO_ROOT / "modules/v4d/tutorials/17-beauty.markdown",
+REPO_ROOT / "modules/v4d/tutorials/18-many-cubes.markdown",
+REPO_ROOT / "modules/v4d/tutorials/19-dislay_image_nvg.markdown",
+REPO_ROOT / "modules/v4d/tutorials/20-wasm.markdown",
+REPO_ROOT / "modules/v4d/tutorials/21-image_carousel.markdown",
+REPO_ROOT / "modules/v4d/tutorials/22-imshow_reimplementation.markdown"
 ]
 
 UNICODE_FIXES = {

@@ -732,22 +732,22 @@ Both are wrappers over the underlying transaction-adding mechanism.
 | `gl(idxEdge, fn, args...)` | OpenGL | Select context by index and execute GL commands |
 | `gl<pos>(idxEdge, fn, args...)` | OpenGL | Select context by index and execute GL commands, injecting `idxEdge` at argument position `pos`; `pos < 0` uses the edge only for context selection |
 | `clear(glIndex = -1)` | OpenGL | Clear color, depth, and stencil buffers |
-| `fb<pos>(fn, args...)` | Framebuffer | Framebuffer access |
+| `fb<pos>(fn, args...)` | Framebuffer | Framebuffer access; read/write the frame |
 | `nvg(fn, args...)` | NanoVG | Vector graphics |
 | `bgfx(fn, args...)` | bgfx | bgfx rendering |
 | `ext(fn, args...)` | External | External renderer context |
 | `ext(idxEdge, fn, args...)` | External | External renderer context by index |
 | `ext<pos>(idxEdge, fn, args...)` | External | External renderer context by index, injecting `idxEdge` at argument position `pos`; `pos < 0` uses the edge only for context selection |
-| `capture(fn, args...)` | Source | Pull input frame |
-| `capture(edge)` | Source | Pull input frame into edge |
-| `capture()` | Source | Pull input frame |
-| `write(fn, args...)` | Sink | Push output frame |
-| `write(edge)` | Sink | Push output frame |
-| `write()` | Sink | Push output frame |
 | `set(key, edge)` | CPU | Property write node (`V4D::Keys` or `GlobalState::Keys`) |
 | `imgui(fn, args...)` | ImGui | Install ImGui transaction |
 
 Most context calls return `cv::Ptr<V4DPlan>` and can be chained. `imgui` is the exception: it returns `void` and installs a transaction for the ImGui frame instead.
+
+Sources and sinks are handled automatically by the runtime. When a source is
+set, its frame is loaded into the framebuffer before the plan runs; when a
+sink is set, the framebuffer content is written to it after the plan runs.
+Plans access the frame using `fb(...)` — there is no need for explicit
+`capture()` or `write()` calls.
 
 ---
 

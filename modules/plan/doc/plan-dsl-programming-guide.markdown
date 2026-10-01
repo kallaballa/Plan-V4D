@@ -27,7 +27,7 @@
 11. [Events: reading input](#11-events-reading-input)
 12. [Loops as a special case of branches](#12-loops-as-a-special-case-of-branches)
 13. [Sub-plans: modules and reusable logic](#13-sub-plans-modules-and-reusable-logic)
-14. [Side-effect contexts: `gl`, `clear`, `fb`, `nvg`, `bgfx`, `ext`, `capture`, `write`, `imgui`, `set`](#14-side-effect-contexts-gl-clear-fb-nvg-bgfx-ext-capture-write-imgui-set)
+14. [Side-effect contexts: `gl`, `clear`, `fb`, `nvg`, `bgfx`, `ext`, `imgui`, `set`](#14-side-effect-contexts-gl-clear-fb-nvg-bgfx-ext-imgui-set)
 15. [Lifecycle: `setup`, `infer`, `teardown`, `gui`, `run`](#15-lifecycle-setup-infer-teardown-gui-run)
 16. [Workers: how parallelism works](#16-workers-how-parallelism-works)
 17. [Walkthrough: `video_editing.cpp`](#17-walkthrough-video_editingcpp)
@@ -48,8 +48,6 @@ class VideoEditingPlan : public V4DPlan {
 
 public:
     void infer() override {
-        capture();
-
         nvg([](const cv::Size& sz, const std::string& str) {
             using namespace cv::v4d::nvg;
 
@@ -60,8 +58,6 @@ public:
             text(sz.width / 2.0, sz.height / 2.0,
                  str.c_str(), str.c_str() + str.size());
         }, sz_, R(hv_));
-
-        write();
     }
 };
 
@@ -73,9 +69,9 @@ int main(int argc, char** argv) {
 
 The class `VideoEditingPlan` does not directly run a frame loop. Instead, it *describes* what should happen every frame:
 
-1. Pull in a frame.
-2. Draw text over it.
-3. Push the frame out.
+1. Draw text over the frame.
+
+The source frame is automatically loaded into the framebuffer by the runtime before the plan runs, and the framebuffer content is automatically written to the sink after the plan runs.
 
 Then this call:
 
@@ -962,7 +958,7 @@ Because a sub-plan graph is spliced at the call site, it inherits the enclosing 
 
 ---
 
-## 14. Side-effect contexts: `gl`, `clear`, `fb`, `nvg`, `bgfx`, `ext`, `capture`, `write`, `imgui`, `set`
+## 14. Side-effect contexts: `gl`, `clear`, `fb`, `nvg`, `bgfx`, `ext`, `imgui`, `set`
 
 A **context call** attaches a node to a specialized execution environment.
 
@@ -989,14 +985,10 @@ Runtimes such as V4D add additional contexts.
 | `ext(fn, args...)` | External | External renderer context |
 | `ext(idxEdge, fn, args...)` | External | Select context by index |
 | `ext<pos>(idxEdge, fn, args...)` | External | Select context by index, injecting `idxEdge` at argument position `pos`; `pos < 0` uses the edge only for context selection |
-| `capture(fn, args...)` | Source | Pull input frame |
-| `capture(edge)` | Source | Pull input frame into an edge |
-| `capture()` | Source | Pull input frame |
-| `write(fn, args...)` | Sink | Push output frame |
-| `write(edge)` | Sink | Push output frame |
-| `write()` | Sink | Push output frame |
 | `imgui(fn, args...)` | ImGui | Install UI transaction |
 | `set(key, edge)` | CPU | Property write node (`V4D::Keys` or `GlobalState::Keys`) |
+
+Sources and sinks are handled automatically by the runtime. When a source is set, its frame is loaded into the framebuffer before the plan runs; when a sink is set, the framebuffer content is written to it after the plan runs. Plans access the frame using `fb(...)` — there is no need for explicit `capture()` or `write()` calls.
 
 Most context calls return `cv::Ptr<V4DPlan>` and can be chained. `imgui` is the exception: it returns `void` and installs a transaction for the ImGui frame instead.
 
@@ -1004,7 +996,7 @@ A typical frame body looks like this:
 
 ```cpp
 void infer() override {
-    capture(RW(frames_.orig_));
+    fb(UMAT_COPY_TO_, RW(frames_.orig_));
 
     plain(prepareFrames, R(downSize_), RW(frames_));
 
@@ -1019,8 +1011,6 @@ void infer() override {
           V(cv::COLOR_BGR2RGBA),
           V(0),
           V(cv::ALGO_HINT_DEFAULT));
-
-    write(R(frames_.result_));
 }
 ```
 
@@ -1133,8 +1123,6 @@ class VideoEditingPlan : public V4DPlan {
 
 public:
     void infer() override {
-        capture();
-
         nvg([](const cv::Size& sz, const std::string& str) {
             using namespace cv::v4d::nvg;
 
@@ -1145,17 +1133,11 @@ public:
             text(sz.width / 2.0, sz.height / 2.0,
                  str.c_str(), str.c_str() + str.size());
         }, sz_, R(hv_));
-
-        write();
     }
 };
 ```
 
-The plan does three things every frame:
-
-1. `capture()` pulls a frame from the source.
-2. `nvg(...)` draws text over the frame.
-3. `write()` pushes the frame to the sink.
+The plan draws text over the frame every frame. The source frame is automatically loaded into the framebuffer by the runtime before the plan runs, and the framebuffer content is automatically written to the sink after the plan runs.
 
 The `main()` function initializes the V4D runtime, attaches a source and sink, and runs the plan:
 
@@ -1366,9 +1348,6 @@ void infer() override {
 ### Context calls
 
 ```cpp
-capture();
-write();
-
 nvg({ /* draw */ }, size_, R(text_));
 
 gl({ /* OpenGL commands */ });

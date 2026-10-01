@@ -61,8 +61,6 @@ V4D adds five side-effect contexts on top of the DSL's `plain(...)`:
 | `nvg(fn, args...)`  | NanoVG          | Vector graphics on top of GL             |
 | `bgfx(fn, args...)` | bgfx            | bgfx rendering (alternative to GL)       |
 | `ext(fn, args...)`  | External        | External renderer contexts               |
-| `capture()` / `capture(edge)` / `capture(fn, args)` | Source | Pull the next input frame |
-| `write()` / `write(edge)` / `write(fn, args)`         | Sink   | Push the finished frame |
 | `imgui(fn, args...)` | ImGui          | Install a UI node from `gui()`            |
 | `set(key, edge)`     | CPU            | Property write node                      |
 | `clear()`            | GL             | Clear the framebuffer to `CLEAR_COLOR`   |
@@ -71,7 +69,7 @@ A typical frame looks like:
 
 ```cpp
 void infer() override {
-    capture(RW(frames_.orig_));                          // pull input
+    fb(UMAT_COPY_TO_, RW(frames_.orig_));                // pull input
     plain(prepare_frames, R(downSize_), RW(frames_));    // pre-process
 
     branch(RWS(params_.enabled_) = …)                    // toggle
@@ -84,7 +82,6 @@ void infer() override {
 
     fb<1>(cv::cvtColor, R(frames_.result_),              // write framebuffer
           V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
-    write(R(frames_.result_));                           // push to sink
 }
 ```
 
@@ -124,6 +121,8 @@ cv::Ptr<V4D> rt = V4D::init(
   `DEBUG_GL_CONTEXT`.
 
 ## Sources and sinks
+
+Sources and sinks are handled automatically by the runtime. When a source is set, its frame is loaded into the framebuffer before the plan runs; when a sink is set, the framebuffer content is written to it after the plan runs. Plans access the frame using `fb(...)` — there is no need for explicit `capture()` or `write()` calls.
 
 ```cpp
 auto src  = Source::make(rt, "in.mp4");
@@ -210,7 +209,7 @@ modules/v4d/
 │   ├── render_opengl.cpp          minimum OpenGL program
 │   ├── display_image_fb.cpp       imshow-style, direct fb access
 │   ├── display_image_nvg.cpp      imshow-style, via NanoVG
-│   ├── video_editing.cpp          capture → nvg → write (read this first)
+│   ├── video_editing.cpp          source → nvg → sink (read this first)
 │   ├── video-demo.cpp             capture → gl → write
 │   ├── cube-demo.cpp              pure GL rendering
 │   ├── many_cubes-demo.cpp        multiple GL contexts in parallel
@@ -247,7 +246,7 @@ modules/v4d/
 2. [`samples/font_rendering.cpp`](samples/font_rendering.cpp) — the
    smallest program that does something visible. 32 lines.
 3. [`samples/video_editing.cpp`](samples/video_editing.cpp) — the
-   canonical "capture → render → write" pipeline.
+   canonical "source → render → sink" pipeline.
 4. [`samples/pedestrian-demo.cpp`](samples/pedestrian-demo.cpp) — HOG/NMS
    detection, multi-pedestrian KCF tracking, and interactive ImGui controls.
 5. [`samples/beauty-demo.cpp`](samples/beauty-demo.cpp) — the most

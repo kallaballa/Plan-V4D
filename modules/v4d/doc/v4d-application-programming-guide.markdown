@@ -2,7 +2,7 @@
 
 A hands-on, step-by-step guide to writing video, image, GPU and GUI applications with Plan-V4D.
 
-**Audience.** You are comfortable with modern C++ (C++20) and OpenCV's `cv::Mat`/`cv::UMat`, and you know the basic shape of a video pipeline (capture → process → display/write). You do not need to know OpenGL, NanoVG or ImGui — this tutorial teaches the parts you need.
+**Audience.** You are comfortable with modern C++ (C++20) and OpenCV's `cv::Mat`/`cv::UMat`, and you know the basic shape of a video pipeline (source → process → display/sink). You do not need to know OpenGL, NanoVG or ImGui — this tutorial teaches the parts you need.
 
 **Companion documents.** This tutorial is the guided path through the material in the Plan-DSL Programming Guide and the Plan-DSL Reference (the ISA-style contract). Where this tutorial and the plan-dsl documents disagree, the plan-dsl documents win. The samples in `modules/v4d/samples/` are the ultimate source of truth for V4D-layer behavior.
 
@@ -159,9 +159,7 @@ public:
     }
     // 4. The per-frame body. Recorded once, replayed every frame. REQUIRED.
     void infer() override {
-        capture(RW(scratch_));        // pull a frame into scratch_
         nvg(/* ... draw ... */);      // draw on top
-        write(R(scratch_));           // push the result to the sink
     }
     // 5. (Optional) Main-thread UI installation — runs once on the main thread.
     void gui() override {
@@ -360,7 +358,7 @@ This prints one `tick` per frame for ten frames, then the region's predicate is 
 
 **Check your understanding:**
 
-1. Why does `capture()` inside `infer()` not grab a frame right now?
+1. Why does `fb(...)` inside `infer()` not grab a frame right now?
 2. What happens if you put `std::cout << "hi"` directly in `infer()` (not inside a node)?
 3. `IF` vs `branch` — which one is lazy?
 
@@ -381,44 +379,21 @@ runtime->setSource(src);
 runtime->setSink(sink);
 ```
 
-### 6.2 `capture(...)` and `write(...)`
+### 6.2 Automatic Source and Sink Integration
 
-Both come in three forms:
-
-```cpp
-// 1. Default buffer — V4D binds an internal capture buffer to the plan.
-capture();                    // pull a frame into the default buffer
-write();                      // push the default buffer out
-
-// 2. Explicit member buffer:
-capture(RW(frame_));
-write(R(result_));
-
-// 3. With an inline transform:
-capture({ cv::cvtColor(in, out, cv::COLOR_BGR2GRAY); }, RW(gray_));
-write({ f.copyTo(out); }, R(result_));
-```
-
-Notes:
-
-- `capture()` records a node. At replay time the runtime pulls the next frame from the source into the buffer (or through your lambda).
-- When you call `capture()` with no argument, the first frame determines the buffer's size.
-- If no sink is configured, `write()` is a no-op. That's the normal setup for windowed demos — the visible window is the output.
-- `write()` is also silently a no-op inside sub-plans; only the top-level plan pushes to the sink.
+V4D handles source and sink I/O automatically. When a source is configured, frames are loaded into the framebuffer before `infer()` runs. When a sink is configured, the framebuffer content is written to the sink after `infer()` completes. You never need explicit `capture()` or `write()` calls — just use `fb(...)` to read or write the framebuffer directly.
 
 ### 6.3 Exercise program: video → grayscale → video
 
 ```cpp
 class GrayscalePlan : public V4DPlan {
-    cv::UMat in_, gray_, out_;
+    cv::UMat gray_, out_;
 public:
     void infer() override {
-        capture(RW(in_));
-        plain([](const cv::UMat& in, cv::UMat& gray, cv::UMat& out) {
-            cv::cvtColor(in, gray, cv::COLOR_BGR2GRAY);
+        fb([](cv::UMat& frame, cv::UMat& gray, cv::UMat& out) {
+            cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
             cv::cvtColor(gray, out, cv::COLOR_GRAY2BGR);   // sink expects 3 channels
-        }, R(in_), RW(gray_), RW(out_));
-        write(R(out_));
+        }, RW(gray_), RW(out_));
     }
 };
 
@@ -434,11 +409,11 @@ int main(int argc, char** argv) {
 }
 ```
 
-Run it as `./grayscale in.mp4 out.mkv`. Notice how `plain(lambda, edges...)` binds edges to lambda parameters positionally — the same mechanism as `nvg(...)`.
+Run it as `./grayscale in.mp4 out.mkv`. Notice how `fb(lambda, edges...)` binds edges to lambda parameters positionally — the same mechanism as `nvg(...)`.
 
-**Exercise 4.1.** Rewrite the pipeline using `capture({ ... }, RW(gray_))` with an inline color conversion, eliminating the `in_` buffer.
+**Exercise 4.1.** Rewrite the pipeline using a single `fb(...)` call with an inline color conversion, eliminating the `gray_` buffer.
 
-**Exercise 4.2.** Make the output half resolution. Hint: `cv::resize` in the `plain` node; pass the sink the new size in `Sink::make`.
+**Exercise 4.2.** Make the output half resolution. Hint: `cv::resize` in the `fb` node; pass the sink the new size in `Sink::make`.
 
 ---
 
@@ -447,10 +422,10 @@ Run it as `./grayscale in.mp4 out.mkv`. Notice how `plain(lambda, edges...)` bin
 The canonical V4D recipe (see `samples/video_editing.cpp`) is:
 
 ```
-capture()  →  nvg(...)  →  write()
+nvg(...)
 ```
 
-The captured frame lands in the default buffer; the NanoVG context draws into the same framebuffer that the visible window and the sink are bound to; `write()` pushes the composited result.
+The source frame is automatically loaded into the framebuffer; the NanoVG context draws into the same framebuffer that the visible window and the sink are bound to; the composited result is automatically written to the sink.
 
 ```cpp
 class VideoEditingPlan : public V4DPlan {
@@ -458,8 +433,7 @@ class VideoEditingPlan : public V4DPlan {
     Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
     void infer() override {
-        capture();                                        // 1. pull a frame
-        nvg([](const Size& sz, const string& str) {      // 2. draw on top
+        nvg([](const Size& sz, const string& str) {      // draw on top
             using namespace cv::v4d::nvg;
             fontSize(40.0f);
             fontFace("sans-bold");
@@ -468,7 +442,6 @@ public:
             text(sz.width / 2.0, sz.height / 2.0,
                  str.c_str(), str.c_str() + str.size());
         }, sz_, R(hv_));
-        write();                                          // 3. push the result
     }
 };
 ```
@@ -548,7 +521,7 @@ Read the macro as “static-cast a member-function pointer to a concrete signatu
 | The result lives in the visible framebuffer | You want a `cv::UMat` to manipulate later |
 | Per-pixel performance isn't critical | You want OpenCL kernels on framebuffer data |
 
-**Exercise 6.1.** Build a threshold effect: `capture(RW(frame_))`, then in a `plain` node compute `cv::threshold` into `mask_`, and finally `fb<1>(cv::cvtColor, R(mask_), ...)` to display it.
+**Exercise 6.1.** Build a threshold effect: `fb(UMAT_COPY_TO_, RW(frame_))`, then in a `plain` node compute `cv::threshold` into `mask_`, and finally `fb<1>(cv::cvtColor, R(mask_), ...)` to display it.
 
 ---
 
@@ -591,11 +564,9 @@ public:
         imgui([](Params& p) { /* widgets mutate p */ }, RWS(params_));
     }
     void infer() override {
-        capture();
         branch(F([](const Params& p) { return p.enabled_; }, CS(params_)))
             ->plain(apply_effect, CS(params_))
         ->endBranch();
-        write();
     }
 };
 MyPlan::Params MyPlan::params_;               // definition
@@ -834,13 +805,11 @@ public:
         )
         ->endBranch();
 
-        capture();                                             // (2) input
-
-        branch(CS(params_.enabled_))                           // (3) effect, only while enabled
+        branch(CS(params_.enabled_))                           // (2) effect, only while enabled
             ->fb(adjust_colors, CS(params_))
         ->endBranch();
 
-        branch(CS(params_.hud_))                               // (4) HUD overlay
+        branch(CS(params_.hud_))                               // (3) HUD overlay
             ->nvg([](const Size& sz, uint64_t frameNo) {
                 using namespace cv::v4d::nvg;
                 char buf[64];
@@ -851,8 +820,6 @@ public:
                 text(16.0f, 12.0f, buf, buf + strlen(buf));
             }, size_, frameNo_)
         ->endBranch();
-
-        write();                                               // (5) output
     }
 };
 ChromaPlan::Params ChromaPlan::params_;
@@ -884,9 +851,9 @@ int main(int argc, char** argv) {
 **Walk through what happens at runtime:**
 
 1. The main thread runs `gui()` once, installing the ImGui panel. Workers build their graphs.
-2. Every frame: click-toggle node → `capture()` → (maybe) `fb(adjust_colors)` mutating the framebuffer in place → (maybe) HUD → `write()`.
+2. Every frame: click-toggle node → (maybe) `fb(adjust_colors)` mutating the framebuffer in place → (maybe) HUD.
 3. The GUI thread mutates `params_` under the shared mutex; workers always see consistent snapshots via `CS(...)`.
-4. No sink configured? `write()` is a no-op and the window is the output. Sink configured? The composited frames (with HUD) are encoded.
+4. No sink configured? The window is the output. Sink configured? The composited frames (with HUD) are encoded automatically.
 
 **Capstone exercises.**
 
@@ -920,7 +887,7 @@ int main(int argc, char** argv) {
 | 5 | Both arms of `IF` run | `IF` is eager — it's a `select`, not a branch. Use `branch` regions for lazy/side-effecting arms. |
 | 6 | “My loop is slow” | Loops advance *one iteration per frame* — that's the frame-sequential model, not a bug. |
 | 7 | Window doesn't resize | Pass `ConfigFlags::RESIZEABLE`. |
-| 8 | No output file appears | You never called `runtime->setSink(...)` — `write()` is a no-op without a sink (and inside sub-plans). |
+| 8 | No output file appears | You never called `runtime->setSink(...)` — the framebuffer is not written to a sink without one (and inside sub-plans). |
 | 9 | Data race between GUI and workers | Mutate shared state from `gui()` only through `RWS(...)`; read it in `infer()` with `CS(...)`. |
 | 10 | “Tearing”/display desync in `imshow`-style apps | Use `ConfigFlags::DISPLAY_MODE`. |
 | 11 | Toggle fires on the wrong arm | Re-read §10.2: `IF`'s first operand is the *condition*; the true arm is selected when it holds. |
@@ -942,9 +909,9 @@ Study the samples (`modules/v4d/samples/`), roughly in this order:
 | `font_rendering.cpp` | Minimum NanoVG program |
 | `render_opengl.cpp` | Minimum OpenGL program |
 | `display_image_fb.cpp` / `display_image_nvg.cpp` | Image display via `fb` vs `nvg` |
-| `video_editing.cpp` | `capture → nvg → write` |
+| `video_editing.cpp` | `source → nvg → sink` |
 | `font_with_gui.cpp` | GUI feeding NanoVG |
-| `custom_source_and_sink.cpp` | Rolling your own I/O + conditional `write()` in a branch |
+| `custom_source_and_sink.cpp` | Rolling your own I/O + conditional logic in a branch |
 | `cube-demo.cpp` / `many_cubes-demo.cpp` | Pure GL; multiple parallel GL contexts |
 | `pedestrian-demo.cpp` | HOG/NMS detection, multi-pedestrian KCF tracking, and interactive tuning |
 | `optflow-demo.cpp` | Non-trivial detection + tracking pipelines |
@@ -977,14 +944,10 @@ public:
     void teardown() override { /* one-shot cleanup      */ }
 };
 
-// ── Sources / sinks ─────────────────────────────────────────────────────────
-auto src  = Source::make(rt, "in.mp4");
-auto sink = Sink::make(rt, "out.mkv", src->fps(), viewport.size());
-rt->setSource(src);  rt->setSink(sink);
-
-// ── Capture / write ─────────────────────────────────────────────────────────
-capture();  capture(RW(buf));  capture({ /*transform*/ }, RW(buf));
-write();    write(R(buf));     write({ /*transform*/ }, R(buf));
+// ── Source / sink (automatic) ──────────────────────────────────────────────
+// Source frames are automatically loaded into the framebuffer before infer().
+// Framebuffer content is automatically written to the sink after infer().
+// Use fb() to read/write the framebuffer:
 
 // ── Edges ───────────────────────────────────────────────────────────────────
 V(x)  R(x)  RW(x)  RS(x)  RWS(x)  CS(x)  P<T>(key)  E<T>(type)  F(fn, ...)  _(...)

@@ -15,11 +15,11 @@
 | 04 | [Combining Vector Graphics and Framebuffer Processing](#tutorial-04--combining-vector-graphics-and-framebuffer-processing) | Context chaining, `boxFilter` on framebuffer |
 | 05 | [Direct OpenGL Rendering](#tutorial-05--direct-opengl-rendering) | `gl` context, `V()` edge-call, OpenGL state preservation |
 | 06 | [Font Rendering](#tutorial-06--font-rendering) | `R()` edge-call, NanoVG text API, custom font loading |
-| 07 | [Simple Video Editing](#tutorial-07--simple-video-editing) | `Source`/`Sink`, `capture()`, `write()` |
+| 07 | [Simple Video Editing](#tutorial-07--simple-video-editing) | `Source`/`Sink`, automatic frame flow |
 | 08 | [Custom Source and Sink](#tutorial-08--custom-source-and-sink) | Lambda sources/sinks, `branch()` conditional logic |
 | 09 | [Font Rendering with a GUI](#tutorial-09--font-rendering-with-a-gui) | `gui()` method, `imgui` context, `RWS`/`CS` shared edges |
 | 10 | [Rendering a 3D Cube](#tutorial-10--rendering-a-3d-cube) | `teardown()`, separation of concerns, `set()`/`clear()` |
-| 11 | [Compositing 3D Graphics on Video](#tutorial-11--compositing-3d-graphics-on-video) | Compositing pipeline, `capture()` as background |
+| 11 | [Compositing 3D Graphics on Video](#tutorial-11--compositing-3d-graphics-on-video) | Compositing pipeline, source as background |
 | 12 | [Advanced NanoVG and Processing Pipelines](#tutorial-12--advanced-nanovg-and-processing-pipelines) | `assign()`, `F()`, function wrappers, hue-shifting chain |
 | 13 | [Interactive Custom Shaders](#tutorial-13--interactive-custom-shaders) | `E<T>` events, GLSL shaders, `branch` stateful control flow |
 | 14 | [Advanced Font Effects Demo](#tutorial-14--advanced-font-effects-demo) | Render-to-texture, conditional execution, performance optimization |
@@ -132,7 +132,7 @@ If `Plan` is the blueprint, then `V4D` is the toolbox. The V4D runtime provides 
 - **`imgui`**: For creating user interfaces with Dear ImGui.
 - **`plain`**: For running general-purpose code, like standard OpenCV functions.
 
-In addition, `V4D` provides a `Source` / `Sink` system, exposed inside a `V4DPlan` as the `capture()` and `write()` graph calls.
+In addition, `V4D` provides a `Source` / `Sink` system. Sources and sinks are handled automatically by the runtime — when a source is set, its frame is loaded into the framebuffer before the plan runs; when a sink is set, the framebuffer content is written to it after the plan runs. Plans access the frame using `fb(...)`.
 
 ## Lifecycle of a `V4DPlan`
 
@@ -665,8 +665,6 @@ class VideoEditingPlan : public V4DPlan {
     Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
     void infer() override {
-        capture();
-
         nvg([](const Size& sz, const string& str) {
             using namespace cv::v4d::nvg;
             fontSize(40.0f);
@@ -675,8 +673,6 @@ public:
             textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
             text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
         }, sz_, R(hv_));
-
-        write();
     }
 };
 
@@ -708,18 +704,19 @@ int main(int argc, char** argv) {
 
 ### The `infer()` Method
 
-The three-step process:
+The source frame is automatically loaded into the framebuffer by the runtime
+before the plan runs. The plan renders text on top of the video frame:
 
-1. **`capture()`**: Decodes one frame from the input video and places it into the main framebuffer.
-2. **`nvg(…)`**: Renders text *on top of* the video frame.
-3. **`write()`**: Takes the composited framebuffer and sends it to the video encoder.
+1. **`nvg(…)`**: Renders text *on top of* the video frame.
+
+After the plan runs, the framebuffer content is automatically written to the sink.
 
 ## Summary
 
 - **`Source`** and **`Sink`** objects handle video decoding and encoding.
-- **`capture()`** reads a frame from the source into the framebuffer.
-- **`write()`** writes the framebuffer's content to the sink.
-- By sequencing `capture()`, rendering contexts, and `write()`, you can create elegant video processing pipelines.
+- The source frame is automatically loaded into the framebuffer before the plan runs.
+- The framebuffer content is automatically written to the sink after the plan runs.
+- By sequencing rendering contexts, you can create elegant video processing pipelines.
 
 ---
 
@@ -753,18 +750,15 @@ cv::Ptr<Sink> sink = new Sink([videoSink](const uint64_t& seq, const cv::UMat& f
 
 ```cpp
 void infer() override {
-    capture();
     fb<1>(&PureColor::find, RW(finder_));
     nvg(&PureColor::draw, R(finder_), size_);
 
-    std::dynamic_pointer_cast<V4DPlan>(
-        branch(&PureColor::found, R(finder_))
-    )->write()->endBranch();
+    branch(&PureColor::found, R(finder_))
+        ->endBranch();
 }
 ```
 
 - **`branch(&PureColor::found, R(finder_))`**: The nodes inside the branch only execute if `found()` returns `true`.
-- **`std::dynamic_pointer_cast<V4DPlan>(…)`**: Required because `Plan::branch` returns `cv::Ptr<Plan>`, but `write()` only exists on `V4DPlan`.
 
 ## Summary
 
@@ -954,27 +948,23 @@ You can find the complete source in [`video-demo.cpp`](https://github.com/kallab
 
 ```cpp
 void infer() override {
-    // 1. Load video frame into the framebuffer.
-    capture();
-    // 2. Render the 3D cube on top of the video frame.
+    // 1. Render the 3D cube on top of the video frame.
     gl(&CubeScene::render, R(scene_), V(0.0), V(0.0));
-    // 3. Write the composited frame to the sink.
-    write();
 }
 ```
 
 ## Code Breakdown
 
-- **`capture()`**: Reads a frame from the source video into the framebuffer — this becomes the background.
+- The source frame is automatically loaded into the framebuffer by the runtime before the plan runs — this becomes the background.
 - **`gl(&CubeScene::render, …)`**: Renders the 3D cube. Crucially, we did *not* clear the screen beforehand, so the cube is drawn directly on top of the video frame.
-- **`write()`**: Takes the composited framebuffer and sends it to the video encoder.
+- After the plan runs, the framebuffer content is automatically written to the sink.
 
 The sequential execution of contexts is the foundation of building complex effects and pipelines in Plan-V4D.
 
 ## Summary
 
 - The order of operations in `infer()` defines the rendering pipeline.
-- `capture()` loads a video frame as a background.
+- The source frame is automatically loaded as a background.
 - Subsequent rendering calls draw on top of the existing framebuffer content, allowing easy compositing.
 
 ---
@@ -1007,7 +997,7 @@ public:
     }
 
     void infer() override {
-        capture(RW(bgra_));
+        fb(UMAT_COPY_TO_, RW(bgra_));
         assign(RW(hue_), (F(&sinf, (F(&cv::getTickCount) / F(&cv::getTickFrequency)) * V(0.12) + V(1))) * V(255.0));
 
         plain(cv::cvtColor, R(bgra_), RW(frame_), V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
@@ -1095,12 +1085,10 @@ public:
     }
 
     void infer() override {
-        capture();
         branch(process_events, size_, winSz_, scroll_, release_, R(scale_), RWS(params_))
             ->plain(&Camera2D::updateAutoZoom, RWS(params_.camera_), R(params_.settings_.maxIterations_))
         ->endBranch();
         gl(&MandelbrotScene::render, R(scene_), size_, CS(params_.settings_), CS(params_.camera_));
-        write();
     }
 
     void teardown() override {
@@ -1118,10 +1106,9 @@ public:
 
 ### The `infer()` Pipeline
 
-1. **`capture()`**: Loads a video frame as background.
+1. The source frame is automatically loaded as background.
 2. **`branch(process_events, …)`**: Runs auto-zoom only when the user isn't interacting.
 3. **`gl(&MandelbrotScene::render, …)`**: Renders the fractal with current state.
-4. **`write()`**: Writes the composited frame.
 
 ### One-Shot Initialization
 
@@ -1257,7 +1244,7 @@ A sample input is bundled at `modules/v4d/assets/videos/dance.mp4`. The demo nee
 
 ## The Pipeline
 
-1. `capture()` reads a BGRA frame. The frame is converted to RGB, resized to a quarter of the viewport, converted to grayscale, and copied for the final display.
+1. The source frame is automatically loaded into the framebuffer. The frame is converted to RGB, resized to a quarter of the viewport, converted to grayscale, and copied for the final display.
 2. On a fixed cadence, `HOGDescriptor` detects pedestrians with the default linear-SVM people detector. NMS filters overlapping rectangles.
 3. Existing KCF trackers are updated on a staggered schedule. Successful updates are smoothed into each track's published box; failed updates increment its miss count.
 4. On a detection pass, rectangles are associated with live tracks by intersection over union (IoU). A live track is re-anchored, a lost track is reinitialized, and an unmatched detection starts a new track when the track budget allows it. Tracks that exceed the miss threshold are removed.
@@ -1285,7 +1272,7 @@ You can find the complete source in [`pedestrian-demo.cpp`](https://github.com/k
 
 ```cpp
 void infer() override {
-    capture(RW(frames_.videoFrame_));
+    fb(UMAT_COPY_TO_, RW(frames_.videoFrame_));
 
     plain(cv::cvtColor, R(frames_.videoFrame_), RW(frames_.videoFrameBGR_),
           V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
@@ -1299,8 +1286,6 @@ void infer() override {
 
     nvg(&ObjectMarker::draw, R(marker_), size_, R(params_), CS(trackedBoxes_))
         ->fb(present, R(frames_.background_));
-
-    write();
 }
 ```
 
@@ -1316,7 +1301,7 @@ void infer() override {
 
 ### Visualization and Output
 
-`ObjectMarker::draw` uses NanoVG to clear its layer and draw one ellipse per smoothed box. `present()` composites that layer over the captured frame. `write()` presents the final framebuffer to the display; it is not a file-writing `Sink` in this demo.
+`ObjectMarker::draw` uses NanoVG to clear its layer and draw one ellipse per smoothed box. `present()` composites that layer over the source frame. The final framebuffer is presented to the display automatically; it is not a file-writing `Sink` in this demo.
 
 ## Summary
 
@@ -1346,7 +1331,7 @@ This tutorial explores a stylized representation of sparse optical flow in a vid
 
 ```cpp
 void infer() override {
-    capture(RW(frames_.background_));
+    fb(UMAT_COPY_TO_, RW(frames_.background_));
     // ... convert to grey, detect features ...
 
     branch(BranchType::SINGLE,
@@ -1361,7 +1346,6 @@ void infer() override {
     ->endBranch();
 
     fb<4>(&Compositor::perform, RW(compositor_), ...);
-    write(R(frames_.composed_));
 }
 ```
 
@@ -1404,7 +1388,7 @@ public:
     }
 
     void infer() override {
-        capture(RW(frames_.orig_));
+        fb(UMAT_COPY_TO_, RW(frames_.orig_));
         plain(prepare_frames, R(downSize_), RW(frames_));
 
         branch(RWS(params_.enabled_) = IF(
@@ -1429,7 +1413,6 @@ public:
         ->endBranch();
 
         fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
-        write(R(frames_.result_));
     }
 };
 ```
@@ -1443,7 +1426,7 @@ public:
 
 ### The Pipeline Data Flow
 
-1. **`BeautyDemoPlan` (Detection)**: Captures a frame, runs a DNN-based `FaceFeatureExtractor` every 8 frames.
+1. **`BeautyDemoPlan` (Detection)**: Reads the source frame from the framebuffer, runs a DNN-based `FaceFeatureExtractor` every 8 frames.
 2. **`FaceFeatureMasksPlan` (Masking)**: Renders black-and-white masks from the landmarks into `UMat`s (render-to-texture).
 3. **`BeautyFilterPlan` (Filtering & Blending)**: Applies per-region adjustments and uses `cv::detail::MultiBandBlender` for seamless blending.
 4. **`BeautyDemoPlan` (Compositing)**: Prepares the final image for display.

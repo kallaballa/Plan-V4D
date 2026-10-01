@@ -12,10 +12,29 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = {
-    "Readme": REPO_ROOT / "README.md",
-    "V4D Application Programming Guide": REPO_ROOT / "modules/v4d/doc/v4d-application-programming-guide.markdown",
-    "Plan-DSL Programming Guide": REPO_ROOT / "modules/plan/doc/plan-dsl-programming-guide.markdown",
-    "Plan-DSL Reference (ISA)": REPO_ROOT / "modules/plan/doc/plan-dsl-reference.markdown",
+"Intro": REPO_ROOT / "modules/v4d/tutorials/00-intro.markdown",
+"Display an image using the video pipeline": REPO_ROOT / "modules/v4d/tutorials/01-dislay_image.markdown",
+"Display an image using direct framebuffer access": REPO_ROOT / "modules/v4d/tutorials/02-dislay_image_fb.markdown",
+"Render vector graphics": REPO_ROOT / "modules/v4d/tutorials/03-vector_graphics.markdown",
+"Render vector graphics and manipulate the framebuffer": REPO_ROOT / "modules/v4d/tutorials/04-vector_graphics_and_fb.markdown",
+"OpenGL Rendering": REPO_ROOT / "modules/v4d/tutorials/05-render_opengl.markdown",
+"Font rendering": REPO_ROOT / "modules/v4d/tutorials/06-font_rendering.markdown",
+"Video editing": REPO_ROOT / "modules/v4d/tutorials/07-video_editing.markdown",
+"Custom Source and Sink": REPO_ROOT / "modules/v4d/tutorials/08-custom_source_and_sink.markdown",
+"Form based GUI": REPO_ROOT / "modules/v4d/tutorials/09-font_with_gui.markdown",
+"Cube-Demo": REPO_ROOT / "modules/v4d/tutorials/10-cube.markdown",
+"Video-Demo": REPO_ROOT / "modules/v4d/tutorials/11-video.markdown",
+"Nanovg-Demo": REPO_ROOT / "modules/v4d/tutorials/12-nanovg.markdown",
+"Shader-Demo": REPO_ROOT / "modules/v4d/tutorials/13-shader.markdown",
+"Font-Demo": REPO_ROOT / "modules/v4d/tutorials/14-font.markdown",
+"Pedestrian-Demo": REPO_ROOT / "modules/v4d/tutorials/15-pedestrian.markdown",
+"Optflow-Demo": REPO_ROOT / "modules/v4d/tutorials/16-optflow.markdown",
+"Beauty-Demo": REPO_ROOT / "modules/v4d/tutorials/17-beauty.markdown",
+"Many_Cubes-Demo": REPO_ROOT / "modules/v4d/tutorials/18-many-cubes.markdown",
+"Display an image using NanoVG": REPO_ROOT / "modules/v4d/tutorials/19-dislay_image_nvg.markdown",
+"WebAssembly Support": REPO_ROOT / "modules/v4d/tutorials/20-wasm.markdown",
+"Image Carousel": REPO_ROOT / "modules/v4d/tutorials/21-image_carousel.markdown",
+"imshow Reimplementation": REPO_ROOT / "modules/v4d/tutorials/22-imshow_reimplementation.markdown"
 }
 
 OUTPUT = REPO_ROOT / "web" / "v4d.html"

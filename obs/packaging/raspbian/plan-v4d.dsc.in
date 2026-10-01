@@ -23,6 +23,7 @@ Build-Depends: debhelper-compat (= 13),
                libglew-dev,
                libglfw3-dev,
                qtbase5-dev,
-               ocl-icd-opencl-dev
+               ocl-icd-opencl-dev,
+               libfreetype-dev
 DEBTRANSFORM-TAR: opencv-@VERSION@.tar.gz
 DEBTRANSFORM-FILES-TAR: debian.tar.gz

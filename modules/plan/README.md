@@ -84,7 +84,7 @@ modules/plan/
 2. Keep [`doc/plan-dsl-reference.markdown`](doc/plan-dsl-reference.markdown)
    open while you write. It's the canonical opcode-by-opcode
    reference.
-3. If you're building a windowed, GPU-capable, capture-and-write
+3. If you're building a windowed, GPU-capable, source-and-sink
    program, jump to the V4D module — it inherits from `Plan` and
    adds the runtime, the window, the source/sink, and the
    rendering contexts.

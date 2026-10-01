@@ -83,6 +83,8 @@ override_dh_auto_configure:
 	    -DBUILD_opencv_plot=ON \
 	    -DBUILD_opencv_tracking=ON \
 	    -DBUILD_opencv_ximgproc=ON \
+	    -DBUILD_opencv_stereo=ON \
+	    -DBUILD_opencv_xobjdetect=ON \
 	    -DBUILD_opencv_plan=ON \
 	    -DBUILD_opencv_v4d=ON \
 	    \
@@ -125,12 +127,10 @@ override_dh_auto_configure:
 	    -DBUILD_opencv_rgbd=OFF \
 	    -DBUILD_opencv_saliency=OFF \
 	    -DBUILD_opencv_sfm=OFF \
-	    -DBUILD_opencv_stereo=OFF \
 	    -DBUILD_opencv_structured_light=OFF \
 	    -DBUILD_opencv_surface_matching=OFF \
 	    -DBUILD_opencv_text=OFF \
 	    -DBUILD_opencv_xfeatures2d=OFF \
-	    -DBUILD_opencv_xobjdetect=OFF \
 	    -DBUILD_opencv_xphoto=OFF \
 	    -DBUILD_opencv_wechat_qrcode=OFF \
 	    -DGBFX_CONFIG_MULTITHREADED=OFF \
@@ -172,7 +172,8 @@ override_dh_auto_install:
 	install -m 0644 $(CURDIR)/extra_modules/v4d/doc/v4d-application-programming-guide.markdown \
 	    debian/tmp/usr/share/doc/plan-v4d/v4d/v4d-application-programming-guide.markdown
 	install -d debian/tmp/usr/share/doc/plan-v4d/v4d/samples
-	for f in $(CURDIR)/extra_modules/v4d/doc/samples/*.markdown; do \
+	for f in $(CURDIR)/extra_modules/v4d/doc/samples/*; do \
+	    [ -e "$$f" ] || continue; \
 	    install -m 0644 "$$f" debian/tmp/usr/share/doc/plan-v4d/v4d/samples/ ; \
 	done
 	# Plan test sources

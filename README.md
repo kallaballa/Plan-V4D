@@ -139,8 +139,9 @@ on top of the DSL's `plain(...)`:
 | `nvg(fn, args...)` | NanoVG         | Vector graphics on top of GL          |
 | `bgfx(fn, args...)`| bgfx           | bgfx rendering (alternative to GL)    |
 | `ext(fn, args...)` | External       | External renderer contexts            |
-| `capture()` / `write()` | Source / Sink | Pull the next input frame / push the finished frame |
 | `imgui(fn, args...)` | ImGui         | UI nodes from `gui()`                 |
+
+Sources and sinks are handled automatically by the runtime. When a source is set, its frame is loaded into the framebuffer before the plan runs; when a sink is set, the framebuffer content is written to it after the plan runs. Plans access the frame using `fb(...)` — there is no need for explicit `capture()` or `write()` calls.
 
 Sources and sinks read from video files, webcams, or arbitrary functors, and
 write to files or anything else:
@@ -158,7 +159,7 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 
 | Start here | What it shows |
 |---|---|
-| `video_editing.cpp` | capture → nvg → write, the canonical pipeline |
+| `video_editing.cpp` | source → nvg → sink, the canonical pipeline |
 | `pedestrian-demo.cpp` | HOG/NMS detection, multi-pedestrian KCF tracking, and ImGui controls |
 | `beauty-demo.cpp` | the kitchen sink: shared state, sub-plans, `IF`, events, NanoVG, ImGui |
 | `font_rendering.cpp` | the smallest visible program (32 lines) |
@@ -239,7 +240,7 @@ detector and the LBF landmark model ship in
   the canonical edge-by-edge, operator-by-operator reference.
 * [V4D Application Programming Tutorial](modules/v4d/doc/v4d-application-programming-guide.markdown) —
   the V4D tutorial, milestone by milestone.
-* [Sample walkthroughs](modules/v4d/doc/samples/) — annotated `00-intro` through `18-many-cubes`, plus `19-image-carousel`.
+* [Sample walkthroughs](modules/v4d/doc/samples/) —   annotated `00-intro` through `20-imshow`.
 
 ## Packaging
 
