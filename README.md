@@ -189,13 +189,13 @@ below, or add them to an existing OpenCV build via `OPENCV_EXTRA_MODULES_PATH`
 ### Plan-DSL
 
 ```bash
-./build_plan.sh
+./build.sh -t plan -b debug
 ```
 
 ### Plan-V4D
 
 ```bash
-./build_plan_and_v4d.sh
+./build.sh -t plan+v4d -b debug
 ```
 
 | CMake option                    | Effect                                       |
