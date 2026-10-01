@@ -24,6 +24,9 @@ BuildRequires:  libXinerama-devel
 BuildRequires:  libXcursor-devel
 BuildRequires:  libXi-devel
 
+# opencv_v4d unconditionally does find_package(Freetype REQUIRED) and links
+# Freetype::Freetype into the module and the samples, so the freetype headers
+# and import library must be present even though BUILD_opencv_freetype is OFF.
 %if 0%{?suse_version}
 BuildRequires:  Mesa-libGL-devel
 BuildRequires:  glu-devel
@@ -31,6 +34,7 @@ BuildRequires:  glew-devel
 BuildRequires:  libglfw-devel
 BuildRequires:  libqt5-qtbase-devel
 BuildRequires:  ocl-icd-devel
+BuildRequires:  freetype2-devel
 BuildRequires:  fdupes
 %endif
 
@@ -41,6 +45,7 @@ BuildRequires:  glew-devel
 BuildRequires:  glfw-devel
 BuildRequires:  qt5-qtbase-devel
 BuildRequires:  ocl-icd-devel
+BuildRequires:  freetype-devel
 %endif
 
 # ====================================================================

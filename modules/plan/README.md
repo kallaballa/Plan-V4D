@@ -66,7 +66,6 @@ modules/plan/
 │       └── plan/
 │           ├── flags.hpp              AllocateFlags / ConfigFlags / DebugFlags
 │           ├── plan.hpp               Plan, PlanRuntime, Edge, Property, Event, …
-│           ├── threadsafeanymap.hpp   backing store for GlobalState / LocalState
 │           ├── util.hpp               misc helpers (_OLM_, lambda_ptr_hex, …)
 │           └── detail/
 │               ├── context.hpp        PlanContext (CPU/GPU dispatch)
@@ -100,6 +99,11 @@ modules/plan/
 * OpenCV core, OpenCV imgproc
 * A threading library with `<barrier>` and `<semaphore>` (libstdc++
   11+, libc++ 11+, MSVC 19.28+).
+* [AnyProperty](https://github.com/kallaballa/AnyProperty) — the header-only
+  property map that backs `GlobalState` / `LocalState`. It is pulled in as a git
+  submodule at `modules/v4d/third/AnyProperty`, so run
+  `git submodule update --init` before configuring. The CMake configure step
+  does this for you.
 
 ## Building
 

@@ -7,7 +7,8 @@ set -euo pipefail
 # OpenCV checkout ($OPENCV_DIR, branch `plan-v4d-5.x`), run this script to:
 #   1. regenerate the source tarballs from the local git checkouts,
 #   2. update all four OBS packages (openSUSE_Tumbleweed, Fedora, Ubuntu_24.04,
-#      Raspbian_12) with the new sources,
+#      Raspbian_12) with the new sources. Ubuntu_24.04 is built for both x86_64
+#      and aarch64, Raspbian_12 for aarch64 and armv7l;
 #   3. commit them (bypassing the broken _service), and
 #   4. trigger rebuilds.
 #

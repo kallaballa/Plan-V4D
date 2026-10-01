@@ -60,13 +60,6 @@ public:
           restore();
         },
         sz_);
-
-    plain([this]() {
-      // A node of a plan may stop its own run, which is per runtime, i.e.
-      // it does not affect the other plan of this process.
-      if (maxFrames_ > 0 && ++frames_ >= maxFrames_)
-        V4D::instance()->requestFinish();
-    });
   }
 
   void gui() override {
@@ -104,7 +97,7 @@ static void runPlanInThread(const std::string &title, const cv::Rect &viewport,
               ConfigFlags::DISPLAY_MODE);
     V4DPlan::run<Tplan>(0, title, color, maxFrames);
   });
-  t.join();
+  t.detach();
 }
 
 int main(int argc, char **argv) {
@@ -114,22 +107,18 @@ int main(int argc, char **argv) {
   const bool autoClose =
       (argc < 2 || std::string(argv[1]) != "--no-auto-close");
   const size_t maxFrames = autoClose ? size_t(5 * 60) : 0;
-  constexpr size_t extraWorkers =
-      1; // one worker per plan, plus its display thread
 
-  std::thread second([maxFrames]() {
-    runPlanInThread<TrianglePlan>("Threaded triangle", cv::Rect(0, 0, 480, 360),
-                                  cv::Scalar(80, 200, 255, 255), maxFrames);
-  });
+  for(size_t i = 0; i < 1; ++i) 
+    runPlanInThread<TrianglePlan>(std::string("Threaded triangle") + std::to_string(i), 
+		    cv::Rect(0, 0, 480, 360), cv::Scalar(80, 200, 255, 255), maxFrames);
 
   // The main thread displays the second window while the first one is running.
   V4D::init(cv::Rect(0, 0, 480, 360), "Main triangle",
             AllocateFlags::NANOVG | AllocateFlags::IMGUI,
             ConfigFlags::DISPLAY_MODE);
-  V4DPlan::run<TrianglePlan>(extraWorkers, "Main triangle",
+  V4DPlan::run<TrianglePlan>(0, "Main triangle",
                              cv::Scalar(255, 160, 80, 255), maxFrames);
 
-  second.join();
-  std::cout << "Both plans finished." << std::endl;
+  std::cout << "All plans finished." << std::endl;
   return 0;
 }

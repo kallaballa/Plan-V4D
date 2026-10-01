@@ -24,7 +24,7 @@ namespace v4d {
 
 CV_EXPORTS std::mutex V4D::instance_mtx_;
 CV_EXPORTS thread_local cv::Ptr<V4D> V4D::instance_;
-CV_EXPORTS thread_local ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
+CV_EXPORTS thread_local anyproperty::ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
 CV_EXPORTS std::mutex V4D::windowRegistry_mtx_;
 CV_EXPORTS std::map<GLFWwindow *, V4D *> V4D::windowRegistry_;
 
@@ -40,14 +40,12 @@ cv::Ptr<V4D> V4D::init(const cv::Rect &viewport, const string &title,
                        AllocateFlags::Enum allocFlags,
                        ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags,
                        int samples) {
+  std::lock_guard guard(instance_mtx_);
   GlobalState::init_keys();
   LocalState::init_keys();
-  {
-    std::lock_guard guard(instance_mtx_);
-    if (instance_ == nullptr)
-      instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags,
-                          debFlags, samples);
-  }
+  if (instance_ == nullptr)
+    instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags,
+                        debFlags, samples);
   V4D::init_keys();
   PlanRuntime::current() = instance_;
   return instance_;
@@ -58,14 +56,12 @@ cv::Ptr<V4D> V4D::init(const cv::Rect &viewport, const cv::Size &fbSize,
                        ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags,
                        int samples) {
   CV_UNUSED(fbSize);
+  std::lock_guard guard(instance_mtx_);
   GlobalState::init_keys();
   LocalState::init_keys();
-  {
-    std::lock_guard guard(instance_mtx_);
-    if (instance_ == nullptr)
-      instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags,
-                          debFlags, samples);
-  }
+  if (instance_ == nullptr)
+    instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags,
+                        debFlags, samples);
 
   V4D::init_keys();
   PlanRuntime::current() = instance_;
@@ -73,8 +69,8 @@ cv::Ptr<V4D> V4D::init(const cv::Rect &viewport, const cv::Size &fbSize,
 }
 
 cv::Ptr<V4D> V4D::init(const V4D &other, const string &title) {
-  LocalState::init_keys();
   std::lock_guard guard(instance_mtx_);
+  LocalState::init_keys();
   if (instance_ == nullptr)
     instance_ = new V4D(other, title);
 

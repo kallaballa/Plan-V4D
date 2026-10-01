@@ -54,7 +54,7 @@ Transaction::getContextCallback() {
 }
 
 // GlobalState static member definitions
-CV_EXPORTS thread_local ThreadSafeAnyMap<LocalState::Keys::Enum>
+CV_EXPORTS thread_local anyproperty::ThreadSafeAnyMap<LocalState::Keys::Enum>
     LocalState::map_;
 
 CV_EXPORTS size_t cnz(const cv::UMat &m) {

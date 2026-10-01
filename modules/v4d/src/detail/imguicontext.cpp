@@ -130,7 +130,7 @@ int ImGuiContextImpl::execute(const cv::Rect &vp, std::function<void()> fn) {
     ImGui::NewFrame();
 
     bool open_ptr[1] = {true};
-    static ImGuiWindowFlags window_flags = 0;
+    ImGuiWindowFlags window_flags = 0;
     //            window_flags |= ImGuiWindowFlags_NoBackground;
     window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus;
     window_flags |= ImGuiWindowFlags_NoMove;
@@ -142,7 +142,7 @@ int ImGuiContextImpl::execute(const cv::Rect &vp, std::function<void()> fn) {
     window_flags |= ImGuiWindowFlags_NoDecoration;
     window_flags |= ImGuiWindowFlags_NoInputs;
     if (GlobalState::get<bool>(GlobalState::Keys::SHOW_FRAME_TIME)) {
-      static ImVec2 pos(0, 0);
+      ImVec2 pos(0, 0);
       ImGui::SetNextWindowPos(pos, ImGuiCond_Once);
       ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
       ImGui::Begin("Display", open_ptr, window_flags);

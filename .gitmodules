@@ -7,3 +7,6 @@
 [submodule "opencv"]
 	path = opencv
 	url = git@github.com:kallaballa/opencv.git
+[submodule "modules/v4d/third/AnyProperty"]
+	path = modules/v4d/third/AnyProperty
+	url = git@github.com:kallaballa/AnyProperty.git

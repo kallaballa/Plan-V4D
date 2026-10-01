@@ -20,7 +20,8 @@ Build-Depends: debhelper-compat (= 13),
                libglew-dev,
                libglfw3-dev,
                qtbase5-dev,
-               ocl-icd-opencl-dev
+               ocl-icd-opencl-dev,
+               libfreetype-dev
 Standards-Version: 4.6.2
 Homepage: https://github.com/kallaballa/Plan-V4D
 

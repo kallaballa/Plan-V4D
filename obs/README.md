@@ -8,7 +8,7 @@ for four distros on the [Open Build Service](https://build.opensuse.org/):
 |---|---|---|---|
 | openSUSE Tumbleweed | `home:<user>:Plan-V4D:openSUSE_Tumbleweed` | openSUSE_Factory | RPM |
 | Fedora | `home:<user>:Plan-V4D:Fedora` | Fedora Rawhide | RPM |
-| Ubuntu 24.04 | `home:<user>:Plan-V4D:Ubuntu_24.04` | Ubuntu 24.04 (x86_64 + arm64) | deb |
+| Ubuntu 24.04 | `home:<user>:Plan-V4D:Ubuntu_24.04` | Ubuntu 24.04 (x86_64 + aarch64) | deb |
 | Raspbian 12 | `home:<user>:Plan-V4D:Raspbian_12` | Debian 12 (armhf + arm64) | deb |
 
 Each target produces the same subpackage set: `plan-v4d-data`, `plan-v4d-libs`,

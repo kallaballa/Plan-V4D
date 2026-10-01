@@ -11,6 +11,7 @@
 #include "flags.hpp"
 #include "util.hpp"
 
+#include <anyproperty.hpp>
 #include <barrier>
 #include <future>
 #include <iomanip>
@@ -28,8 +29,6 @@
 #include <opencv2/core.hpp>
 #include <opencv2/core/utility.hpp>
 #include <opencv2/core/utils/logger.hpp>
-
-#include "threadsafeanymap.hpp"
 
 using namespace std::chrono_literals;
 using namespace cv::utils::logging;
@@ -425,13 +424,13 @@ protected:
               int res =
                   ctx->execute(viewport, [plan, n]() { n->tx_->perform(); });
               if (res <= 0) {
-                CV_LOG_WARNING(nullptr, "Context failed while: " + n->name_);
+                CV_LOG_DEBUG(nullptr, "Context failed while: " + n->name_);
               }
             } else {
               int res =
                   ctx->execute(viewport, [plan, n]() { n->tx_->perform(); });
               if (res <= 0) {
-                CV_LOG_WARNING(nullptr, "Context failed while: " + n->name_);
+                CV_LOG_DEBUG(nullptr, "Context failed while: " + n->name_);
               }
             }
           }
@@ -523,7 +522,7 @@ public:
          << "] ";
     }
 
-    ((ss << demangle(
+    ((ss << anyproperty::detail::demangle(
                 typeid(typename std::remove_reference_t<decltype(args)>::ref_t)
                     .name())
          << "(" << int_to_hex(args.id()) << ") "),
@@ -614,7 +613,9 @@ public:
       return name();
   }
 
-  virtual std::string name() { return detail::demangle(typeid(*this).name()); }
+  virtual std::string name() {
+    return anyproperty::detail::demangle(typeid(*this).name());
+  }
 
   virtual void setParentID(const string &parent) { parent_ = parent; }
 

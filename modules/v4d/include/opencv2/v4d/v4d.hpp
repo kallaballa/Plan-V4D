@@ -8,6 +8,8 @@
 
 #include <opencv2/plan/plan.hpp>
 
+#include <anyproperty.hpp>
+
 namespace cv {
 namespace v4d {
 using namespace cv::plan;
@@ -134,7 +136,7 @@ public:
 private:
   CV_EXPORTS static std::mutex instance_mtx_;
   CV_EXPORTS static thread_local cv::Ptr<V4D> instance_;
-  CV_EXPORTS static thread_local ThreadSafeAnyMap<Keys::Enum> properties_;
+  CV_EXPORTS static thread_local anyproperty::ThreadSafeAnyMap<Keys::Enum> properties_;
 
 public:
   /*!
@@ -185,7 +187,7 @@ private:
   // The property map of the thread this runtime belongs to. properties_ is
   // thread-local, so a runtime needs to remember its own map to be able to
   // update it from another thread.
-  ThreadSafeAnyMap<Keys::Enum> *ownProperties_ = nullptr;
+  anyproperty::ThreadSafeAnyMap<Keys::Enum> *ownProperties_ = nullptr;
   cv::Ptr<PlainContext> plainContext_ = nullptr;
   std::mutex glCtxMtx_;
   std::map<int32_t, cv::Ptr<GLContext>> glContexts_;
@@ -268,8 +270,8 @@ public:
   static void set(Keys::Enum key, const Tval &val, bool fire = true) {
     if (instance()->debugFlags() & DebugFlags::MONITOR_RUNTIME_PROPERTIES) {
       stringstream ss;
-      ss << demangle(typeid(decltype(key)).name()) << " = " << size_t(&val)
-         << " (fire: " << fire << ")";
+      ss << anyproperty::detail::demangle(typeid(decltype(key)).name()) << " = "
+         << size_t(&val) << " (fire: " << fire << ")";
       CV_LOG_INFO(&mon_tag, ss.str());
     }
     properties_.set(key, val, fire);
@@ -802,9 +804,6 @@ public:
   typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>,
                           cv::Ptr<V4DPlan>>::type
   write(Tfn fn, Args... args) {
-    if (!getParentID().empty())
-      return self<V4DPlan>();
-
     using Tfb = typename std::tuple_element<
         0, typename function_traits<Tfn>::argument_types>::type;
     static_assert((std::is_same<Tfb, cv::UMat>::value) ||
@@ -822,9 +821,6 @@ public:
   }
 
   cv::Ptr<V4DPlan> write() {
-    if (!getParentID().empty())
-      return self<V4DPlan>();
-
     auto writerEdge = makeInternalEdge<false>(writerFrame_);
     auto writerEdgeConst = makeInternalEdge<true>(writerFrame_);
 
@@ -838,9 +834,6 @@ public:
   }
 
   template <typename Tedge> cv::Ptr<V4DPlan> write(Tedge &&edge) {
-    if (!getParentID().empty())
-      return self<V4DPlan>();
-
     write(
         [](cv::UMat &outputFrame, const cv::UMat &f) { f.copyTo(outputFrame); },
         edge);
@@ -983,6 +976,8 @@ public:
 
   template <typename Tplan, typename... Args>
   static void run(int32_t extra_workers, Args &&...args) {
+    static std::mutex mtx;
+    std::lock_guard guard(mtx);
     // The Plan-DSL lifecycle (worker spawning, setup/infer/teardown graph
     // phases, barrier, frame loop) lives in the base class. Runtime
     // specifics are provided by the V4D PlanRuntime hooks above.
@@ -1153,7 +1148,7 @@ public:
                                    currentState]() { n->tx_->perform(); });
                   });
               if (res <= 0) {
-                CV_LOG_WARNING(&v4d_tag, "Context failed while: " + n->name_);
+                CV_LOG_DEBUG(&v4d_tag, "Context failed while: " + n->name_);
               }
             } else {
               int res = ctx->execute(
@@ -1163,7 +1158,7 @@ public:
                                    currentState]() { n->tx_->perform(); });
                   });
               if (res <= 0) {
-                CV_LOG_WARNING(&v4d_tag, "Context failed while: " + n->name_);
+                CV_LOG_DEBUG(&v4d_tag, "Context failed while: " + n->name_);
               }
             }
           }

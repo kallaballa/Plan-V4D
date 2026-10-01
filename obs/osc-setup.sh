@@ -137,7 +137,7 @@ cat > "$TMPDIR/ubuntu.xml" <<XML
   <repository name="Ubuntu_24.04">
     <path project="Ubuntu:24.04" repository="universe"/>
     <arch>x86_64</arch>
-    <arch>arm64</arch>
+    <arch>aarch64</arch>
   </repository>
   <build>
     <enable/>

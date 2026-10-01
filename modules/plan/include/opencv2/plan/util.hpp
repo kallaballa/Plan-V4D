@@ -6,7 +6,8 @@
 #ifndef OPENCV_PLAN_UTIL_HPP_
 #define OPENCV_PLAN_UTIL_HPP_
 
-#include "threadsafeanymap.hpp"
+#include <anyproperty.hpp>
+
 #include <array>
 #include <barrier>
 #include <cmath>
@@ -522,7 +523,7 @@ public:
   using Keys = GlobalKeys;
 
 private:
-  ThreadSafeAnyMap<Keys::Enum> map_;
+  anyproperty::ThreadSafeAnyMap<Keys::Enum> map_;
 
   mutable std::mutex threadIDMtx_;
   std::thread::id mainThreadID_;
@@ -833,7 +834,7 @@ public:
   };
 
 private:
-  CV_EXPORTS static thread_local ThreadSafeAnyMap<Keys::Enum> map_;
+  CV_EXPORTS static thread_local anyproperty::ThreadSafeAnyMap<Keys::Enum> map_;
 
 public:
   static void init_keys() {

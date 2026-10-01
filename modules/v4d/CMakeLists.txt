@@ -162,6 +162,7 @@ macro(add_binary_sample sample source)
       "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui"
       "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/"
       "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/"
+      "${CMAKE_CURRENT_SOURCE_DIR}/third/AnyProperty"
       "${CMAKE_HOME_DIRECTORY}/modules/features/include"
       "${CMAKE_HOME_DIRECTORY}/modules/flann/include"
       "${V4D_MODULES_DIR}/xobjdetect/include"
@@ -233,7 +234,8 @@ if(NOT (TARGET ${the_module}))
     "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui"
     "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/"
-    "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/")
+    "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third/AnyProperty")
   if(OPENCV_V4D_ENABLE_BGFX)
     list(APPEND _v4d_module_includes
       "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/"

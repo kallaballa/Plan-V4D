@@ -39,7 +39,7 @@ declare -A REPO_NAME=(
 declare -A REPO_ARCHS=(
     [openSUSE_Tumbleweed]="x86_64"
     [Fedora]="x86_64"
-    [Ubuntu_24.04]="x86_64"
+    [Ubuntu_24.04]="x86_64 aarch64"
     [Raspbian_12]="aarch64 armv7l"
 )
 
