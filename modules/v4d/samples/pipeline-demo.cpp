@@ -31,8 +31,7 @@ public:
 
   PipelineDemoPlan() {
     plans_ = {_sub<PedestrianDemoPlan>(this), _sub<VideoDemoPlan>(this),
-              _sub<NanoVGDemoPlan>(this), _sub<ShaderDemoPlan>(this, 15),
-              _sub<OptflowDemoPlan>(this)};
+              _sub<NanoVGDemoPlan>(this), _sub<ShaderDemoPlan>(this, 15)};
   }
 
   void setup() override {
@@ -64,15 +63,15 @@ int main(int argc, char **argv) {
     cerr << "Usage: pipeline-demo <video-file>" << endl;
     return 1;
   }
-  cv::Rect viewport(0, 0, 1920, 1080);
+  cv::Rect viewport(0, 0, 1280, 720);
   cv::Ptr<V4D> runtime = V4D::init(viewport, "Pipeline Demo",
                                    AllocateFlags::NANOVG | AllocateFlags::IMGUI,
                                    ConfigFlags::DISPLAY_MODE);
-  auto sink = Sink::make(runtime, "pipeline-demo.mkv", 60, viewport.size());
+//  auto sink = Sink::make(runtime, "pipeline-demo.mkv", 60, viewport.size());
   auto src = Source::make(runtime, videoFile);
   runtime->setSource(src);
-  runtime->setSink(sink);
-  V4DPlan::run<PipelineDemoPlan>(7);
+//  runtime->setSink(sink);
+  V4DPlan::run<PipelineDemoPlan>(3);
 
   return 0;
 }

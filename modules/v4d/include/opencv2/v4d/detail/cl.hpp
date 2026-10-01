@@ -1,6 +1,11 @@
 #ifndef MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_CL_HPP_
 #define MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_CL_HPP_
 
+// HAVE_OPENCL comes from the generated cvconfig.h, which this header must pull
+// in itself: its includers may reach this file before any other OpenCV header,
+// and without cvconfig.h the guard below would silently skip the CL includes.
+#include <opencv2/core/cvdef.h>
+
 #ifdef HAVE_OPENCL
 
 #ifndef CL_TARGET_OPENCL_VERSION
