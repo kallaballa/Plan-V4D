@@ -292,6 +292,16 @@ if(NOT (TARGET ${the_module}))
     "${YUNET_PATH}"
     "${CMAKE_CURRENT_BINARY_DIR}/assets/models/face_detection_yunet_2023mar.onnx")
 
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/models/pose/person_detection_mediapipe_2023mar.onnx"
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/pose/person_detection_mediapipe_2023mar.onnx")
+
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/models/pose/pose_estimation_mediapipe_2023mar.onnx"
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/pose/pose_estimation_mediapipe_2023mar.onnx")
+
   #Add sample targets
   if(BUILD_EXAMPLES)
     if(OPENCV_V4D_ENABLE_BGFX)
@@ -324,6 +334,7 @@ if(NOT (TARGET ${the_module}))
     add_binary_sample(example_v4d_font-demo samples/font-demo.cpp)
     add_binary_sample(example_v4d_shader-demo samples/shader-demo.cpp)
     add_binary_sample(example_v4d_pedestrian-demo samples/pedestrian-demo.cpp)
+    add_binary_sample(example_v4d_skeletal-tracker-demo samples/skeletal-tracker-demo.cpp)
     add_binary_sample(example_v4d_optflow-demo samples/optflow-demo.cpp)
     add_binary_sample(example_v4d_beauty-demo samples/beauty-demo.cpp)
     if(OPENCV_V4D_ENABLE_BGFX)
