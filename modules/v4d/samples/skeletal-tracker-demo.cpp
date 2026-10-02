@@ -712,8 +712,8 @@ struct SharedPoseState {
     float poseMs_ = 0.f;
     float totalMs_ = 0.f;
     float detConf_ = 0.55f;
-    float poseConf_ = 0.33f;
-    float roiEnlarge_ = 1.15f;
+    float poseConf_ = 0.23f;
+    float roiEnlarge_ = 1.25f;
     int maxPersons_ = 1;
     int maxMissed_ = 5;
     bool smooth_ = true;
