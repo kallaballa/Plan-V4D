@@ -21,3 +21,5 @@ tags
 tegra/
 *.i
 .download*
+# harness binaries and clips: modules/v4d/tools/*/build.sh
+/modules/v4d/tools/*/build/

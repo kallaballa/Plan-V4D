@@ -222,6 +222,8 @@ modules/v4d/
 │   ├── pedestrian-demo.cpp        HOG/NMS detection + KCF tracking + ImGui controls
 │   ├── skeletal-tracker-demo.cpp  MediaPipe pose: detection, per-person RoI,
 │   │                              pose net, multi-person tracking, 1 Euro smoothing
+│   ├── skeletal-tracker-pipeline.hpp  its pipeline, tracker and shared state
+│   ├── skeletal-tracker-anchors.hpp   the detector's anchors, computed
 │   ├── optflow-demo.cpp           Farneback optical flow
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
 │   ├── imshow_reimplementation.cpp   full GUI image viewer
@@ -239,6 +241,7 @@ modules/v4d/
 │       ├── …
 ├── third/                         third-party: glfw, nanovg, bgfx, glad, imgui
 └── tools/
+    └── skeletal-tracker/      checks for the skeletal tracker demo
 ```
 
 ## Where to start
@@ -261,7 +264,10 @@ modules/v4d/
 8. [`samples/skeletal-tracker-demo.cpp`](samples/skeletal-tracker-demo.cpp) — a
    complete vision pipeline: DNN person detection, per-person rotated crops, a
    pose network, multi-person tracking with 1 Euro smoothing, and per-stage
-   timings. See [Skeletal tracker](#skeletal-tracker).
+   timings; its pipeline is split into
+   [`samples/skeletal-tracker-pipeline.hpp`](samples/skeletal-tracker-pipeline.hpp)
+   so the [checks in `tools/skeletal-tracker/`](tools/skeletal-tracker/README.md)
+   can drive it. See [Skeletal tracker](#skeletal-tracker).
 
 For the language itself (edges, operators, control flow,
 properties, events), read the
@@ -297,31 +303,43 @@ count, tracker refresh period, miss threshold, and smoothing parameters.
 The skeletal tracker runs the MediaPipe pose stack on OpenCV DNN: a person
 detector, then one rotated square RoI per person, then a pose network that
 returns 33 BlazePose landmarks. `skeletal-tracker-anchors.hpp` is the detector's
-2254 anchor table, generated from the OpenCV Zoo model.
+2254 anchor table, computed at compile time from the three grids the OpenCV Zoo
+model's graph defines.
+
+The detector, the pose estimator, the tracker and the state the panel edits live
+in `samples/skeletal-tracker-pipeline.hpp`; the sample itself is the plan that
+drives it and the overlay that draws it.
 
 ```bash
 cmake --build . --target example_v4d_skeletal-tracker-demo
-# [input-video] [output-video] [width] [height]
+# [input-video] [output-video]
 ./bin/example_v4d_skeletal-tracker-demo
-./bin/example_v4d_skeletal-tracker-demo dance.mp4 out.mkv 1280 720
+./bin/example_v4d_skeletal-tracker-demo dance.mp4 out.mkv
 ```
 
 With no arguments it plays the bundled `videos/dance.mp4` and shows a window
 without recording. The output file is only written when you ask for one. The
-viewport defaults to the source's own resolution; pass a width and height to
-override it, since the pose stage runs on the viewport-sized frame and a smaller
-window is faster.
+viewport is a fixed 1920x1080, whatever the source's own resolution is, and the
+recorder is written at that size too.
 
 The pose models are downloaded by the build into
 `modules/v4d/assets/models/pose/`. If they are missing, fetch them with
 `make download-models`.
 
 Press <kbd>Space</kbd> to toggle tracking. The `Skeletal Tracker` ImGui window
-exposes the detector and pose confidence thresholds, the RoI enlargement, the
-maximum number of people, how many frames a track may coast before it is
-dropped, and the per-stage timings. Each person gets a stable colour and track
-id, a motion trail, and a box drawn around the skeleton; a faded skeleton is one
-the tracker is coasting on rather than one measured in the current frame.
+exposes the detector and pose confidence thresholds, the per-keypoint drawing
+threshold, the RoI enlargement, the maximum number of people, how many frames a
+track may coast before it is dropped, and the per-stage timings. Each person gets
+a stable colour and track id, a motion trail, and a box drawn around the
+skeleton; a faded skeleton is one the tracker is coasting on rather than one
+measured in the current frame. `Detector RoI` additionally draws the box the
+detector itself proposes, next to the skeleton box — they differ by design, the
+detector's being a near-constant square around the torso.
+
+The sample's checks live in
+[`tools/skeletal-tracker/`](tools/skeletal-tracker/README.md): the anchor table,
+the pose crop's geometry, and the pipeline's track, duplicate and timing
+behaviour on one- and two-person clips.
 
 V4D requires:
 

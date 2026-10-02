@@ -177,8 +177,9 @@ in the [V4D module README](modules/v4d/README.md).
 ## Requirements
 
 * C++20 (`<barrier>` and `<semaphore>`)
-* OpenCV 4.x (core + imgproc; V4D samples additionally use videoio, video,
-  imgcodecs, dnn, face, objdetect, tracking, optflow, plot, features2d, flann)
+* OpenCV 5.x (core + imgproc; V4D samples additionally use videoio, video,
+  imgcodecs, dnn, geometry, face, objdetect, tracking, optflow, plot,
+  features2d, flann)
 * GLFW 3 (V4D only)
 * An OpenGL-capable driver (or OpenGL ES 3.0)
 
