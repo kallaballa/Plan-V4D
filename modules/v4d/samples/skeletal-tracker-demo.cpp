@@ -22,7 +22,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <opencv2/dnn.hpp>
 #include <opencv2/geometry/2d.hpp>
 #include <opencv2/imgproc.hpp>
@@ -135,6 +134,8 @@ public:
         bool smooth_ = true;
         // How many consecutive frames a track survives without a detection.
         int maxMissed_ = 5;
+        // Source frame interval, seconds. Set from the input frame rate.
+        float frameDt_ = 1.f / 60.f;
     };
 
     struct Person {
@@ -147,9 +148,9 @@ public:
         : detNet_(dnn::readNet(detModel)),
           poseNet_(dnn::readNet(poseModel)) {
         detNet_.setPreferableBackend(dnn::DNN_BACKEND_OPENCV);
-        detNet_.setPreferableTarget(dnn::DNN_TARGET_CPU);
+        detNet_.setPreferableTarget(dnn::DNN_TARGET_OPENCL);
         poseNet_.setPreferableBackend(dnn::DNN_BACKEND_OPENCV);
-        poseNet_.setPreferableTarget(dnn::DNN_TARGET_CPU);
+        poseNet_.setPreferableTarget(dnn::DNN_TARGET_OPENCL);
     }
 
     [[nodiscard]] std::vector<Person> run(const cv::Mat& frameBGR, const Params& p) {
@@ -161,12 +162,10 @@ public:
             tracks_.clear();
         }
 
-        // Frame delta for the velocity-based filters, clamped so a paused or
-        // very slow stream cannot make them degenerate.
-        const float now = static_cast<float>(cv::getTickCount()) / cv::getTickFrequency();
-        float dt = lastTime_ > 0.f ? now - lastTime_ : 1.f / 30.f;
-        lastTime_ = now;
-        dt = std::clamp(dt, 1.f / 240.f, 1.f);
+        // Frame interval in *content* time. The estimator's jitter is per source frame,
+        // so filtering against wall-clock time would make the result depend on
+        // how fast the machine happens to run.
+        const float dt = std::clamp(p.frameDt_, 1.f / 240.f, 1.f);
 
         // --- Person detection ------------------------------------------------
         const Letterbox lb(frameBGR.size());
@@ -356,7 +355,6 @@ private:
     cv::Size frameSize_;
     std::vector<Track> tracks_;
     int nextId_ = 0;
-    float lastTime_ = 0.f;
 
     static float anchorX(int row) {
         return cv::samples::kPoseDetectorAnchors[2 * row] * static_cast<float>(kDetSize);
@@ -416,7 +414,6 @@ private:
     }
 
     std::vector<cv::Vec4f> smoothKeypoints(Track& tr, const std::vector<cv::Vec4f>& fresh, float dt) {
-        tr.configureFilters(kSmoothMinCutoff, kSmoothBeta);
         std::vector<cv::Vec4f> out(fresh.size());
         for (size_t i = 0; i < fresh.size(); ++i) {
             const int k = static_cast<int>(i);
@@ -533,30 +530,6 @@ private:
                 landmarks.at<float>(i, 2) * depthScale,
                 1.f / (1.f + std::exp(-landmarks.at<float>(i, 3))));
         }
-        {  // TEMP-DIAG
-            static int frameIdx = 0;
-            ++frameIdx;
-            float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
-            int vis = 0;
-            for (const auto& k : kpts) {
-                x0 = std::min(x0, k[0]);
-                y0 = std::min(y0, k[1]);
-                x1 = std::max(x1, k[0]);
-                y1 = std::max(y1, k[1]);
-                if (k[3] > 0.5f) ++vis;
-            }
-            const cv::Point2f hip((kpts[23][0] + kpts[24][0]) * 0.5f,
-                                  (kpts[23][1] + kpts[24][1]) * 0.5f);
-            std::fprintf(stderr,
-                         "[diag] f=%d conf=%.3f midHip=(%.1f,%.1f) fullBody=(%.1f,%.1f) "
-                         "dist=%.1f rot=%.2f crop=%dx%d bb=%.0f,%.0f %.0fx%.0f vis=%d "
-                         "hip=(%.1f,%.1f) hipErr=%.1f nose=(%.1f,%.1f) sho=(%.1f,%.1f)\n",
-                         frameIdx, conf, midHip.x, midHip.y, fullBody.x, fullBody.y, dist,
-                         radians * 180.0 / CV_PI, crop.cols, crop.rows, x0, y0, x1 - x0,
-                         y1 - y0, vis, hip.x, hip.y,
-                         static_cast<float>(cv::norm(hip - midHip)), kpts[0][0], kpts[0][1],
-                         (kpts[11][0] + kpts[12][0]) * 0.5f, (kpts[11][1] + kpts[12][1]) * 0.5f);
-        }
         return kpts;
     }
 };
@@ -571,6 +544,7 @@ struct SharedPoseState {
     float roiEnlarge_ = 1.25f;
     int maxPersons_ = 2;
     bool smooth_ = true;
+    float frameDt_ = 1.f / 60.f;
     bool enabled_ = true;
     bool fullscreen_ = false;
 };
@@ -580,6 +554,9 @@ struct SharedPoseState {
 // ---------------------------------------------------------------------------
 class SkeletalTrackerPlan : public V4DPlan {
 public:
+    // Frame rate of the input, so the filters can work in content time.
+    static float sourceFps_;
+
     constexpr static auto UMAT_COPY_TO_ =
         _OLMC_(void, cv::UMat, &cv::UMat::copyTo, cv::OutputArray);
 
@@ -597,6 +574,8 @@ public:
             }
             pipeline_ = makePtr<MediaPipePosePipeline>(detModel, poseModel);
         }
+        // The filters work in content time, not wall-clock time.
+        shared_.frameDt_ = sourceFps_ > 0.f ? 1.f / sourceFps_ : 1.f / 60.f;
     }
 
     void gui() override {
@@ -648,37 +627,10 @@ private:
     UMat frameBGR_;
 
     static void runPipeline(SharedPoseState& state, const cv::UMat& frameBGR) {
-        static const bool noSmooth = std::getenv("POSE_NO_SMOOTH") != nullptr;  // TEMP-DIAG
-        auto noSmoothDiag = [noSmooth] { return noSmooth; };
         if (frameBGR.empty() || pipeline_.empty()) return;
         MediaPipePosePipeline::Params p{state.detConf_, state.poseConf_, state.roiEnlarge_,
-                                        state.maxPersons_, state.smooth_ && !noSmoothDiag(), 5};
+                                        state.maxPersons_, state.smooth_, 5, state.frameDt_};
         state.persons_ = pipeline_->run(frameBGR.getMat(cv::ACCESS_READ), p);
-        {  // TEMP-DIAG
-            static int frameIdx = 0;
-            ++frameIdx;
-            for (const auto& pp : state.persons_) {
-                float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
-                int vis = 0;
-                for (const auto& k : pp.keypoints) {
-                    x0 = std::min(x0, k[0]);
-                    y0 = std::min(y0, k[1]);
-                    x1 = std::max(x1, k[0]);
-                    y1 = std::max(y1, k[1]);
-                    if (k[3] > 0.5f) ++vis;
-                }
-                const cv::Point2f hip((pp.keypoints[23][0] + pp.keypoints[24][0]) * 0.5f,
-                                      (pp.keypoints[23][1] + pp.keypoints[24][1]) * 0.5f);
-                std::fprintf(stderr,
-                             "[diag] f=%d n=%zu id=%d box=%d,%d %dx%d bb=%.0f,%.0f %.0fx%.0f "
-                             "vis=%d hip=(%.1f,%.1f) nose=(%.1f,%.1f) sho=(%.1f,%.1f)\n",
-                             frameIdx, state.persons_.size(), pp.id, pp.box.x, pp.box.y,
-                             pp.box.width, pp.box.height, x0, y0, x1 - x0, y1 - y0, vis,
-                             hip.x, hip.y, pp.keypoints[0][0], pp.keypoints[0][1],
-                             (pp.keypoints[11][0] + pp.keypoints[12][0]) * 0.5f,
-                             (pp.keypoints[11][1] + pp.keypoints[12][1]) * 0.5f);
-            }
-        }
     }
 
     static void drawOverlay(const cv::Size& sz, uint64_t frameNo,
@@ -744,6 +696,7 @@ private:
 };
 
 SharedPoseState SkeletalTrackerPlan::shared_;
+float SkeletalTrackerPlan::sourceFps_ = 0.f;
 cv::Ptr<MediaPipePosePipeline> SkeletalTrackerPlan::pipeline_;
 
 // ---------------------------------------------------------------------------
@@ -767,6 +720,7 @@ int main(int argc, char** argv) {
                                      ConfigFlags::DISPLAY_MODE);
 
     auto src = Source::make(runtime, inputVideo);
+    SkeletalTrackerPlan::sourceFps_ = src->fps();
     auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
     runtime->setSource(src);
     runtime->setSink(sink);
