@@ -118,6 +118,27 @@ int main(int argc, char** argv) {
                 rowScore, best, roi.width, roi.height, square.width, square.height);
     if (roi.empty()) return 1;
 
+    // --- How the two ways of sizing a crop compare ----------------------------
+    // The acquisition crop takes its size from the detector's own "full body"
+    // keypoint; the tracking crop the pipeline builds for a track it already has
+    // a skeleton for takes it from the skeleton itself. The tracking crop's scale
+    // constant is calibrated against this, so the two are printed side by side:
+    // if they disagree by much, every track changes size the frame after it is
+    // acquired, which shows up as a visible pop and as jitter in the numbers the
+    // pipeline reports.
+    {
+        const auto& k = persons.front().keypoints;
+        const cv::Point2f shoulderMid =
+            (cv::Point2f(k[11][0], k[11][1]) + cv::Point2f(k[12][0], k[12][1])) * 0.5f;
+        const cv::Point2f hipMid =
+            (cv::Point2f(k[23][0], k[23][1]) + cv::Point2f(k[24][0], k[24][1])) * 0.5f;
+        const float torso = static_cast<float>(cv::norm(shoulderMid - hipMid));
+        std::printf("crop scale: acquisition |fullBody-midHip| = %6.1f px, skeleton torso"
+                    " |shoulderMid-hipMid| = %6.1f px  =>  ratio %.3f"
+                    " (tracking constant kLandmarkHalf should give half = %.2f x torso)\n",
+                    dist, torso, dist / torso, half / torso);
+    }
+
     // --- The geometry the sample builds --------------------------------------
     // Rebuilt here from the frame coordinates rather than reused, so that the
     // comparison below is between two independent implementations.

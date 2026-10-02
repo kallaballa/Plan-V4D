@@ -9,7 +9,12 @@
 // stage split. Finally it checks the failure modes this demo has had before:
 // overlapping duplicate skeletons on one person, and tracks that never retire.
 //
-//   usage: bench_pipeline [video] [frames] [width] [height]
+//   usage: bench_pipeline [video|frame-dir] [frames] [width] [height]
+//
+// A directory is read as a frame%05d.png sequence, which is how a failure seen
+// only inside the demo gets replayed offline: the demo's own pixels differ from
+// what a VideoCapture of the clip hands over, so a bug that reproduces in one
+// and not the other can only be fixed against the bytes that showed it.
 
 #include "tool_prelude.hpp"
 
@@ -77,9 +82,19 @@ int main(int argc, char** argv) {
         return 1;
     }
     Pipe pipe(detModel, poseModel);
-    cv::VideoCapture cap(video);
-    if (!cap.isOpened()) {
-        std::cerr << "cannot open " << video << "\n";
+
+    // A frame directory is replayed instead of decoded: see the header note.
+    const bool isSeq = !video.empty() && video.back() == '/';
+    std::string dir = isSeq ? video : std::string();
+    cv::VideoCapture cap;
+    if (!isSeq) {
+        cap.open(video);
+        if (!cap.isOpened()) {
+            std::cerr << "cannot open " << video << "\n";
+            return 1;
+        }
+    } else if (!cv::utils::fs::exists(dir) || !cv::utils::fs::isDirectory(dir)) {
+        std::cerr << "no such frame directory " << dir << "\n";
         return 1;
     }
 
@@ -87,10 +102,11 @@ int main(int argc, char** argv) {
     // in content time, so give them the clip's own rate rather than the default.
     cv::samples::SharedPoseState state;
     Pipe::Params p = state.params();
-    const double fps = cap.get(cv::CAP_PROP_FPS);
+    const double fps = isSeq ? 59.94005994 : cap.get(cv::CAP_PROP_FPS);
     if (fps > 0.0) p.frameDt_ = static_cast<float>(1.0 / fps);
-    std::printf("%ux%u  detConf %.2f  poseConf %.2f  maxPersons %d  frameDt %.1f ms\n", dispW,
-                dispH, p.detConf_, p.poseConf_, p.maxPersons_, p.frameDt_ * 1000.f);
+    std::printf("%s  %ux%u  detConf %.2f  poseConf %.2f  maxPersons %d  frameDt %.1f ms\n",
+                isSeq ? (dir + " (png sequence)").c_str() : video.c_str(), dispW, dispH,
+                p.detConf_, p.poseConf_, p.maxPersons_, p.frameDt_ * 1000.f);
 
     cv::TickMeter tAll;
     int shown = 0, maxPersons = 0, duplicateFrames = 0, coastFrames = 0, n = 0;
@@ -101,10 +117,19 @@ int main(int argc, char** argv) {
 
     for (int i = 0; i < nFrames; i++) {
         cv::Mat frame;
-        cap >> frame;
-        if (frame.empty()) break;
+        if (isSeq) {
+            char name[4096];
+            std::snprintf(name, sizeof(name), "%s/frame%05d.png", dir.c_str(), i);
+            frame = cv::imread(name, cv::IMREAD_COLOR);
+            if (frame.empty()) break;
+        } else if (!(cap >> frame) || frame.empty()) {
+            break;
+        }
         cv::Mat f;
-        cv::resize(frame, f, cv::Size(dispW, dispH), 0, 0, cv::INTER_LINEAR);
+        if (frame.cols != dispW || frame.rows != dispH)
+            cv::resize(frame, f, cv::Size(dispW, dispH), 0, 0, cv::INTER_LINEAR);
+        else
+            f = frame;
 
         Pipe::Stats st;
         tAll.start();

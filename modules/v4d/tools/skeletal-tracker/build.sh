@@ -54,7 +54,7 @@ echo "building test_anchors"
 g++ "${FLAGS[@]}" -I"$REPO/modules/v4d/samples" \
   "$HERE/test_anchors.cpp" -o "$BUILD/test_anchors"
 
-for src in probe_crop bench_pipeline; do
+for src in probe_crop bench_pipeline probe_jitter; do
   echo "building $src"
   # shellcheck disable=SC2086
   g++ "${FLAGS[@]}" "$HERE/$src.cpp" -o "$BUILD/$src" "${INCLUDES[@]}" "${LIBS[@]}"

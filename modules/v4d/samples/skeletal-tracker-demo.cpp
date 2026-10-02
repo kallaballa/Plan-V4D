@@ -192,7 +192,10 @@ private:
       state.totalMs_ = 0.f;
       return;
     }
-    MediaPipePosePipeline::Stats stats;
+    
+        
+        
+        MediaPipePosePipeline::Stats stats;
     state.persons_ = pipeline_->run(frameBGR.getMat(cv::ACCESS_READ),
                                     state.params(), &stats);
     state.detectMs_ = stats.detectMs;
@@ -400,10 +403,10 @@ int main(int argc, char **argv) {
   SkeletalTrackerPlan::sourceFps_ = src->fps();
   runtime->setSource(src);
   if (!outputVideo.empty()) {
-    auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
+    auto sink = Sink::make(runtime, outputVideo, 60, viewport.size());
     runtime->setSink(sink);
   }
 
-  V4DPlan::run<SkeletalTrackerPlan>(0);
+  V4DPlan::run<SkeletalTrackerPlan>(7);
   return 0;
 }

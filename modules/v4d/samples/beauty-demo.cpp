@@ -540,10 +540,9 @@ int main(int argc, char **argv) {
   // V4D provides a source, sink system which is used mostly but not exclusively
   // with video data.
   auto src = Source::make(runtime, videoFile);
-  //	auto sink = Sink::make(runtime, "beauty-demo.mkv", 60, cv::Size(1920,
-  //1080));
+  auto sink = Sink::make(runtime, "beauty-demo.mkv", 60, cv::Size(1920, 1080));
   runtime->setSource(src);
-  //    runtime->setSink(sink);
+  runtime->setSink(sink);
   V4DPlan::run<BeautyDemoPlan>(2);
 
   return 0;
