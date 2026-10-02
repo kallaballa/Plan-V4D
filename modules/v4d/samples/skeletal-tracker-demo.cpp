@@ -95,10 +95,10 @@ enum PoseJoint {
 // V4D plan.
 // ---------------------------------------------------------------------------
 class SkeletalTrackerPlan : public V4DPlan {
+private:
+    Event<Keyboard> space_ = E<Keyboard>(Keyboard::PRESS);
+    Property<double> fps_ = P<double>(GlobalState::Keys::FPS);
 public:
-  // Frame rate of the input, so the filters can work in content time.
-  static float sourceFps_;
-
   constexpr static auto UMAT_COPY_TO_ =
       _OLMC_(void, cv::UMat, &cv::UMat::copyTo, cv::OutputArray);
 
@@ -116,8 +116,6 @@ public:
       }
       pipeline_ = makePtr<MediaPipePosePipeline>(detModel, poseModel);
     }
-    // The filters work in content time, not wall-clock time.
-    shared_.frameDt_ = sourceFps_ > 0.f ? 1.f / sourceFps_ : 1.f / 60.f;
   }
 
   void gui() override {
@@ -158,10 +156,10 @@ public:
 
   void infer() override {
     set(V4D::Keys::FULLSCREEN, CS(shared_.fullscreen_));
-
-    Event<Keyboard> space = E<Keyboard>(Keyboard::PRESS);
+    
+    RWS(shared_.frameDt_) = fps_;
     branch(RWS(shared_.enabled_) =
-               IF(F(&Keyboard::List::empty, space), CS(shared_.enabled_),
+               IF(F(&Keyboard::List::empty, space_), CS(shared_.enabled_),
                   !CS(shared_.enabled_)));
     {
       fb([](const cv::UMat &fb,
@@ -193,6 +191,9 @@ private:
       return;
     }
     
+        
+        
+        
         
         
         MediaPipePosePipeline::Stats stats;
@@ -369,7 +370,6 @@ private:
 };
 
 SharedPoseState SkeletalTrackerPlan::shared_;
-float SkeletalTrackerPlan::sourceFps_ = 0.f;
 cv::Ptr<MediaPipePosePipeline> SkeletalTrackerPlan::pipeline_;
 
 // ---------------------------------------------------------------------------
@@ -400,7 +400,6 @@ int main(int argc, char **argv) {
 
   auto src = Source::make(runtime, inputVideo);
 
-  SkeletalTrackerPlan::sourceFps_ = src->fps();
   runtime->setSource(src);
   if (!outputVideo.empty()) {
     auto sink = Sink::make(runtime, outputVideo, 60, viewport.size());
