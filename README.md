@@ -161,6 +161,7 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 |---|---|
 | `video_editing.cpp` | source → nvg → sink, the canonical pipeline |
 | `pedestrian-demo.cpp` | HOG/NMS detection, multi-pedestrian KCF tracking, and ImGui controls |
+| `skeletal-tracker-demo.cpp` | MediaPipe pose: detector → per-person RoI → pose net, multi-person tracking |
 | `beauty-demo.cpp` | the kitchen sink: shared state, sub-plans, `IF`, events, NanoVG, ImGui |
 | `font_rendering.cpp` | the smallest visible program (32 lines) |
 | `imshow_reimplementation.cpp` | a full GUI image viewer |
@@ -168,9 +169,10 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 
 Plus: raw OpenGL (`render_opengl`, `cube-demo`, `shader-demo`), vector graphics
 (`nanovg-demo`, `font-demo`), video processing (`optflow-demo`,
-`pedestrian-demo`), multi-window (`montage-demo`, `many_cubes-demo`), custom
-I/O (`custom_source_and_sink`), and more. The pedestrian demo's run command
-and tracking controls are documented in the [V4D module README](modules/v4d/README.md).
+`pedestrian-demo`, `skeletal-tracker-demo`), multi-window (`montage-demo`,
+`many_cubes-demo`), custom I/O (`custom_source_and_sink`), and more. The
+pedestrian and skeletal tracker demos' run commands and controls are documented
+in the [V4D module README](modules/v4d/README.md).
 
 ## Requirements
 

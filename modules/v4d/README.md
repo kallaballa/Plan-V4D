@@ -220,6 +220,8 @@ modules/v4d/
 │   ├── custom_source_and_sink.cpp custom I/O + conditional writing
 │   ├── montage-demo.cpp           many windows in one process
 │   ├── pedestrian-demo.cpp        HOG/NMS detection + KCF tracking + ImGui controls
+│   ├── skeletal-tracker-demo.cpp  MediaPipe pose: detection, per-person RoI,
+│   │                              pose net, multi-person tracking, 1 Euro smoothing
 │   ├── optflow-demo.cpp           Farneback optical flow
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
 │   ├── imshow_reimplementation.cpp   full GUI image viewer
@@ -256,6 +258,10 @@ modules/v4d/
    — a full GUI image viewer; a tour de force.
 7. [`samples/image_carousel.cpp`](samples/image_carousel.cpp) — animated
    glossy cards with reflections, keyboard/mouse navigation, and an ImGui HUD.
+8. [`samples/skeletal-tracker-demo.cpp`](samples/skeletal-tracker-demo.cpp) — a
+   complete vision pipeline: DNN person detection, per-person rotated crops, a
+   pose network, multi-person tracking with 1 Euro smoothing, and per-stage
+   timings. See [Skeletal tracker](#skeletal-tracker).
 
 For the language itself (edges, operators, control flow,
 properties, events), read the
@@ -286,11 +292,42 @@ cmake --build . --target example_v4d_pedestrian-demo
 The `Tracking` ImGui window exposes the detection interval, maximum track
 count, tracker refresh period, miss threshold, and smoothing parameters.
 
+### Skeletal tracker
+
+The skeletal tracker runs the MediaPipe pose stack on OpenCV DNN: a person
+detector, then one rotated square RoI per person, then a pose network that
+returns 33 BlazePose landmarks. `skeletal-tracker-anchors.hpp` is the detector's
+2254 anchor table, generated from the OpenCV Zoo model.
+
+```bash
+cmake --build . --target example_v4d_skeletal-tracker-demo
+# [input-video] [output-video] [width] [height]
+./bin/example_v4d_skeletal-tracker-demo
+./bin/example_v4d_skeletal-tracker-demo dance.mp4 out.mkv 1280 720
+```
+
+With no arguments it plays the bundled `videos/dance.mp4` and shows a window
+without recording. The output file is only written when you ask for one. The
+viewport defaults to the source's own resolution; pass a width and height to
+override it, since the pose stage runs on the viewport-sized frame and a smaller
+window is faster.
+
+The pose models are downloaded by the build into
+`modules/v4d/assets/models/pose/`. If they are missing, fetch them with
+`make download-models`.
+
+Press <kbd>Space</kbd> to toggle tracking. The `Skeletal Tracker` ImGui window
+exposes the detector and pose confidence thresholds, the RoI enlargement, the
+maximum number of people, how many frames a track may coast before it is
+dropped, and the per-stage timings. Each person gets a stable colour and track
+id, a motion trail, and a box drawn around the skeleton; a faded skeleton is one
+the tracker is coasting on rather than one measured in the current frame.
+
 V4D requires:
 
 * C++20
 * OpenCV core, imgproc, videoio, video, plus (for the samples)
-  imgcodecs, dnn, face, objdetect, tracking, optflow, plot,
+  imgcodecs, dnn, geometry, face, objdetect, tracking, optflow, plot,
   stitching, features2d, flann
 * GLFW 3
 * NanoVG (vendored under `third/nanovg/`)
