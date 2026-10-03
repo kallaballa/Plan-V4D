@@ -180,8 +180,7 @@ public:
       : sz_(inputSize), scale_(inputScale) {
     detector_ = cv::FaceDetectorYN::create(
         cv::samples::findFile("models/face_detection_yunet_2023mar.onnx"), "",
-        inputSize, 0.9, 0.3, 5000, cv::dnn::DNN_BACKEND_OPENCV,
-        cv::dnn::DNN_TARGET_OPENCL);
+        inputSize, 0.9, 0.3, 5000, cv::dnn::DNN_BACKEND_VKCOM);
     facemark_->loadModel(cv::samples::findFile("models/lbfmodel.yaml"));
   }
 
