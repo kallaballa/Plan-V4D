@@ -210,8 +210,10 @@ public:
     explicit MediaPipePosePipeline(const std::string& detModel, const std::string& poseModel)
         : detNet_(dnn::readNet(detModel)),
           poseNet_(dnn::readNet(poseModel)) {
-        detNet_.setPreferableBackend(dnn::DNN_BACKEND_VKCOM);
-        poseNet_.setPreferableBackend(dnn::DNN_BACKEND_VKCOM);
+        detNet_.setPreferableBackend(dnn::DNN_BACKEND_INFERENCE_ENGINE);
+        poseNet_.setPreferableBackend(dnn::DNN_BACKEND_INFERENCE_ENGINE);
+        detNet_.setPreferableTarget(dnn::DNN_TARGET_OPENCL);
+        poseNet_.setPreferableTarget(dnn::DNN_TARGET_OPENCL);
     }
 
     [[nodiscard]] std::vector<Person> run(const cv::Mat& frameBGR, const Params& p,

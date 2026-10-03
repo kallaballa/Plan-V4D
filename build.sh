@@ -10,6 +10,7 @@ TARGET=plan
 BUILD_TYPE=debug
 REBUILD=
 TEST_ARGS=
+DNN_BACKEND=openvino
 
 usage() {
   cat <<EOF
@@ -22,6 +23,11 @@ Options:
   -b, --build-type TYPE  Build configuration: release, debug, asan, ubsan, tsan
                          (default: debug)
   -j, --jobs N           Parallel build jobs (default: 4)
+  -d, --dnn-backend NAME DNN inference backend: 'openvino' or 'opencv'
+                         (default: openvino). 'openvino' compiles the OpenVINO
+                         backend in and makes DNN_BACKEND_DEFAULT resolve to
+                         DNN_BACKEND_INFERENCE_ENGINE; the device is still
+                         chosen per net at runtime via setPreferableTarget().
   -r, --rebuild          Force a fresh cmake configure, discarding the current
                          build directory contents
   -h, --help             Show this help
@@ -29,10 +35,17 @@ Options:
 Any arguments after '--' are passed through to the test binaries (only relevant
 when target is 'plan', which builds and runs the plan tests).
 
+Environment:
+  OpenVINO_DIR   OpenVINO devel tree to build against, e.g.
+                 /usr/lib64/cmake/OpenVINO (the default when unset). The runtime
+                 plugins have to match: <libdir>/openvino-<version>/ must hold
+                 libopenvino_intel_gpu_plugin.so for DNN_TARGET_OPENCL.
+
 Examples:
   $(basename "$0")
   $(basename "$0") -t plan+v4d
   $(basename "$0") -t plan -b asan -j 8 -- --gtest_filter=Plan.*
+  $(basename "$0") -r -d openvino
 EOF
   exit 0
 }
@@ -48,6 +61,9 @@ while [ $# -gt 0 ] && [ "$1" != "--" ]; do
     -j|--jobs)
       [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
       JOBS="$2"; shift 2 ;;
+    -d|--dnn-backend)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      DNN_BACKEND="$2"; shift 2 ;;
     -r|--rebuild)
       REBUILD=1; shift ;;
     -h|--help)
@@ -65,11 +81,21 @@ case "$TARGET" in
   *) echo "Invalid target '$TARGET' (expected 'plan' or 'plan+v4d')" >&2; exit 1 ;;
 esac
 
+case "$DNN_BACKEND" in
+  openvino|opencv) ;;
+  *) echo "Invalid dnn backend '$DNN_BACKEND' (expected 'openvino' or 'opencv')" >&2; exit 1 ;;
+esac
+
 CMAKE_BUILD_TYPE=Debug
 C_FLAGS=
 CXX_FLAGS="-DCL_TARGET_OPENCL_VERSION=120"
 EXE_LINKER_FLAGS=
 SHARED_LINKER_FLAGS=
+
+# Optional: point cmake at a specific OpenVINO devel tree, e.g.
+#   OpenVINO_DIR=/opt/intel/openvino_2026/runtime/lib/cmake/ov ./build.sh -r
+# Left empty, OpenCV's find_package(OpenVINO) picks up whatever is installed.
+OPENVINO_DIR_OVERRIDE="${OpenVINO_DIR:-}"
 
 case "$BUILD_TYPE" in
   release)
@@ -155,6 +181,10 @@ CMAKE_ARGS=(
   -DWITH_TBB=OFF
   -DWITH_TIFF=OFF
   -DWITH_VULKAN=ON
+  # OpenCL is what both halves of "openvino (opencl)" need: WITH_OPENCL gives
+  # opencv_core the OpenCL runtime, OPENCV_DNN_OPENCL (added by dnn_cmake_args)
+  # turns on CV_OCL4DNN in opencv_dnn, and OpenVINO's own GPU device - the one
+  # DNN_TARGET_OPENCL maps to - is an OpenCL device provided by libopenvino.
   -DWITH_OPENCL=ON
   -DWITH_OPENCL_SVM=ON
   -DWITH_OPENCLAMDFFT=OFF
@@ -287,13 +317,148 @@ if [ -n "$SHARED_LINKER_FLAGS" ]; then
 fi
 CMAKE_ARGS+=(-DCMAKE_CXX_FLAGS="$CXX_FLAGS")
 
-echo "==> Building target '${TARGET}' (build type: ${BUILD_TYPE}) in ${BUILD_DIR}"
+# DNN -> OpenVINO. Three independent switches have to agree for the DNN module to
+# offer the OpenVINO OpenCL target, and each one fails silently on its own:
+#
+#   WITH_OPENVINO           find_package(OpenVINO) -> ocv.3rdparty.openvino
+#   OPENCV_DNN_OPENVINO     compiles it into libopencv_dnn
+#                           (HAVE_INF_ENGINE / HAVE_DNN_NGRAPH)
+#   OPENCV_DNN_PLUGIN_LIST  left empty on purpose: that builds the backend *into*
+#                           libopencv_dnn instead of a separate
+#                           opencv_dnn_openvino*.so plugin, which is what
+#                           DNN_BACKEND_INFERENCE_ENGINE needs to resolve.
+#
+# OPENCV_DNN_BACKEND_DEFAULT only moves DNN_BACKEND_DEFAULT; the inference
+# *device* is still chosen per net at runtime via setPreferableTarget().
+#
+# Both variants deliberately leave OPENCV_DNN_BACKEND_DEFAULT at its stock value
+# (DNN_BACKEND_OPENCV, i.e. 'opencv'). Making DNN_BACKEND_DEFAULT itself resolve
+# to DNN_BACKEND_INFERENCE_ENGINE does not merely change the default: in OpenCV
+# 5.x it makes every Net::Impl swap itself for a NetImplOpenVINO at construction
+# time, which is what used to turn any later setPreferableTarget() into a
+# Net::Impl::clear() that dropped the freshly imported graph. With the default
+# left alone, setPreferableBackend(DNN_BACKEND_INFERENCE_ENGINE) is what opts a
+# net into the OpenVINO whole-graph offload.
+DNN_CMAKE_ARGS=(
+  -DOPENCV_DNN_OPENCL=ON
+)
+case "$DNN_BACKEND" in
+  openvino)
+    DNN_CMAKE_ARGS+=(
+      -DWITH_OPENVINO=ON
+      -DOPENCV_DNN_OPENVINO=ON
+      -DOPENCV_DNN_PLUGIN_LIST=
+    )
+    if [ -n "$OPENVINO_DIR_OVERRIDE" ]; then
+      DNN_CMAKE_ARGS+=(-DOpenVINO_DIR="$OPENVINO_DIR_OVERRIDE")
+    fi
+    ;;
+  opencv)
+    DNN_CMAKE_ARGS+=(
+      -DWITH_OPENVINO=OFF
+      -DOPENCV_DNN_OPENVINO=OFF
+    )
+    ;;
+esac
+CMAKE_ARGS+=("${DNN_CMAKE_ARGS[@]}")
+
+# OpenCV reports a missing OpenVINO as a plain "OpenVINO: NO" line and keeps
+# going, so an unbuildable or mismatched installation is only discovered much
+# later as "DNN_BACKEND_INFERENCE_ENGINE is not available". Check it here.
+verify_dnn_backend() {
+  local cache="$BUILD_DIR/CMakeCache.txt"
+  local flags="$BUILD_DIR/modules/dnn/CMakeFiles/opencv_dnn.dir/flags.make"
+  local failed=0
+
+  if [ "$DNN_BACKEND" != openvino ]; then
+    return 0
+  fi
+
+  if ! grep -q "OPENCV_MODULE_opencv_dnn_LINK_DEPS.*openvino" "$cache"; then
+    echo "ERROR: opencv_dnn does not link OpenVINO (OpenVINO runtime not found by cmake)." >&2
+    echo "       Install the OpenVINO *devel* package and the matching runtime" >&2
+    echo "       plugins, then re-run with -r." >&2
+    failed=1
+  fi
+
+  # The GPU/OpenCL target only shows up in getAvailableTargets() when OpenCV's
+  # own OpenCL is compiled in and the default OpenCL device is an Intel one.
+  if ! grep -q "CV_OCL4DNN=1" "$flags" 2>/dev/null; then
+    echo "WARNING: opencv_dnn built without OpenCL (CV_OCL4DNN), so the" >&2
+    echo "         DNN_TARGET_OPENCL / DNN_TARGET_OPENCL_FP16 targets will not" >&2
+    echo "         be listed by cv::dnn::getAvailableTargets()." >&2
+  fi
+
+  verify_openvino_gpu_plugin || failed=1
+
+  grep -E "^(OpenVINO_DIR|WITH_OPENVINO|OPENCV_DNN_OPENVINO|OPENCV_DNN_BACKEND_DEFAULT|OPENCV_DNN_OPENCL):" "$cache" \
+    | sed 's/^/       /'
+
+  [ "$failed" -eq 0 ]
+}
+
+# DNN_TARGET_OPENCL is served by OpenVINO's *GPU* device, which ov::Core only
+# finds through the plugin next to the libopenvino.so that opencv_dnn links:
+# <dir(libopenvino.so)>/openvino-<core version>/libopenvino_intel_gpu_plugin.so.
+# A devel package whose plugins are a different version than its core enumerates
+# zero devices, and then every OpenVINO target silently disappears from
+# cv::dnn::getAvailableBackends() -- with no error anywhere in the build.
+verify_openvino_gpu_plugin() {
+  local link="$BUILD_DIR/modules/dnn/CMakeFiles/opencv_dnn.dir/link.txt"
+  local ov_so ov_libdir ov_ver plugindir
+
+  ov_so="$(tr ' ' '\n' < "$link" 2>/dev/null | grep -oE '/[^ ]*/libopenvino\.so[^ ]*' | head -1)"
+  if [ -z "$ov_so" ]; then
+    echo "ERROR: cannot read the libopenvino.so that opencv_dnn links from $link." >&2
+    return 1
+  fi
+  ov_so="$(readlink -f "$ov_so")"
+  ov_libdir="$(dirname "$ov_so")"
+  ov_ver="$(basename "$ov_so" | sed -n 's/^libopenvino\.so\.\([0-9][0-9.]*\)$/\1/p')"
+
+  if [ -z "$ov_ver" ]; then
+    echo "WARNING: $ov_so carries no version in its soname, cannot locate the" >&2
+    echo "         OpenVINO plugin directory next to it." >&2
+    return 0
+  fi
+
+  plugindir="$ov_libdir/openvino-$ov_ver"
+  if [ ! -d "$plugindir" ]; then
+    echo "ERROR: no $plugindir -- the OpenVINO $ov_ver core cannot load any device plugin." >&2
+    for d in "$ov_libdir"/openvino-*; do
+      [ -d "$d" ] && echo "       (found instead: $d)" >&2
+    done
+    echo "       Install the runtime plugins matching the devel package, e.g." >&2
+    echo "         sudo zypper install openvino-intel-gpu-plugin=$ov_ver openvino-intel-cpu-plugin=$ov_ver" >&2
+    return 1
+  fi
+
+  if [ ! -e "$plugindir/libopenvino_intel_gpu_plugin.so" ]; then
+    echo "ERROR: $plugindir has no libopenvino_intel_gpu_plugin.so, so OpenVINO" >&2
+    echo "       has no GPU device and DNN_TARGET_OPENCL cannot be used." >&2
+    echo "         sudo zypper install openvino-intel-gpu-plugin=$ov_ver" >&2
+    return 1
+  fi
+
+  echo "       OpenVINO GPU (OpenCL) plugin: $plugindir/libopenvino_intel_gpu_plugin.so"
+}
+
+echo "==> Building target '${TARGET}' (build type: ${BUILD_TYPE}, dnn backend: ${DNN_BACKEND}) in ${BUILD_DIR}"
 cd "$BUILD_DIR"
 
 if [ "$REBUILD" = 1 ]; then
   cmake --fresh "${CMAKE_ARGS[@]}" "$OPENCV_DIR"
 else
   cmake "${CMAKE_ARGS[@]}" "$OPENCV_DIR"
+fi
+
+verify_dnn_backend
+
+if [ "$DNN_BACKEND" = openvino ]; then
+  echo "==> DNN note: the inference *device* is selected per net at runtime, not by cmake --"
+  echo "    net.setPreferableBackend(cv::dnn::DNN_BACKEND_INFERENCE_ENGINE);"
+  echo "    net.setPreferableTarget(cv::dnn::DNN_TARGET_OPENCL);"
+  echo "    Verify what this build really offers: ./check-dnn-openvino.sh"
 fi
 
 echo "$BUILD_TYPE" > "$BUILD_MARKER"

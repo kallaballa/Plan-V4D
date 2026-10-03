@@ -6,7 +6,7 @@
 #include <opencv2/core/ocl.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
-
+#include <opencv2/dnn.hpp>
 #include "../include/opencv2/v4d/detail/gl.hpp"
 #include "../include/opencv2/v4d/v4d.hpp"
 
@@ -338,6 +338,36 @@ std::string get_gl_info() {
   return oss.str();
 }
 
+static const cv::dnn::Backend kIeNgraph        = (cv::dnn::Backend)1000000;
+static const cv::dnn::Backend kIeNnBuilder2019 = (cv::dnn::Backend)1000001;
+
+static bool isOpenVINO(cv::dnn::Backend b) {
+    return b == cv::dnn::DNN_BACKEND_INFERENCE_ENGINE ||
+           b == kIeNgraph || b == kIeNnBuilder2019;
+}
+
+static const char* backendName(cv::dnn::Backend b) {
+    switch (b) {
+        case cv::dnn::DNN_BACKEND_DEFAULT: return "DEFAULT";
+        case cv::dnn::DNN_BACKEND_OPENCV: return "OPENCV";
+        case cv::dnn::DNN_BACKEND_INFERENCE_ENGINE: return "OPENVINO";
+        case cv::dnn::DNN_BACKEND_VKCOM: return "VKCOM";
+        case cv::dnn::DNN_BACKEND_CUDA: return "CUDA";
+        default: return isOpenVINO(b) ? "OPENVINO(internal)" : "?";
+    }
+}
+
+static const char* targetName(cv::dnn::Target t) {
+    switch (t) {
+        case cv::dnn::DNN_TARGET_CPU: return "CPU";
+        case cv::dnn::DNN_TARGET_OPENCL: return "OPENCL";
+        case cv::dnn::DNN_TARGET_OPENCL_FP16: return "OPENCL_FP16";
+        case cv::dnn::DNN_TARGET_VULKAN: return "VULKAN";
+        case cv::dnn::DNN_TARGET_CUDA: return "CUDA";
+        default: return "?";
+    }
+}
+
 std::string get_cl_info() {
   std::stringstream ss;
 #ifdef HAVE_OPENCL
@@ -366,6 +396,17 @@ std::string get_cl_info() {
                    : "false")
            << endl;
       }
+    }
+    bool haveOpenVINO = false;
+    bool haveOpenVINOOpenCL = false;
+    printf("   backends/targets :\n");
+    for (const auto& bt : cv::dnn::getAvailableBackends()) {
+        printf("      backend=%-18s target=%s\n", backendName(bt.first), targetName(bt.second));
+        if (isOpenVINO(bt.first)) {
+            haveOpenVINO = true;
+            if (bt.second == cv::dnn::DNN_TARGET_OPENCL || bt.second == cv::dnn::DNN_TARGET_OPENCL_FP16)
+                haveOpenVINOOpenCL = true;
+        }
     }
   }
 #endif
