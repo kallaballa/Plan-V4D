@@ -162,8 +162,16 @@ public:
                IF(F(&Keyboard::List::empty, space_), CS(shared_.enabled_),
                   !CS(shared_.enabled_)));
     {
+      // RGBA2BGR, not RGBA2RGB: both nets take their blob with swapRB set, so
+      // what they need is a Mat in OpenCV's own BGR order -- which is what this
+      // produces, and what the `frameBGR` name promises. Handing them RGB bytes
+      // swapRB turns into BGR bytes, and a channel-swapped image is close enough
+      // for the detector to mostly find the dancer but wrong enough that it also
+      // fires a second, spurious box every few seconds: the demo then shows a
+      // second skeleton on the same person, which mints a second track, coasts
+      // it for maxMissed_ frames and drops it again.
       fb([](const cv::UMat &fb,
-            cv::UMat &frameBGR) { cvtColor(fb, frameBGR, cv::COLOR_RGBA2RGB); },
+            cv::UMat &frameBGR) { cvtColor(fb, frameBGR, cv::COLOR_RGBA2BGR); },
          RW(frameBGR_))
           ->plain(runPipeline, RWS(shared_), R(frameBGR_))
           ->nvg(drawOverlay, size_, frameNo_, CS(shared_));
