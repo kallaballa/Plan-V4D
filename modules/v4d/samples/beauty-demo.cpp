@@ -233,8 +233,6 @@ public:
     float skinContrast_ = 0.75f;
     // Show input and output side by side
     bool sideBySide_ = true;
-    // Scale the video to the window size
-    bool stretch_ = true;
     // Show the window in fullscreen mode
     bool fullscreen_ = false;
     // Enable or disable the effect
@@ -332,7 +330,6 @@ public:
           Begin("Effect");
           Text("Display");
           Checkbox("Side by side", &params.sideBySide_);
-          Checkbox("Stetch", &params.stretch_);
 
           if (Button("Fullscreen")) {
             params.fullscreen_ = !params.fullscreen_;
@@ -387,7 +384,6 @@ public:
     // emits a node setting the states for "fullscreen" during execution of the
     // graph reading values from the shared data by copying it.
     set(V_::FULLSCREEN, CS(params_.fullscreen_));
-    set(V_::AUTO_SCALE, CS(params_.stretch_));
     // create a node the will capture video
     capture(RW(frames_.orig_));
     plain(prepare_frames, R(downSize_), RW(frames_));
