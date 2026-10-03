@@ -352,6 +352,21 @@ if(NOT (TARGET ${the_module}))
     add_binary_sample(example_v4d_montage-demo samples/montage-demo.cpp)
     add_binary_sample(example_v4d_pipeline-demo samples/pipeline-demo.cpp)
     add_binary_sample(example_v4d_image_carousel-demo samples/image_carousel-demo.cpp)
+    add_binary_sample(example_v4d_shadertoy-player samples/shadertoy-player.cpp)
+    # The player's HTTP transport. shadertoy.com sits behind Cloudflare and
+    # challenges clients that do not present a browser TLS fingerprint, which no
+    # C++ HTTP stack here can do, so requests go through this python helper.
+    # It lives next to the executable so the player finds it however it is run.
+    add_custom_command(TARGET example_v4d_shadertoy-player POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/samples/shadertoy_fetch.py"
+      "$<TARGET_FILE_DIR:example_v4d_shadertoy-player>/shadertoy_fetch.py"
+      COMMENT "Copying shadertoy_fetch.py next to example_v4d_shadertoy-player")
+    target_compile_definitions(example_v4d_shadertoy-player PRIVATE
+      "SHADERTOY_SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/samples\"")
+    # The offline editor. It shares the renderer with the player but needs no
+    # python transport next to it: it only ever reads and writes local files.
+    add_binary_sample(example_v4d_shadertoy-editor samples/shadertoy-editor.cpp)
   endif()
 
   if(OPENCV_V4D_ENABLE_ES3)

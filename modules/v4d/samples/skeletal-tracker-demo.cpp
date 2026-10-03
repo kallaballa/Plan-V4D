@@ -157,7 +157,7 @@ public:
   void infer() override {
     set(V4D::Keys::FULLSCREEN, CS(shared_.fullscreen_));
     
-    RWS(shared_.frameDt_) = fps_;
+    RWS(shared_.frameDt_) = V(1000.0) / fps_;
     branch(RWS(shared_.enabled_) =
                IF(F(&Keyboard::List::empty, space_), CS(shared_.enabled_),
                   !CS(shared_.enabled_)));
@@ -410,10 +410,10 @@ int main(int argc, char **argv) {
 
   runtime->setSource(src);
   if (!outputVideo.empty()) {
-    auto sink = Sink::make(runtime, outputVideo, 60, viewport.size());
+    auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
     runtime->setSink(sink);
   }
 
-  V4DPlan::run<SkeletalTrackerPlan>(7);
+  V4DPlan::run<SkeletalTrackerPlan>(4);
   return 0;
 }

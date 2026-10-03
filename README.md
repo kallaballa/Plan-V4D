@@ -166,13 +166,14 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 | `font_rendering.cpp` | the smallest visible program (32 lines) |
 | `imshow_reimplementation.cpp` | a full GUI image viewer |
 | `image_carousel.cpp` | a glossy animated image carousel |
+| `shadertoy-player.cpp` | a playable subset of shadertoy.com: official API, image/buffer passes, textures, mouse + keyboard |
 
 Plus: raw OpenGL (`render_opengl`, `cube-demo`, `shader-demo`), vector graphics
 (`nanovg-demo`, `font-demo`), video processing (`optflow-demo`,
 `pedestrian-demo`, `skeletal-tracker-demo`), multi-window (`montage-demo`,
 `many_cubes-demo`), custom I/O (`custom_source_and_sink`), and more. The
-pedestrian and skeletal tracker demos' run commands and controls are documented
-in the [V4D module README](modules/v4d/README.md).
+pedestrian, skeletal tracker and shadertoy player demos' run commands and
+controls are documented in the [V4D module README](modules/v4d/README.md).
 
 ## Requirements
 

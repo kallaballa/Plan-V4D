@@ -227,7 +227,13 @@ modules/v4d/
 │   ├── optflow-demo.cpp           Farneback optical flow
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
 │   ├── imshow_reimplementation.cpp   full GUI image viewer
-│   └── image_carousel.cpp         animated glossy image carousel
+│   ├── image_carousel.cpp         animated glossy image carousel
+│   ├── shadertoy-player.cpp       interactive Shadertoy player: official API,
+│   │                              image/buffer passes, textures, mouse+keyboard
+│   ├── shadertoy_api.hpp          its JSON, API client and texture downloads
+│   ├── shadertoy_mock_api.py      offline stand-in for the Shadertoy API
+│   ├── shadertoy-player-test.sh   smoke test against that mock
+│   └── shadertoy-player-test/     its logs and screenshot (generated)
 ├── src/
 │   ├── v4d.cpp                    V4D runtime lifecycle
 │   ├── nvg.cpp                    NanoVG wrapper
@@ -340,6 +346,46 @@ The sample's checks live in
 [`tools/skeletal-tracker/`](tools/skeletal-tracker/README.md): the anchor table,
 the pose crop's geometry, and the pipeline's track, duplicate and timing
 behaviour on one- and two-person clips.
+
+### Shadertoy player
+
+`samples/shadertoy-player.cpp` is a playable subset of shadertoy.com. It talks to
+the official REST API (`https://www.shadertoy.com/api/v1`) and renders image and
+buffer passes with the real Shadertoy semantics: per-pass framebuffers ping-ponged
+through the channel graph, `common` code injected into every pass, the standard
+uniform set (`iResolution`, `iTime`, `iFrame`, `iMouse`, `iDate`, …), texture
+presets downloaded on demand, and the 256x3 `iChannelKeyboard` texture.
+
+```bash
+cmake --build . --target example_v4d_shadertoy-player
+# [options] [app-key] [search-term]  -- see --help
+./bin/example_v4d_shadertoy-player --id XsofXRnMf
+```
+
+The panel on the left searches by term and by id, pages through results, and can
+pick a random shader; any output pass can be displayed. Press <kbd>Space</kbd> to
+pause, <kbd>R</kbd> to reload the shader, <kbd>Tab</kbd> to hide the panel,
+<kbd>F</kbd> for fullscreen and <kbd>H</kbd> for the HUD. The resolution scale,
+the displayed pass and the HUD are all in the panel.
+
+You need an app key from <https://www.shadertoy.com/api>. It is read from
+`SHADERTOY_API_KEY` or from `--key`, so it does not have to live in your shell
+history. `--api` points the player at a mirror, or at the bundled mock.
+
+`shadertoy.com` answers plain command line requests with an HTML bot challenge,
+so an unattended run cannot get through it from a datacenter address. The sample
+reports that as a clear error and keeps its window up. For tests there is an
+offline stand-in, `samples/shadertoy_mock_api.py`, which serves a few fixtures
+that exercise the single-image pass, the feedback-buffer graph, texture presets
+and the keyboard texture:
+
+```bash
+./modules/v4d/samples/shadertoy-player-test.sh
+```
+
+It runs every mock shader, checks that the right API calls were made, that each
+one compiles and that a missing shader is reported instead of fatal, and it saves
+a screenshot when the window maps (on Wayland through `swaymsg`/`grim`).
 
 V4D requires:
 
