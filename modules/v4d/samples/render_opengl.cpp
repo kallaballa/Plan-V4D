@@ -39,8 +39,8 @@ int main() {
   // Initialization of the V4D runtime must be invoked before Plan::run is
   // called There are AllocateFlags for selective initialization of subsystems,
   // ConfigFlags, and DebugFlags
-  Ptr<V4D> runtime = V4D::init(viewport, "GL Blue Screen", AllocateFlags::IMGUI,
-                               ConfigFlags::DISPLAY_MODE);
+  Ptr<V4D> runtime =
+      V4D::init(viewport, "GL Blue Screen", AllocateFlags::IMGUI);
   // Build (infer) and run the graph. The number denotes the number of workers
   // (0 meaning auto, which currently resolves to 1)
   V4DPlan::run<RenderOpenGLPlan>(2);

@@ -60,8 +60,8 @@ struct BuiltIn {
 
 /// The samples the editor starts from when no file is given. They are here so
 /// that a fresh window shows something that moves, and so that the editor is
-/// useful without a project file at hand. Each one exercises a different part of
-/// the renderer: a plain image pass, a feedback buffer chain, the keyboard
+/// useful without a project file at hand. Each one exercises a different part
+/// of the renderer: a plain image pass, a feedback buffer chain, the keyboard
 /// texture, and a common block prepended to a pass.
 std::vector<BuiltIn> builtIns() {
   std::vector<BuiltIn> out;
@@ -74,12 +74,11 @@ std::vector<BuiltIn> builtIns() {
     Pass pass;
     pass.type = "image";
     pass.name = "Image";
-    pass.code =
-        "void mainImage(out vec4 fragColor, in vec2 fragCoord)\n"
-        "{\n"
-        "    vec2 uv = fragCoord / iResolution.xy;\n"
-        "    fragColor = vec4(uv, 0.5 + 0.5 * sin(iTime), 1.0);\n"
-        "}\n";
+    pass.code = "void mainImage(out vec4 fragColor, in vec2 fragCoord)\n"
+                "{\n"
+                "    vec2 uv = fragCoord / iResolution.xy;\n"
+                "    fragColor = vec4(uv, 0.5 + 0.5 * sin(iTime), 1.0);\n"
+                "}\n";
     pass.outputs = {{0, 0}};
     b.shader.passes.push_back(pass);
     out.push_back(std::move(b));
@@ -93,16 +92,19 @@ std::vector<BuiltIn> builtIns() {
     Pass buffer;
     buffer.type = "buffer";
     buffer.name = "Buffer";
-    buffer.code =
-        "// A buffer pass writes its own output; reading it back next frame is\n"
-        "// the feedback loop. Note iChannel0 is this buffer, one phase behind.\n"
-        "void mainImage(out vec4 fragColor, in vec2 fragCoord)\n"
-        "{\n"
-        "    vec2 uv = fragCoord / iResolution.xy;\n"
-        "    vec2 p = uv - 0.5;\n"
-        "    vec3 prev = texture2D(iChannel0, uv - 0.004 * vec2(sin(iTime), cos(iTime))).rgb;\n"
-        "    fragColor = vec4(0.5 * prev + 0.25 * vec3(uv.x, uv.y, 0.5), 1.0);\n"
-        "}\n";
+    buffer.code = "// A buffer pass writes its own output; reading it back "
+                  "next frame is\n"
+                  "// the feedback loop. Note iChannel0 is this buffer, one "
+                  "phase behind.\n"
+                  "void mainImage(out vec4 fragColor, in vec2 fragCoord)\n"
+                  "{\n"
+                  "    vec2 uv = fragCoord / iResolution.xy;\n"
+                  "    vec2 p = uv - 0.5;\n"
+                  "    vec3 prev = texture2D(iChannel0, uv - 0.004 * "
+                  "vec2(sin(iTime), cos(iTime))).rgb;\n"
+                  "    fragColor = vec4(0.5 * prev + 0.25 * vec3(uv.x, uv.y, "
+                  "0.5), 1.0);\n"
+                  "}\n";
     buffer.outputs = {{0, 0}};
     buffer.inputs = {{0, 0, "buffer", "Buffer.0"}};
 
@@ -131,14 +133,16 @@ std::vector<BuiltIn> builtIns() {
     pass.name = "Image";
     pass.code =
         "// iChannelKeyboard is a 256x3 texture: row 0 keys held down, row 1\n"
-        "// keys pressed this frame, row 2 the toggles that have been flipped.\n"
+        "// keys pressed this frame, row 2 the toggles that have been "
+        "flipped.\n"
         "void mainImage(out vec4 fragColor, in vec2 fragCoord)\n"
         "{\n"
         "    vec2 uv = fragCoord / iResolution.xy;\n"
         "    vec3 held = texture2D(iChannelKeyboard, vec2(uv.x, 0.02)).rgb;\n"
         "    vec3 pressed = texture2D(iChannelKeyboard, vec2(uv.x, 0.4)).rgb;\n"
         "    vec3 toggled = texture2D(iChannelKeyboard, vec2(uv.x, 0.8)).rgb;\n"
-        "    fragColor = vec4(held * 0.7 + pressed * 0.5 + toggled * 0.25, 1.0);\n"
+        "    fragColor = vec4(held * 0.7 + pressed * 0.5 + toggled * 0.25, "
+        "1.0);\n"
         "}\n";
     pass.inputs = {{0, 0, "keyboard", ""}};
     pass.outputs = {{0, 0}};
@@ -195,7 +199,7 @@ bool loadCheckerboard(cv::Mat &rgba) {
   return true;
 }
 
-}  // namespace
+} // namespace
 
 // ---------------------------------------------------------------------------
 // The plan
@@ -212,7 +216,6 @@ public:
   enum class Mode { Interactive, Verify, Shot, Export };
 
 private:
-
   /// Everything the GUI thread and the worker share, behind one lock.
   ///
   /// The editor mutates the document (typing, adding a pass, rewiring a
@@ -227,7 +230,7 @@ private:
     std::string pathToOpen_;
     std::string pathToSave_;
     bool reload_ = false;
-    bool compile_ = false;  // compile now, ignoring the debounce
+    bool compile_ = false; // compile now, ignoring the debounce
     bool resetTime_ = false;
     bool screenshot_ = false;
     int texturePass_ = 0;
@@ -270,7 +273,7 @@ private:
     int scheme_ = 0;
     float resolutionScale_ = 1.0f;
     int displayPass_ = 0;
-    int selected_ = 0;  // the pass tab the editor is on
+    int selected_ = 0; // the pass tab the editor is on
     int builtIn_ = 1;
 
     std::string status_ = "ready";
@@ -292,8 +295,8 @@ private:
     std::vector<ShadertoyRenderer::TextureInput> textures_;
     std::map<std::string, cv::Mat> decoded_;
     bool compile_ = false;
-    int generation_ = 0;  // edits_ the snapshot was taken at
-    bool haveDocument_ = false;  // a new document was read from disk
+    int generation_ = 0;        // edits_ the snapshot was taken at
+    bool haveDocument_ = false; // a new document was read from disk
     std::string status_;
   } pending_;
 
@@ -322,18 +325,19 @@ private:
   Event<Keyboard> keyPress_ = E<Keyboard>(Keyboard::PRESS);
   Event<Keyboard> keyRelease_ = E<Keyboard>(Keyboard::RELEASE);
 
-  // GUI-thread-only: one code widget per pass, created when the document's shape
-  // changes and edited in place in between. A widget cannot be copied and holds
-  // its own undo history, so it is held by pointer - which is also why the
-  // change callback below has to name its own pass rather than capture one.
+  // GUI-thread-only: one code widget per pass, created when the document's
+  // shape changes and edited in place in between. A widget cannot be copied and
+  // holds its own undo history, so it is held by pointer - which is also why
+  // the change callback below has to name its own pass rather than capture one.
   struct CodePane {
     std::unique_ptr<TextEditor> editor;
     /// The document serial the text was last loaded from. A pass whose code is
     /// rewritten from outside the widget - undo is not the only way that can
-    /// happen, but a pass reorder or a reload is - has to be pushed back into it.
+    /// happen, but a pass reorder or a reload is - has to be pushed back into
+    /// it.
     int loadedSerial = -1;
-    /// The serial the error markers were last applied at, so that a compile that
-    /// found the same errors again does not re-add them every frame.
+    /// The serial the error markers were last applied at, so that a compile
+    /// that found the same errors again does not re-add them every frame.
     int markedSerial = -1;
     int markedPass = -1;
     int markedCount = -1;
@@ -344,14 +348,14 @@ private:
   /// caret, so this is a request rather than a caret position.
   struct CaretRequest {
     int pass = -1;
-    int line = 0;    // 1-based, as the driver and the error list report it
-    int column = 0;  // 1-based
+    int line = 0;   // 1-based, as the driver and the error list report it
+    int column = 0; // 1-based
   };
   bool wantCaret_ = false;
   CaretRequest caret_;
   shadertoy::Fonts fonts_;
-  /// The scheme applied to the panes last frame, so a re-theme is one assignment
-  /// per widget rather than one per frame.
+  /// The scheme applied to the panes last frame, so a re-theme is one
+  /// assignment per widget rather than one per frame.
   int appliedScheme_ = -1;
 
   const Mode mode_;
@@ -389,14 +393,16 @@ public:
   // -------------------------------------------------------------------------
 
   void gui() override {
-    imgui([this](Shared &shared) {
-      const auto &schemes = shadertoy::palettes();
-      if (shared.scheme_ < 0 || shared.scheme_ >= int(schemes.size()))
-        shared.scheme_ = 0;
-      fonts_ = shadertoy::loadFonts(1.0f);
-      shadertoy::applyPalette(schemes[size_t(shared.scheme_)], fonts_);
-      drawPanel(shared);
-    }, RWS(shared_));
+    imgui(
+        [this](Shared &shared) {
+          const auto &schemes = shadertoy::palettes();
+          if (shared.scheme_ < 0 || shared.scheme_ >= int(schemes.size()))
+            shared.scheme_ = 0;
+          fonts_ = shadertoy::loadFonts(1.0f);
+          shadertoy::applyPalette(schemes[size_t(shared.scheme_)], fonts_);
+          drawPanel(shared);
+        },
+        RWS(shared_));
   }
 
   // -------------------------------------------------------------------------
@@ -408,12 +414,13 @@ public:
       set(GlobalState::Keys::SHOW_GUI, V(true));
       set(K::FULLSCREEN, CS(shared_.fullscreen_));
     }
-    gl([](ShadertoyRenderer &renderer) {
-      std::string error;
-      if (!renderer.init(error))
-        std::cerr << "shadertoy-editor: " << error << std::endl;
-    },
-       RW(renderer_));
+    gl(
+        [](ShadertoyRenderer &renderer) {
+          std::string error;
+          if (!renderer.init(error))
+            std::cerr << "shadertoy-editor: " << error << std::endl;
+        },
+        RW(renderer_));
   }
 
   void teardown() override {
@@ -432,67 +439,71 @@ public:
 
     // (1) Shortcuts. Single key shortcuts stay out of the way while ImGui owns
     //     the keyboard.
-    plain([this](const Keyboard::List &presses, Shared &shared) {
-            if (mode_ != Mode::Interactive)
-              return;
-            if (imguiWantsKeyboard())
-              return;
-            for (const auto &key : presses) {
-              if (key->is(Keyboard::SPACE))
-                shared.playing_ = !shared.playing_;
-              else if (key->is(Keyboard::F5))
-                shared.compile_ = true;
-              else if (key->is(Keyboard::F9))
-                shared.save_ = true;
-              else if (key->is(Keyboard::R))
-                shared.resetTime_ = true;
-              else if (key->is(Keyboard::TAB))
-                shared.showPanel_ = !shared.showPanel_;
-              else if (key->is(Keyboard::F))
-                shared.fullscreen_ = !shared.fullscreen_;
-              else if (key->is(Keyboard::H))
-                shared.showHud_ = !shared.showHud_;
-              else if (key->is(Keyboard::P))
-                shared.screenshot_ = true;
-            }
-          },
-          keyPress_, RWS(shared_));
+    plain(
+        [this](const Keyboard::List &presses, Shared &shared) {
+          if (mode_ != Mode::Interactive)
+            return;
+          if (imguiWantsKeyboard())
+            return;
+          for (const auto &key : presses) {
+            if (key->is(Keyboard::SPACE))
+              shared.playing_ = !shared.playing_;
+            else if (key->is(Keyboard::F5))
+              shared.compile_ = true;
+            else if (key->is(Keyboard::F9))
+              shared.save_ = true;
+            else if (key->is(Keyboard::R))
+              shared.resetTime_ = true;
+            else if (key->is(Keyboard::TAB))
+              shared.showPanel_ = !shared.showPanel_;
+            else if (key->is(Keyboard::F))
+              shared.fullscreen_ = !shared.fullscreen_;
+            else if (key->is(Keyboard::H))
+              shared.showHud_ = !shared.showHud_;
+            else if (key->is(Keyboard::P))
+              shared.screenshot_ = true;
+          }
+        },
+        keyPress_, RWS(shared_));
 
     // (2) Files: open, save, reload, and decoding a local texture. This is the
     //     only node that touches the filesystem, so a slow disk cannot stall
     //     the panel, and the GUI thread never blocks on it.
-    plain([this](Shared &shared, Pending &pending) { service(shared, pending); },
-          RWS(shared_), RW(pending_));
+    plain(
+        [this](Shared &shared, Pending &pending) { service(shared, pending); },
+        RWS(shared_), RW(pending_));
 
     // (3) Decide when to compile. Typing produces an edit per keystroke and
     //     compiling is not free, so the worker waits for the text to settle.
     //     A structural change (a new file, another pass) is compiled at once:
     //     there is no typing to wait for.
-    plain([this](Shared &shared, Pending &pending) {
-            if (shared.shader_.passes.empty())
-              return;
-            // One compile in flight is enough; the next edit queues the next one.
-            if (pending.compile_)
-              return;
-            const bool structural = shared.serial_ != snapshottedSerial_;
-            const bool edited = shared.edits_ != pending.generation_;
-            if (!structural && !edited)
-              return;
-            if (!structural && !shared.compile_ &&
-                seconds() - shared.lastEdit_ < kDebounceSeconds)
-              return;
-            shared.compile_ = false;
-            shared.compiling_ = true;
-            snapshot(shared, pending);
-            snapshottedSerial_ = shared.serial_;
-          },
-          RWS(shared_), RW(pending_));
+    plain(
+        [this](Shared &shared, Pending &pending) {
+          if (shared.shader_.passes.empty())
+            return;
+          // One compile in flight is enough; the next edit queues the next one.
+          if (pending.compile_)
+            return;
+          const bool structural = shared.serial_ != snapshottedSerial_;
+          const bool edited = shared.edits_ != pending.generation_;
+          if (!structural && !edited)
+            return;
+          if (!structural && !shared.compile_ &&
+              seconds() - shared.lastEdit_ < kDebounceSeconds)
+            return;
+          shared.compile_ = false;
+          shared.compiling_ = true;
+          snapshot(shared, pending);
+          snapshottedSerial_ = shared.serial_;
+        },
+        RWS(shared_), RW(pending_));
 
     // (4) Compile on the GL thread, and publish what came out of it. A
     //     failure keeps the last good shader on screen: an editor that blanks
     //     the preview on every typo cannot be used.
-    gl([this](Pending &pending, Shared &shared, ShadertoyRenderer &renderer,
-              Anim &anim) {
+    gl(
+        [this](Pending &pending, Shared &shared, ShadertoyRenderer &renderer,
+               Anim &anim) {
           if (!pending.compile_)
             return;
           pending.compile_ = false;
@@ -500,8 +511,8 @@ public:
           std::vector<CompileError> errors;
           std::string error;
           const double started = seconds();
-          const bool ok = renderer.load(pending.shader_, pending.textures_,
-                                        errors, error);
+          const bool ok =
+              renderer.load(pending.shader_, pending.textures_, errors, error);
           shared.compileSeconds_ = seconds() - started;
 
           shared.errors_ = std::move(errors);
@@ -529,9 +540,8 @@ public:
 
           if (mode_ == Mode::Verify) {
             verifyExitCode = ok ? 0 : 1;
-            std::cout << (ok ? "ok" : "FAILED") << ": "
-                      << shared.shader_.name << " ("
-                      << pending.shader_.passes.size() << " pass(es))"
+            std::cout << (ok ? "ok" : "FAILED") << ": " << shared.shader_.name
+                      << " (" << pending.shader_.passes.size() << " pass(es))"
                       << std::endl;
             for (const auto &e : shared.errors_) {
               std::cout << "  pass " << e.pass << " line " << e.line << ": "
@@ -547,142 +557,144 @@ public:
         RW(pending_), RWS(shared_), RW(renderer_), RW(anim_));
 
     // (5) The clock, the pointer and the keyboard texture.
-    plain([this](const Mouse::List &moves, const Mouse::List &hoverEnters,
-                 const Mouse::List &hoverExits, const Mouse::List &presses,
-                 const Mouse::List &releases, const Keyboard::List &keyPresses,
-                 const Keyboard::List &keyReleases, const cv::Size &fbSize,
-                 const cv::Size &winSize, Shared &shared, Anim &anim) {
-            const cv::Rect canvas = canvasOf(cv::Size(fbSize.width, fbSize.height),
-                                             shared, mode_);
-            const double now = seconds();
+    plain(
+        [this](const Mouse::List &moves, const Mouse::List &hoverEnters,
+               const Mouse::List &hoverExits, const Mouse::List &presses,
+               const Mouse::List &releases, const Keyboard::List &keyPresses,
+               const Keyboard::List &keyReleases, const cv::Size &fbSize,
+               const cv::Size &winSize, Shared &shared, Anim &anim) {
+          const cv::Rect canvas =
+              canvasOf(cv::Size(fbSize.width, fbSize.height), shared, mode_);
+          const double now = seconds();
 
-            float dt = 0.0f;
-            if (anim.lastWallClock_ != 0.0)
-              dt = float(std::clamp(now - anim.lastWallClock_, 0.0, 0.1));
-            anim.lastWallClock_ = now;
-            if (shared.resetTime_) {
-              anim.time_ = 0.0;
-              anim.frame_ = 0;
-              shared.resetTime_ = false;
-            }
-            if (shared.playing_ && mode_ != Mode::Verify) {
-              anim.time_ += dt;
-              ++anim.frame_;
-            }
-            shared.time_ = anim.time_;
-            shared.timeDelta_ = dt;
-            shared.frame_ = anim.frame_;
-            if (dt > 0.0f) {
-              const float instant = 1.0f / dt;
-              shared.fps_ = (shared.fps_ <= 0.0f)
-                                ? instant
-                                : (0.9f * shared.fps_ + 0.1f * instant);
-            }
+          float dt = 0.0f;
+          if (anim.lastWallClock_ != 0.0)
+            dt = float(std::clamp(now - anim.lastWallClock_, 0.0, 0.1));
+          anim.lastWallClock_ = now;
+          if (shared.resetTime_) {
+            anim.time_ = 0.0;
+            anim.frame_ = 0;
+            shared.resetTime_ = false;
+          }
+          if (shared.playing_ && mode_ != Mode::Verify) {
+            anim.time_ += dt;
+            ++anim.frame_;
+          }
+          shared.time_ = anim.time_;
+          shared.timeDelta_ = dt;
+          shared.frame_ = anim.frame_;
+          if (dt > 0.0f) {
+            const float instant = 1.0f / dt;
+            shared.fps_ = (shared.fps_ <= 0.0f)
+                              ? instant
+                              : (0.9f * shared.fps_ + 0.1f * instant);
+          }
 
-            // -- pointer ---------------------------------------------------
-            const cv::Size window(winSize.width, winSize.height);
-            const double scaleX =
-                window.width > 0 ? double(fbSize.width) / window.width : 1.0;
-            const double scaleY =
-                window.height > 0 ? double(fbSize.height) / window.height : 1.0;
-            cv::Point2d cursor(-1.0, -1.0);
-            bool inside = hoverExits.empty();
-            for (const auto &event : hoverEnters)
-              cursor = cv::Point2d(event->position().x, event->position().y);
-            for (const auto &event : moves)
-              cursor = cv::Point2d(event->position().x, event->position().y);
-            if (inside && cursor.x >= 0.0 && shared.inputActive_) {
-              const int px = int(cursor.x * scaleX);
-              const int py = int(cursor.y * scaleY);
-              const bool overCanvas =
-                  px >= canvas.x && py >= canvas.y &&
-                  px < canvas.x + canvas.width && py < canvas.y + canvas.height;
-              if (overCanvas) {
-                const double u =
-                    double(px - canvas.x) / std::max(canvas.width, 1);
-                const double v =
-                    (canvas.y + canvas.height - py) / std::max(canvas.height, 1);
-                const cv::Size target = targetOf(canvas, shared, mode_);
-                anim.mouse_[0] = float(u * target.width);
-                anim.mouse_[1] = float(v * target.height);
-                anim.mouseKnown_ = true;
-                for (const auto &event : presses)
-                  if (event->button() == Mouse::LEFT)
-                    anim.mouse_[2] = anim.mouse_[0];
-                for (const auto &event : releases)
-                  if (event->button() == Mouse::LEFT)
-                    anim.mouse_[3] = anim.mouse_[0];
-              }
+          // -- pointer ---------------------------------------------------
+          const cv::Size window(winSize.width, winSize.height);
+          const double scaleX =
+              window.width > 0 ? double(fbSize.width) / window.width : 1.0;
+          const double scaleY =
+              window.height > 0 ? double(fbSize.height) / window.height : 1.0;
+          cv::Point2d cursor(-1.0, -1.0);
+          bool inside = hoverExits.empty();
+          for (const auto &event : hoverEnters)
+            cursor = cv::Point2d(event->position().x, event->position().y);
+          for (const auto &event : moves)
+            cursor = cv::Point2d(event->position().x, event->position().y);
+          if (inside && cursor.x >= 0.0 && shared.inputActive_) {
+            const int px = int(cursor.x * scaleX);
+            const int py = int(cursor.y * scaleY);
+            const bool overCanvas = px >= canvas.x && py >= canvas.y &&
+                                    px < canvas.x + canvas.width &&
+                                    py < canvas.y + canvas.height;
+            if (overCanvas) {
+              const double u =
+                  double(px - canvas.x) / std::max(canvas.width, 1);
+              const double v =
+                  (canvas.y + canvas.height - py) / std::max(canvas.height, 1);
+              const cv::Size target = targetOf(canvas, shared, mode_);
+              anim.mouse_[0] = float(u * target.width);
+              anim.mouse_[1] = float(v * target.height);
+              anim.mouseKnown_ = true;
+              for (const auto &event : presses)
+                if (event->button() == Mouse::LEFT)
+                  anim.mouse_[2] = anim.mouse_[0];
+              for (const auto &event : releases)
+                if (event->button() == Mouse::LEFT)
+                  anim.mouse_[3] = anim.mouse_[0];
             }
-            shared.resolution_ =
-                shared.hasShader_ ? targetOf(canvas, shared, mode_) : cv::Size();
+          }
+          shared.resolution_ =
+              shared.hasShader_ ? targetOf(canvas, shared, mode_) : cv::Size();
 
-            // -- keyboard texture -------------------------------------------
-            if (shared.inputActive_) {
-              for (const auto &key : keyPresses)
-                keyPress(anim.keyboard_, key->key());
-              for (const auto &key : keyReleases)
-                keyRelease(anim.keyboard_, key->key());
-            }
-            anim.keyboard_(cv::Rect(0, keyboardRowPressed, keyboardTextureWidth, 1))
-                .setTo(cv::Scalar::all(0));
-          },
-          move_, hoverEnter_, hoverExit_, press_, release_, keyPress_,
-          keyRelease_, size_, windowSize_, RWS(shared_), RW(anim_));
+          // -- keyboard texture -------------------------------------------
+          if (shared.inputActive_) {
+            for (const auto &key : keyPresses)
+              keyPress(anim.keyboard_, key->key());
+            for (const auto &key : keyReleases)
+              keyRelease(anim.keyboard_, key->key());
+          }
+          anim.keyboard_(
+                  cv::Rect(0, keyboardRowPressed, keyboardTextureWidth, 1))
+              .setTo(cv::Scalar::all(0));
+        },
+        move_, hoverEnter_, hoverExit_, press_, release_, keyPress_,
+        keyRelease_, size_, windowSize_, RWS(shared_), RW(anim_));
 
     // (6) Run the passes.
-    gl([this](ShadertoyRenderer &renderer, Anim &anim, Shared &shared,
-              const cv::Size &fbSize) {
-            if (!renderer.hasShader())
-              return;
-            ShadertoyRenderer::Frame frame;
-            const cv::Rect canvas =
-                canvasOf(cv::Size(fbSize.width, fbSize.height), shared, mode_);
-            frame.canvas = canvas;
-            frame.target = targetOf(canvas, shared, mode_);
-            frame.time = anim.time_;
-            frame.timeDelta = shared.timeDelta_;
-            frame.frame = anim.frame_;
-            frame.frameRate =
-                shared.timeDelta_ > 0.0f ? 1.0f / shared.timeDelta_ : 60.0f;
-            frame.mouse =
-                shared.inputActive_ ? anim.mouse_ : cv::Vec4f(0, 0, 0, 0);
-            const auto now = std::chrono::system_clock::now();
-            const auto today = std::chrono::floor<std::chrono::days>(now);
-            const std::chrono::year_month_day ymd{today};
-            frame.date = cv::Vec4f(
-                float(static_cast<int>(ymd.year())),
-                float(static_cast<unsigned>(ymd.month())),
-                float(static_cast<unsigned>(ymd.day())),
-                float(
-                    std::chrono::duration_cast<std::chrono::seconds>(now - today)
-                        .count()));
-            frame.sampleRate = 44100.0f;
-            renderer.setKeyboardTexture(anim.keyboard_);
-            renderer.render(frame, shared.displayPass_);
-            ++anim.framesRendered_;
+    gl(
+        [this](ShadertoyRenderer &renderer, Anim &anim, Shared &shared,
+               const cv::Size &fbSize) {
+          if (!renderer.hasShader())
+            return;
+          ShadertoyRenderer::Frame frame;
+          const cv::Rect canvas =
+              canvasOf(cv::Size(fbSize.width, fbSize.height), shared, mode_);
+          frame.canvas = canvas;
+          frame.target = targetOf(canvas, shared, mode_);
+          frame.time = anim.time_;
+          frame.timeDelta = shared.timeDelta_;
+          frame.frame = anim.frame_;
+          frame.frameRate =
+              shared.timeDelta_ > 0.0f ? 1.0f / shared.timeDelta_ : 60.0f;
+          frame.mouse =
+              shared.inputActive_ ? anim.mouse_ : cv::Vec4f(0, 0, 0, 0);
+          const auto now = std::chrono::system_clock::now();
+          const auto today = std::chrono::floor<std::chrono::days>(now);
+          const std::chrono::year_month_day ymd{today};
+          frame.date =
+              cv::Vec4f(float(static_cast<int>(ymd.year())),
+                        float(static_cast<unsigned>(ymd.month())),
+                        float(static_cast<unsigned>(ymd.day())),
+                        float(std::chrono::duration_cast<std::chrono::seconds>(
+                                  now - today)
+                                  .count()));
+          frame.sampleRate = 44100.0f;
+          renderer.setKeyboardTexture(anim.keyboard_);
+          renderer.render(frame, shared.displayPass_);
+          ++anim.framesRendered_;
 
-            // -- screenshot ---------------------------------------------------
-            if (shared.screenshot_) {
-              shared.screenshot_ = false;
-              writeShot(renderer, shared, anim);
-            }
-            if (mode_ == Mode::Shot && !anim.shotTaken_ &&
-                anim.framesRendered_ >= shotFrames_) {
-              anim.shotTaken_ = true;
-              writeShot(renderer, shared, anim);
-              V4D::instance()->requestFinish();
-            }
-          },
-          RW(renderer_), RW(anim_), RWS(shared_), size_);
+          // -- screenshot ---------------------------------------------------
+          if (shared.screenshot_) {
+            shared.screenshot_ = false;
+            writeShot(renderer, shared, anim);
+          }
+          if (mode_ == Mode::Shot && !anim.shotTaken_ &&
+              anim.framesRendered_ >= shotFrames_) {
+            anim.shotTaken_ = true;
+            writeShot(renderer, shared, anim);
+            V4D::instance()->requestFinish();
+          }
+        },
+        RW(renderer_), RW(anim_), RWS(shared_), size_);
 
     // (7) HUD, only in the interactive mode: a shot of the window should look
     //     like the editor, not like a bare canvas.
     if (mode_ == Mode::Interactive) {
       branch(CS(shared_.showHud_))
-          ->nvg([this](const cv::Size &sz, const Shared &shared) {
-                  drawHud(sz, shared);
-                },
+          ->nvg([this](const cv::Size &sz,
+                       const Shared &shared) { drawHud(sz, shared); },
                 size_, CS(shared_))
           ->endBranch();
     }
@@ -703,10 +715,10 @@ private:
 
   static cv::Rect canvasOf(const cv::Size &fbSize, const Shared &shared,
                            Mode mode) {
-    const int inset = (mode == Mode::Interactive && shared.showPanel_ &&
-                       !shared.fullscreen_)
-                          ? std::min(kPanelWidth, fbSize.width / 2)
-                          : 0;
+    const int inset =
+        (mode == Mode::Interactive && shared.showPanel_ && !shared.fullscreen_)
+            ? std::min(kPanelWidth, fbSize.width / 2)
+            : 0;
     return cv::Rect(inset, 0, std::max(fbSize.width - inset, 1),
                     std::max(fbSize.height, 1));
   }
@@ -727,9 +739,9 @@ private:
 
   // ---- files --------------------------------------------------------------
 
-  /// Ends an unattended run with a verdict. --verify and --shot cannot leave the
-  /// window to the user to close, so every outcome has to stop the frame loop.
-  /// The code becomes the process exit code.
+  /// Ends an unattended run with a verdict. --verify and --shot cannot leave
+  /// the window to the user to close, so every outcome has to stop the frame
+  /// loop. The code becomes the process exit code.
   static void finishRun(int code, const std::string &message) {
     // The first outcome is the answer. The rest of the frame keeps running
     // until the loop notices, and a stale "it compiled" would otherwise
@@ -842,7 +854,7 @@ private:
         input->src = path;
         input->filter = "linear";
         input->wrap = "clamp";
-        input->vflip = false;  // a local file is stored the right way up
+        input->vflip = false; // a local file is stored the right way up
         pending.decoded_[path] = std::move(rgba);
         ++shared.edits_;
         shared.lastEdit_ = seconds();
@@ -961,8 +973,7 @@ private:
     using namespace ImGui;
 
     SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Once);
-    SetNextWindowSize(ImVec2(float(kPanelWidth) - 20.0f, 0.0f),
-                      ImGuiCond_Once);
+    SetNextWindowSize(ImVec2(float(kPanelWidth) - 20.0f, 0.0f), ImGuiCond_Once);
     if (!Begin("Shadertoy Editor")) {
       End();
       return;
@@ -1002,7 +1013,8 @@ private:
     PushItemWidth(160.0f);
     if (Button("Open"))
       OpenPopup("Open file");
-    if (BeginPopupModal("Open file", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (BeginPopupModal("Open file", nullptr,
+                        ImGuiWindowFlags_AlwaysAutoResize)) {
       char path[512] = "";
       InputTextWithHint("##open", "path/to/shader.json", path, sizeof(path));
       if (Button("Open", ImVec2(120, 0))) {
@@ -1024,7 +1036,8 @@ private:
       else
         shared.save_ = true;
     }
-    if (BeginPopupModal("Save as", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (BeginPopupModal("Save as", nullptr,
+                        ImGuiWindowFlags_AlwaysAutoResize)) {
       char path[512] = "";
       if (!shared.path_.empty())
         std::snprintf(path, sizeof(path), "%s", shared.path_.c_str());
@@ -1066,7 +1079,8 @@ private:
       shared.edits_ = 0;
       shared.lastEdit_ = seconds();
       shared.builtIn_ = chosen;
-      shared.status_ = std::string("new shader from \"") + samples[size_t(chosen)].name + "\"";
+      shared.status_ = std::string("new shader from \"") +
+                       samples[size_t(chosen)].name + "\"";
     }
     PopItemWidth();
   }
@@ -1075,7 +1089,7 @@ private:
     using namespace ImGui;
 
     if (!BeginTabBar("passes", ImGuiTabBarFlags_Reorderable |
-                                  ImGuiTabBarFlags_AutoSelectNewTabs)) {
+                                   ImGuiTabBarFlags_AutoSelectNewTabs)) {
       // An empty shader still has to show the "add a pass" control.
       EndTabBar();
       return;
@@ -1095,8 +1109,7 @@ private:
     SameLine();
     // Removing a pass is destructive, so it gets its own control next to the
     // tabs instead of a close button that is one stray click away.
-    if (Button("Remove") &&
-        shared.selected_ >= 0 &&
+    if (Button("Remove") && shared.selected_ >= 0 &&
         shared.selected_ < int(shared.shader_.passes.size()))
       removePass(shared, shared.selected_);
     EndTabBar();
@@ -1112,10 +1125,11 @@ private:
       Pass image;
       image.type = "image";
       image.name = "Image";
-      image.code = "void mainImage(out vec4 fragColor, in vec2 fragCoord)\n"
-                   "{\n"
-                   "    fragColor = vec4(fragCoord / iResolution.xy, 0.0, 1.0);\n"
-                   "}\n";
+      image.code =
+          "void mainImage(out vec4 fragColor, in vec2 fragCoord)\n"
+          "{\n"
+          "    fragColor = vec4(fragCoord / iResolution.xy, 0.0, 1.0);\n"
+          "}\n";
       image.outputs = {{0, 0}};
       shader.passes.push_back(image);
     }
@@ -1149,8 +1163,8 @@ private:
       return;
     const std::string name = shared.shader_.passes[size_t(index)].name;
     shared.shader_.passes.erase(shared.shader_.passes.begin() + index);
-    shared.selected_ = std::min(shared.selected_,
-                                int(shared.shader_.passes.size()) - 1);
+    shared.selected_ =
+        std::min(shared.selected_, int(shared.shader_.passes.size()) - 1);
     shared.selected_ = std::max(shared.selected_, 0);
     ++shared.serial_;
     ++shared.edits_;
@@ -1179,16 +1193,16 @@ private:
     syncPaneText(shared, passIndex, pane);
     syncPaneErrors(shared, passIndex, pane);
 
-    // The widget is a child window and draws nothing below itself, so it is told
-    // how much room to leave for the button row and the status line - three lines
-    // of chrome, which is also the least the pane is ever given, so a shrunken
-    // panel still shows a signature rather than a sliver.
+    // The widget is a child window and draws nothing below itself, so it is
+    // told how much room to leave for the button row and the status line -
+    // three lines of chrome, which is also the least the pane is ever given, so
+    // a shrunken panel still shows a signature rather than a sliver.
     const float rowHeight = GetTextLineHeightWithSpacing();
-    const float avail =
-        std::max(GetContentRegionAvail().y - rowHeight * 3.0f, rowHeight * 3.0f);
+    const float avail = std::max(GetContentRegionAvail().y - rowHeight * 3.0f,
+                                 rowHeight * 3.0f);
 
-    // The widget measures its glyphs with ImGui::GetFont(), so the mono face has
-    // to be the current one for the gutter to line up with the code. `pick`
+    // The widget measures its glyphs with ImGui::GetFont(), so the mono face
+    // has to be the current one for the gutter to line up with the code. `pick`
     // falls back to whatever is current rather than pushing null, which ImGui
     // does not accept.
     PushFont(fonts_.pick(fonts_.mono, ImGui::GetFont()));
@@ -1222,12 +1236,13 @@ private:
   /// already what the document says.
   ///
   /// The serial alone is not enough to decide this. Typing bumps the serial -
-  /// every edit does - and reloading the text on each keystroke would throw away
-  /// the caret and the undo stack every time, so the text itself is compared. The
-  /// comparison is a pass of a few kilobytes once per frame for the pane on
-  /// screen, which is not worth optimising away; doing the string compare before
-  /// the string assign is what keeps the caret from jumping.
-  static void syncPaneText(const Shared &shared, int passIndex, CodePane &pane) {
+  /// every edit does - and reloading the text on each keystroke would throw
+  /// away the caret and the undo stack every time, so the text itself is
+  /// compared. The comparison is a pass of a few kilobytes once per frame for
+  /// the pane on screen, which is not worth optimising away; doing the string
+  /// compare before the string assign is what keeps the caret from jumping.
+  static void syncPaneText(const Shared &shared, int passIndex,
+                           CodePane &pane) {
     const Pass &pass = shared.shader_.passes[size_t(passIndex)];
     if (pane.editor->GetText() == pass.code)
       return;
@@ -1236,7 +1251,8 @@ private:
     // SetText drops the undo history and the markers, and both are wanted back:
     // the history because losing it on an unrelated structural change is
     // infuriating, and the markers because SetText clears them and the error
-    // list has not changed, so they are re-added below without being re-counted.
+    // list has not changed, so they are re-added below without being
+    // re-counted.
     pane.loadedSerial = shared.serial_;
     if (hadText)
       pane.markedSerial = shared.serial_;
@@ -1244,15 +1260,16 @@ private:
 
   /// Puts the driver's complaints onto the lines it complained about.
   ///
-  /// One marker per line is all the widget keeps, so the first message for a line
-  /// is the one that is shown - which is the one the driver emitted first and
-  /// therefore the one that caused the rest. The list above the pane carries them
-  /// all.
-  static void syncPaneErrors(const Shared &shared, int passIndex, CodePane &pane) {
+  /// One marker per line is all the widget keeps, so the first message for a
+  /// line is the one that is shown - which is the one the driver emitted first
+  /// and therefore the one that caused the rest. The list above the pane
+  /// carries them all.
+  static void syncPaneErrors(const Shared &shared, int passIndex,
+                             CodePane &pane) {
     const bool samePass = pane.markedPass == passIndex;
-    const bool sameErrors =
-        samePass && pane.markedCount == int(shared.errors_.size()) &&
-        pane.markedSerial == shared.serial_;
+    const bool sameErrors = samePass &&
+                            pane.markedCount == int(shared.errors_.size()) &&
+                            pane.markedSerial == shared.serial_;
     if (sameErrors)
       return;
     pane.editor->ClearMarkers();
@@ -1272,15 +1289,16 @@ private:
     pane.markedCount = int(shared.errors_.size());
   }
 
-  /// Writes the widget's text back into the document, once per frame and only if
-  /// it moved.
+  /// Writes the widget's text back into the document, once per frame and only
+  /// if it moved.
   ///
-  /// The widget's change callback is the tidier place for this, but it fires from
-  /// inside Render() after the widget has closed its own child window, so the
-  /// text has to be read here instead - where the pass index is known and the
-  /// comparison against the document is one string equality rather than a flag
-  /// that has to be kept honest.
-  static void drainPaneEdits(Shared &shared, int passIndex, TextEditor &editor) {
+  /// The widget's change callback is the tidier place for this, but it fires
+  /// from inside Render() after the widget has closed its own child window, so
+  /// the text has to be read here instead - where the pass index is known and
+  /// the comparison against the document is one string equality rather than a
+  /// flag that has to be kept honest.
+  static void drainPaneEdits(Shared &shared, int passIndex,
+                             TextEditor &editor) {
     std::string text = editor.GetText();
     Pass &pass = shared.shader_.passes[size_t(passIndex)];
     if (text == pass.code)
@@ -1291,19 +1309,19 @@ private:
     shared.dirty_ = true;
     // The serial is left alone on purpose: it marks a structural change, and
     // typing into a pass is not one. The worker recompiles off `edits_`.
-    shared.status_ = "edited " + (pass.name.empty() ? std::string("pass")
-                                                    : pass.name);
+    shared.status_ =
+        "edited " + (pass.name.empty() ? std::string("pass") : pass.name);
   }
 
   /// Puts the caret on the line an error pointed at. The widget owns the caret,
-  /// so this is its supported way in - no reaching into ImGui's internals, and no
-  /// dependency on the field happening to be the active one.
+  /// so this is its supported way in - no reaching into ImGui's internals, and
+  /// no dependency on the field happening to be the active one.
   void applyCaret(Shared &shared, int passIndex, TextEditor &editor) {
     if (!wantCaret_ || caret_.pass != passIndex)
       return;
     wantCaret_ = false;
-    // The driver and the error list count lines and columns from one; the widget
-    // counts from zero.
+    // The driver and the error list count lines and columns from one; the
+    // widget counts from zero.
     const size_t line = size_t(std::max(caret_.line - 1, 0));
     const size_t column = size_t(std::max(caret_.column - 1, 0));
     editor.SetCursor(TextEditor::DocPos(line, column));
@@ -1313,8 +1331,8 @@ private:
   }
 
   /// The row of editing controls. Undo and redo are here rather than only on
-  /// ctrl+z / ctrl+y because the widget's history is per pass, and it is the one
-  /// thing a reader of a shader wants to be able to see the state of.
+  /// ctrl+z / ctrl+y because the widget's history is per pass, and it is the
+  /// one thing a reader of a shader wants to be able to see the state of.
   void drawEditorRow(Shared &shared, TextEditor &editor) {
     using namespace ImGui;
 
@@ -1352,8 +1370,8 @@ private:
       if (Combo("Colour scheme", &chosen, schemeNames().data(),
                 int(schemeNames().size()))) {
         shared.scheme_ = chosen;
-        // The markers carry colours of their own, so a re-theme invalidates them
-        // even though the errors did not change.
+        // The markers carry colours of their own, so a re-theme invalidates
+        // them even though the errors did not change.
         for (CodePane &pane : panes_)
           pane.markedSerial = -1;
       }
@@ -1361,14 +1379,15 @@ private:
     }
   }
 
-  /// The status line: where the caret is, what is selected, and how much history
-  /// is behind it. Without this the pane has no way to answer "which of the three
-  /// tabs am I in" after the tab bar has scrolled out of view.
+  /// The status line: where the caret is, what is selected, and how much
+  /// history is behind it. Without this the pane has no way to answer "which of
+  /// the three tabs am I in" after the tab bar has scrolled out of view.
   static void drawEditorStatus(const TextEditor &editor) {
     using namespace ImGui;
 
     const TextEditor::DocPos caret = editor.GetCurrentCursorPosition();
-    const TextEditor::DocSelection selection = editor.GetCurrentCursorSelection();
+    const TextEditor::DocSelection selection =
+        editor.GetCurrentCursorSelection();
     const size_t lines = editor.GetLineCount();
     const size_t history = editor.GetUndoIndex();
     char status[160];
@@ -1377,9 +1396,10 @@ private:
       // selection is the difference of their indices.
       const long long chars = static_cast<long long>(selection.end.index) -
                               static_cast<long long>(selection.start.index);
-      std::snprintf(status, sizeof(status),
-                    "line %zu column %zu   %lld selected   %zu lines   undo %zu",
-                    caret.line + 1, caret.index + 1, chars, lines, history);
+      std::snprintf(
+          status, sizeof(status),
+          "line %zu column %zu   %lld selected   %zu lines   undo %zu",
+          caret.line + 1, caret.index + 1, chars, lines, history);
     } else {
       std::snprintf(status, sizeof(status),
                     "line %zu column %zu   %zu lines   undo %zu",
@@ -1399,9 +1419,9 @@ private:
     return names;
   }
 
-  /// Creates one code widget per pass, and hands each one the text of the pass it
-  /// belongs to. Only when the document's shape changes - typing goes the other
-  /// way, through drainPaneEdits().
+  /// Creates one code widget per pass, and hands each one the text of the pass
+  /// it belongs to. Only when the document's shape changes - typing goes the
+  /// other way, through drainPaneEdits().
   void syncPanes(Shared &shared) {
     if (panesSerial_ == shared.serial_ &&
         panes_.size() == shared.shader_.passes.size())
@@ -1411,9 +1431,9 @@ private:
     for (size_t i = 0; i < panes_.size(); ++i) {
       auto editor = std::make_unique<TextEditor>();
       editor->SetText(shared.shader_.passes[i].code);
-      editor->SetPalette(code::editorPalette(
-          shadertoy::palettes()[size_t(std::clamp(shared.scheme_, 0,
-                                                   int(shadertoy::palettes().size()) - 1))]));
+      editor->SetPalette(
+          code::editorPalette(shadertoy::palettes()[size_t(std::clamp(
+              shared.scheme_, 0, int(shadertoy::palettes().size()) - 1))]));
       // The pane fills the width it is given and draws its own gutter, so the
       // editor's own margins would only take room away from the code.
       editor->SetLineNumberLeftMargin(3);
@@ -1431,8 +1451,8 @@ private:
   }
 
   /// Applies a newly picked scheme to every pane. The ImGui chrome is restyled
-  /// every frame in gui(), but a widget only reads its palette when it is told to,
-  /// and telling one widget is cheaper than re-theming it each frame.
+  /// every frame in gui(), but a widget only reads its palette when it is told
+  /// to, and telling one widget is cheaper than re-theming it each frame.
   void rethemePanes(Shared &shared) {
     if (appliedScheme_ == shared.scheme_)
       return;
@@ -1460,9 +1480,9 @@ private:
       const CompileError &error = shared.errors_[i];
       PushID(int(i));
       if (error.located()) {
-        // Clicking the message switches to its pass and asks that pass's pane for
-        // the caret. Every pass keeps its own widget, so nothing is reloaded and
-        // what was typed into the other tabs survives the jump.
+        // Clicking the message switches to its pass and asks that pass's pane
+        // for the caret. Every pass keeps its own widget, so nothing is
+        // reloaded and what was typed into the other tabs survives the jump.
         if (Selectable(error.message.c_str(), false)) {
           shared.selected_ = error.pass;
           caret_.pass = error.pass;
@@ -1520,7 +1540,8 @@ private:
         changed = true;
         if (type == 0) {
           if (input != nullptr)
-            pass.inputs.erase(pass.inputs.begin() + (input - pass.inputs.data()));
+            pass.inputs.erase(pass.inputs.begin() +
+                              (input - pass.inputs.data()));
         } else {
           if (input == nullptr) {
             PassInput fresh;
@@ -1671,12 +1692,11 @@ private:
 
     fillColor(Scalar(255, 255, 255, 235));
     textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
-    const std::string title = shared.shader_.name +
-                              (shared.shader_.author.empty()
-                                   ? ""
-                                   : "  -  " + shared.shader_.author);
-    cv::v4d::nvg::text(float(canvas.x) + 14.0f, float(canvas.y) + 8.0f, title.c_str(),
-                       title.c_str() + title.size());
+    const std::string title =
+        shared.shader_.name +
+        (shared.shader_.author.empty() ? "" : "  -  " + shared.shader_.author);
+    cv::v4d::nvg::text(float(canvas.x) + 14.0f, float(canvas.y) + 8.0f,
+                       title.c_str(), title.c_str() + title.size());
 
     fontFace("sans");
     fontSize(13.0f);
@@ -1685,15 +1705,14 @@ private:
     const std::string pass =
         shared.passNames_.empty()
             ? std::string()
-            : ("   showing: " +
-               shared.passNames_[size_t(std::clamp(
-                   shared.displayPass_, 0, int(shared.passNames_.size()) - 1))]);
+            : ("   showing: " + shared.passNames_[size_t(std::clamp(
+                                    shared.displayPass_, 0,
+                                    int(shared.passNames_.size()) - 1))]);
     std::snprintf(line, sizeof(line),
                   "%s   t %.2fs   frame %d   %.0f fps   %dx%d%s",
                   shared.dirty_ ? "*edited*" : "saved", shared.time_,
-                  shared.frame_, double(shared.fps_),
-                  shared.resolution_.width, shared.resolution_.height,
-                  pass.c_str());
+                  shared.frame_, double(shared.fps_), shared.resolution_.width,
+                  shared.resolution_.height, pass.c_str());
     cv::v4d::nvg::text(float(canvas.x) + 14.0f, float(canvas.y) + 30.0f, line,
                        line + std::strlen(line));
 
@@ -1702,9 +1721,8 @@ private:
         "edit the GLSL on the left - the shader recompiles as you type  -  "
         "space play/pause  -  f5 compile now  -  f9 save";
     float bounds[4] = {0, 0, 0, 0};
-    textBounds(float(canvas.x) + 14.0f,
-               float(canvas.y + canvas.height) - 26.0f, help,
-               help + std::strlen(help), bounds);
+    textBounds(float(canvas.x) + 14.0f, float(canvas.y + canvas.height) - 26.0f,
+               help, help + std::strlen(help), bounds);
     beginPath();
     rect(float(canvas.x), bounds[1] - 6.0f, float(canvas.width),
          (bounds[3] - bounds[1]) + 12.0f);
@@ -1783,7 +1801,7 @@ int builtInByName(const std::string &name) {
   return -1;
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
@@ -1792,7 +1810,7 @@ int main(int argc, char **argv) {
   std::string shot;
   std::string exportTo;
   int frames = 12;
-  int builtIn = 1;  // the feedback sample: it shows a buffer chain at once
+  int builtIn = 1; // the feedback sample: it shows a buffer chain at once
   bool verify = false;
   bool fullscreen = false;
   cv::Size window(1600, 900);
@@ -1847,18 +1865,16 @@ int main(int argc, char **argv) {
   const auto allocFlags = interactive
                               ? (AllocateFlags::NANOVG | AllocateFlags::IMGUI)
                               : AllocateFlags::NANOVG;
-  auto configFlags = interactive
-                         ? (ConfigFlags::DISPLAY_MODE | ConfigFlags::RESIZEABLE)
-                         : ConfigFlags::OFFSCREEN;
+  auto configFlags =
+      interactive ? ConfigFlags::RESIZEABLE : ConfigFlags::OFFSCREEN;
 
   V4D::init(cv::Rect(0, 0, window.width, window.height), "Shadertoy Editor",
             allocFlags, configFlags);
 
-  const auto mode =
-      verify      ? ShadertoyEditorPlan::Mode::Verify
-      : !exportTo.empty() ? ShadertoyEditorPlan::Mode::Export
-      : shot.empty() ? ShadertoyEditorPlan::Mode::Interactive
-                     : ShadertoyEditorPlan::Mode::Shot;
+  const auto mode = verify              ? ShadertoyEditorPlan::Mode::Verify
+                    : !exportTo.empty() ? ShadertoyEditorPlan::Mode::Export
+                    : shot.empty()      ? ShadertoyEditorPlan::Mode::Interactive
+                                        : ShadertoyEditorPlan::Mode::Shot;
   V4DPlan::run<ShadertoyEditorPlan>(0, mode, project, builtIn, shot, frames,
                                     exportTo, fullscreen);
   // The unattended modes report through their exit code: 0 for a clean run,

@@ -43,8 +43,7 @@ public:
 int main() {
   cv::Rect viewport(0, 0, 1920, 1080);
   cv::Ptr<V4D> runtime =
-      V4D::init(viewport, "Many Cubes Demo", AllocateFlags::IMGUI,
-                ConfigFlags::DISPLAY_MODE);
+      V4D::init(viewport, "Many Cubes Demo", AllocateFlags::IMGUI);
   V4DPlan::run<ManyCubesDemoPlan>(2);
 
   return 0;

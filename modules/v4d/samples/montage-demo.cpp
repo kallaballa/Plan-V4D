@@ -57,25 +57,22 @@ class MontageDemoPlan : public V4DPlan {
   using K = V4D::Keys;
   // Columns and rows of the grid, one tile per sub-plan. Must match the number
   // of sub-plans below.
-  const cv::Size TILING_ = cv::Size(3,3);
+  const cv::Size TILING_ = cv::Size(3, 3);
   std::vector<cv::Ptr<Plan>> plans_;
 
   cv::UMat currentFrame_;
   cv::UMat compositeFrame_;
+
 public:
   MontageDemoPlan() {
     const std::string image = cv::samples::findFile("lena.png");
-    plans_ = { 
-	       _sub<OptflowDemoPlan>(this),
-               _sub<CubeDemoPlan>(this),
-               _sub<FontDemoPlan>(this),
-               _sub<ManyCubesDemoPlan>(this),
-               _sub<NanoVGDemoPlan>(this),
-               _sub<PedestrianDemoPlan>(this),
-               _sub<ShaderDemoPlan>(this, 15),
-               _sub<VectorGraphicsPlan>(this),
-               _sub<VideoDemoPlan>(this),
-             };
+    plans_ = {
+        _sub<OptflowDemoPlan>(this),    _sub<CubeDemoPlan>(this),
+        _sub<FontDemoPlan>(this),       _sub<ManyCubesDemoPlan>(this),
+        _sub<NanoVGDemoPlan>(this),     _sub<PedestrianDemoPlan>(this),
+        _sub<ShaderDemoPlan>(this, 15), _sub<VectorGraphicsPlan>(this),
+        _sub<VideoDemoPlan>(this),
+    };
 
     CV_Assert(size_t(TILING_.width) * size_t(TILING_.height) == plans_.size());
   }
@@ -87,24 +84,30 @@ public:
   }
 
   void infer() override {
-    fb([](const cv::UMat& fb, cv::UMat& current, cv::UMat& composite) { 
-      fb.copyTo(current);
-      fb.copyTo(composite); 
-    }, RW(currentFrame_), RW(compositeFrame_));
+    fb(
+        [](const cv::UMat &fb, cv::UMat &current, cv::UMat &composite) {
+          fb.copyTo(current);
+          fb.copyTo(composite);
+        },
+        RW(currentFrame_), RW(compositeFrame_));
 
     for (size_t i = 0; i < plans_.size(); ++i) {
-      fb<1>([](const cv::UMat& frame, cv::UMat& fb){ frame.copyTo(fb); }, R(currentFrame_));
+      fb<1>([](const cv::UMat &frame, cv::UMat &fb) { frame.copyTo(fb); },
+            R(currentFrame_));
       subInfer(plans_[i]);
-      fb<1>([](cv::UMat& composite, const cv::UMat& fb, const size_t& idx,
-               const int& cols, const int& rows) {
-        size_t w = fb.cols / cols;
-        size_t h = fb.rows / rows;
-        int x = w * (idx % cols);
-        int y = h * (idx / cols);
-        cv::resize(fb, composite(cv::Rect(x, y, w, h)), cv::Size(w, h));
-      }, RW(compositeFrame_), V(i), R(TILING_.width), R(TILING_.height));
+      fb<1>(
+          [](cv::UMat &composite, const cv::UMat &fb, const size_t &idx,
+             const int &cols, const int &rows) {
+            size_t w = fb.cols / cols;
+            size_t h = fb.rows / rows;
+            int x = w * (idx % cols);
+            int y = h * (idx / cols);
+            cv::resize(fb, composite(cv::Rect(x, y, w, h)), cv::Size(w, h));
+          },
+          RW(compositeFrame_), V(i), R(TILING_.width), R(TILING_.height));
     }
-    fb<1>([](const cv::UMat& frame, cv::UMat& fb){ frame.copyTo(fb); }, R(compositeFrame_));
+    fb<1>([](const cv::UMat &frame, cv::UMat &fb) { frame.copyTo(fb); },
+          R(compositeFrame_));
   }
 
   void teardown() override {
@@ -113,7 +116,6 @@ public:
     }
   }
 };
-
 
 int main(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
@@ -125,9 +127,8 @@ int main(int argc, char **argv) {
     return 1;
   }
   cv::Rect viewport(0, 0, 640, 480);
-  cv::Ptr<V4D> runtime = V4D::init(viewport, "Montage Demo",
-                                   AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-				   ConfigFlags::DISPLAY_MODE);
+  cv::Ptr<V4D> runtime = V4D::init(
+      viewport, "Montage Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
   auto sink = Sink::make(runtime, "montage-demo.mkv", 30, viewport.size());
   auto src = Source::make(runtime, videoFile);
   runtime->setSource(src);

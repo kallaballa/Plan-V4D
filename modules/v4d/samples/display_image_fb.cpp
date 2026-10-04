@@ -42,7 +42,7 @@ int main() {
   // Creates a V4D object
   Ptr<V4D> runtime =
       V4D::init(viewport, "Display an Image through direct FB access",
-                AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+                AllocateFlags::IMGUI);
   V4DPlan::run<DisplayImageFB>(2, samples::findFile("lena.png"));
 
   return 0;

@@ -1009,9 +1009,9 @@ int main(int argc, char **argv) {
   } else {
     filename = cv::samples::findFile("lena.png");
   }
-  cv::Ptr<V4D> runtime = V4D::init(viewport, "V4D imshow Reimplementation",
-                                   AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-                                   ConfigFlags::DISPLAY_MODE);
+  cv::Ptr<V4D> runtime =
+      V4D::init(viewport, "V4D imshow Reimplementation",
+                AllocateFlags::NANOVG | AllocateFlags::IMGUI);
   // Run on the main thread only (0 workers).  The demo is not designed
   // for concurrent workers.
   V4DPlan::run<ImshowReimplementation>(0, std::move(filename));

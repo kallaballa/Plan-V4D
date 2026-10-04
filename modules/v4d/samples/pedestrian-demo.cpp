@@ -32,7 +32,7 @@ struct Track {
   int missCount_ = 0;
   // True if this track already consumed a detection during the current detect
   // pass (prevents one track from being matched by several overlapping
-  //detections)
+  // detections)
   bool matched_ = false;
 };
 
@@ -275,7 +275,7 @@ private:
     // Update the KCF trackers. With many pedestrians the tracker updates
     // dominate the per-frame cost, so trackers are refreshed on a staggered
     // cadence (every kcfEvery_ frames per tracker). At kcfEvery_==2 this halves
-    //the tracker load while every track is still refreshed at least once every
+    // the tracker load while every track is still refreshed at least once every
     // two frames.
     for (size_t i = 0; i < detection.tracks_.size(); ++i) {
       Track &track = detection.tracks_[i];
@@ -461,9 +461,9 @@ int main(int argc, char **argv) {
   }
 
   cv::Rect viewport(0, 0, 1920, 1080);
-  cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo",
-                                   AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-                                   ConfigFlags::DISPLAY_MODE);
+  cv::Ptr<V4D> runtime =
+      V4D::init(viewport, "Pedestrian Demo",
+                AllocateFlags::NANOVG | AllocateFlags::IMGUI);
   auto src = Source::make(runtime, videoFile);
   //    auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 60,
   //    viewport.size());

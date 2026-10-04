@@ -130,8 +130,7 @@ public:
     clear();
 
     // CarouselState is shared between the worker (here) and the ImGui
-    // node (gui()).  DISPLAY_MODE serializes the two threads, so there
-    // is no contention, but both must operate on the same object.
+    // node (gui()).  Both must operate on the same object.
     nvg(
         [](const std::vector<Card> &cards, const cv::Size &sz,
            const Keyboard::List &pressKeyEvts, const Mouse::List &scrollEvts,
@@ -641,9 +640,8 @@ int main(int argc, char **argv) {
   }
 
   cv::Rect viewport(0, 0, 1024, 768);
-  cv::Ptr<V4D> runtime = V4D::init(viewport, "Image Carousel",
-                                   AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-                                   ConfigFlags::DISPLAY_MODE);
+  cv::Ptr<V4D> runtime = V4D::init(
+      viewport, "Image Carousel", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
   V4DPlan::run<ImageCarousel>(0, std::move(paths));
   return 0;

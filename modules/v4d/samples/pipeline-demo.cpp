@@ -64,13 +64,12 @@ int main(int argc, char **argv) {
     return 1;
   }
   cv::Rect viewport(0, 0, 1280, 720);
-  cv::Ptr<V4D> runtime = V4D::init(viewport, "Pipeline Demo",
-                                   AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-                                   ConfigFlags::DISPLAY_MODE);
-//  auto sink = Sink::make(runtime, "pipeline-demo.mkv", 60, viewport.size());
+  cv::Ptr<V4D> runtime = V4D::init(
+      viewport, "Pipeline Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+  //  auto sink = Sink::make(runtime, "pipeline-demo.mkv", 60, viewport.size());
   auto src = Source::make(runtime, videoFile);
   runtime->setSource(src);
-//  runtime->setSink(sink);
+  //  runtime->setSink(sink);
   V4DPlan::run<PipelineDemoPlan>(3);
 
   return 0;

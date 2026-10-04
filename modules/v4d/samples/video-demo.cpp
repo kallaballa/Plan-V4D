@@ -34,8 +34,8 @@ int main(int argc, char **argv) {
   }
 
   cv::Rect viewport(0, 0, 1280, 720);
-  cv::Ptr<V4D> runtime = V4D::init(viewport, "Video Demo", AllocateFlags::IMGUI,
-                                   ConfigFlags::DISPLAY_MODE);
+  cv::Ptr<V4D> runtime =
+      V4D::init(viewport, "Video Demo", AllocateFlags::IMGUI);
   auto src = Source::make(runtime, videoFile);
   auto sink =
       Sink::make(runtime, "video-demo.mkv", src->fps(), viewport.size());

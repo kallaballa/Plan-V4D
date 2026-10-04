@@ -93,8 +93,7 @@ template <typename Tplan>
 static void runPlanInThread(const std::string &title, const cv::Rect &viewport,
                             const cv::Scalar &color, size_t maxFrames) {
   std::thread t([title, viewport, color, maxFrames]() {
-    V4D::init(viewport, title, AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-              ConfigFlags::DISPLAY_MODE);
+    V4D::init(viewport, title, AllocateFlags::NANOVG | AllocateFlags::IMGUI);
     V4DPlan::run<Tplan>(0, title, color, maxFrames);
   });
   t.detach();
@@ -108,16 +107,16 @@ int main(int argc, char **argv) {
       (argc < 2 || std::string(argv[1]) != "--no-auto-close");
   const size_t maxFrames = autoClose ? size_t(5 * 60) : 0;
 
-  for(size_t i = 0; i < 1; ++i) 
-    runPlanInThread<TrianglePlan>(std::string("Threaded triangle") + std::to_string(i), 
-		    cv::Rect(0, 0, 480, 360), cv::Scalar(80, 200, 255, 255), maxFrames);
+  for (size_t i = 0; i < 1; ++i)
+    runPlanInThread<TrianglePlan>(
+        std::string("Threaded triangle") + std::to_string(i),
+        cv::Rect(0, 0, 480, 360), cv::Scalar(80, 200, 255, 255), maxFrames);
 
   // The main thread displays the second window while the first one is running.
   V4D::init(cv::Rect(0, 0, 480, 360), "Main triangle",
-            AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-            ConfigFlags::DISPLAY_MODE);
-  V4DPlan::run<TrianglePlan>(0, "Main triangle",
-                             cv::Scalar(255, 160, 80, 255), maxFrames);
+            AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+  V4DPlan::run<TrianglePlan>(0, "Main triangle", cv::Scalar(255, 160, 80, 255),
+                             maxFrames);
 
   std::cout << "All plans finished." << std::endl;
   return 0;

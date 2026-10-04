@@ -69,8 +69,7 @@ int main() {
 
   // Initialize the V4D runtime with NanoVG and IMGUI subsystems
   Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG",
-                               AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-                               ConfigFlags::DISPLAY_MODE);
+                               AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
   // Run the Plan with the specified image file
   V4DPlan::run<DisplayImageNVG>(2, samples::findFile("lena.png"));
