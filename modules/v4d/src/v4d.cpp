@@ -328,28 +328,13 @@ bool V4D::display() {
       swapContextBuffers();
     }
   }
+  double diffSeconds;
   if (GlobalState::isMain()) {
-    // Keys::FULLSCREEN is the *requested* state; the window is the real one.
-    // GLFW can put a full screen window into windowed mode behind our back
-    // (e.g. when its monitor is disconnected), which would leave the key
-    // claiming fullscreen forever - and since the key's callback only fires
-    // when the value changes, a later set(Keys::FULLSCREEN, true) would then
-    // be swallowed. Write the observed state back, so the key converges.
-    // Not fired: its callback only applies the value to the window, which is
-    // exactly what just changed. This runs in the run loop, never inside a
-    // property callback, so taking the property lock here cannot deadlock.
-    {
-      const bool fullscreen = mainFbContext_->isFullscreen();
-      if (get<bool>(Keys::FULLSCREEN) != fullscreen) {
-        set(Keys::FULLSCREEN, fullscreen, false);
-      }
-    }
-
     bool countLockContention = debugFlags() & DebugFlags::PRINT_LOCK_CONTENTION;
     auto start = GlobalState::get<uint64_t>(GlobalState::Keys::START_TIME);
     auto now = get_epoch_nanos();
     auto diff = now - start;
-    double diffSeconds = diff / 1000000000.0;
+    diffSeconds = diff / 1000000000.0;
 
     if (GlobalState::get<double>(GlobalState::Keys::FPS) > 0 &&
         diffSeconds > 1.0) {
@@ -467,6 +452,7 @@ bool V4D::display() {
 
       mainFbContext_->blitFrameBufferToFrameBuffer(
           initial, winSz, V4D::get<bool>(V4D::Keys::AUTO_SCALE), false);
+
       glfwSwapBuffers(mainFbContext_->getGLFWWindow());
     }
     GL_CHECK(glFinish());
@@ -548,11 +534,11 @@ void V4D::run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
 
           if (runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
             state.frameSyncSemaSwap.release();
-            reseq.waitFor(seq, [&state](uint64_t s) {
+            runGraph();
+	    reseq.waitFor(seq, [&state](uint64_t s) {
               CV_UNUSED(s);
               state.frameSyncRender.acquire();
             });
-            runGraph();
 
             if (!runtime->display()) {
               state.frameSyncSemaSwap.release();

@@ -96,8 +96,9 @@ enum PoseJoint {
 // ---------------------------------------------------------------------------
 class SkeletalTrackerPlan : public V4DPlan {
 private:
-    Event<Keyboard> space_ = E<Keyboard>(Keyboard::PRESS);
-    Property<double> fps_ = P<double>(GlobalState::Keys::FPS);
+  Event<Keyboard> space_ = E<Keyboard>(Keyboard::PRESS);
+  Property<double> fps_ = P<double>(GlobalState::Keys::FPS);
+
 public:
   constexpr static auto UMAT_COPY_TO_ =
       _OLMC_(void, cv::UMat, &cv::UMat::copyTo, cv::OutputArray);
@@ -155,19 +156,21 @@ public:
   }
 
   void infer() override {
-    //set(V4D::Keys::FULLSCREEN, CS(shared_.fullscreen_));
-    
-    RWS(shared_.frameDt_) = V(1000.0) / fps_;
+    set(V4D::Keys::FULLSCREEN, CS(shared_.fullscreen_));
+
     branch(RWS(shared_.enabled_) =
                IF(F(&Keyboard::List::empty, space_), CS(shared_.enabled_),
                   !CS(shared_.enabled_)));
     {
-      fb([](const cv::UMat &fb, cv::UMat &frameBGR) { 
-        //fb is BGRA
-	cvtColor(fb, frameBGR, cv::COLOR_RGBA2RGB); 
-      }, RW(frameBGR_))
-      ->plain(runPipeline, RWS(shared_), R(frameBGR_))
-      ->nvg(drawOverlay, size_, frameNo_, CS(shared_));
+      RWS(shared_.frameDt_) = V(1000.0) / fps_;
+      fb(
+          [](const cv::UMat &fb, cv::UMat &frameBGR) {
+            // fb is BGRA
+            cvtColor(fb, frameBGR, cv::COLOR_RGBA2RGB);
+          },
+          RW(frameBGR_))
+          ->plain(runPipeline, RWS(shared_), R(frameBGR_))
+          ->nvg(drawOverlay, size_, frameNo_, CS(shared_));
     }
     endBranch();
   }
@@ -191,13 +194,8 @@ private:
       state.totalMs_ = 0.f;
       return;
     }
-    
-        
-        
-        
-        
-        
-        MediaPipePosePipeline::Stats stats;
+
+    MediaPipePosePipeline::Stats stats;
     state.persons_ = pipeline_->run(frameBGR.getMat(cv::ACCESS_READ),
                                     state.params(), &stats);
     state.detectMs_ = stats.detectMs;
@@ -242,7 +240,7 @@ private:
 
     // Line widths scale with the viewport so the overlay reads the same at
     // 720p and at 4K.
-    const float scale = std::max(1.0f, static_cast<float>(sz.height) / 720.f);
+    const float scale = std::max(1.0f, static_cast<float>(sz.height) / 840.0f);
     const float boneW = 3.0f * scale;
     const float jointR = 3.5f * scale;
     // A dark stroke of the same path under the coloured one keeps the
@@ -396,8 +394,7 @@ int main(int argc, char **argv) {
 
   cv::Rect viewport(0, 0, 1920, 1080);
   cv::Ptr<V4D> runtime = V4D::init(viewport, "Skeletal Tracker",
-                                   AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-                                   ConfigFlags::DISPLAY_MODE);
+                                   AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
   auto src = Source::make(runtime, inputVideo);
 
@@ -407,6 +404,6 @@ int main(int argc, char **argv) {
     runtime->setSink(sink);
   }
 
-  V4DPlan::run<SkeletalTrackerPlan>(4);
+  V4DPlan::run<SkeletalTrackerPlan>(7);
   return 0;
 }

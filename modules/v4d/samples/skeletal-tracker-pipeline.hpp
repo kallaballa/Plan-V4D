@@ -208,10 +208,10 @@ public:
     };
 
     explicit MediaPipePosePipeline(const std::string& detModel, const std::string& poseModel)
-        : detNet_(dnn::readNet(detModel)),
-          poseNet_(dnn::readNet(poseModel)) {
-        detNet_.setPreferableBackend(dnn::DNN_BACKEND_INFERENCE_ENGINE);
-        poseNet_.setPreferableBackend(dnn::DNN_BACKEND_INFERENCE_ENGINE);
+        : detNet_(dnn::readNetFromONNX(detModel, dnn::ENGINE_ORT)),
+          poseNet_(dnn::readNetFromONNX(poseModel, dnn::ENGINE_ORT)) {
+        detNet_.setPreferableBackend(dnn::DNN_BACKEND_OPENCV);
+        poseNet_.setPreferableBackend(dnn::DNN_BACKEND_OPENCV);
         detNet_.setPreferableTarget(dnn::DNN_TARGET_OPENCL);
         poseNet_.setPreferableTarget(dnn::DNN_TARGET_OPENCL);
     }
@@ -360,6 +360,9 @@ public:
         // top-N by confidence every frame makes identities swap whenever two
         // people cross, and makes tracks vanish on a single missed detection.
         const int numDet = static_cast<int>(boxes.size());
+	for(cv::Rect2f& b : boxes) {
+          b.width * 0.75;
+	}
         std::vector<int> trackOfDet(numDet, -1);
         std::vector<int> detOfTrack(tracks_.size(), -1);
         {
@@ -1092,7 +1095,7 @@ inline constexpr float kKeypointConf = 0.3f;
     if (x1 <= x0 || y1 <= y0) return {};
     const float cx = 0.5f * (x0 + x1), cy = 0.5f * (y0 + y1);
     const float half = 0.5f * kBoxEnlarge * std::max(x1 - x0, y1 - y0);
-    return {cx - half, cy - half, 2 * half, 2 * half};
+    return {(cx - half) * 1.25, cy - half, 1.5 * half, 2 * half};
 }
 
 // ---------------------------------------------------------------------------
@@ -1109,9 +1112,9 @@ struct SharedPoseState {
     // The tunables below are the single source of truth for the pipeline: the
     // panel edits them and #params is rebuilt from them on every frame, so
     // nothing else can quietly disagree about what the demo is running.
-    float detConf_ = 0.55f;
-    float poseConf_ = 0.23f;
-    float roiEnlarge_ = 1.25f;
+    float detConf_ = 0.65f;
+    float poseConf_ = 0.4f;
+    float roiEnlarge_ = 1.1f;
     int maxPersons_ = 2;
     int maxMissed_ = 5;
     bool smooth_ = true;

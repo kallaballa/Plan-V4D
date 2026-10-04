@@ -1301,7 +1301,7 @@ public:
                          LocalState::Keys::WORKER_INDEX));
         plan->capture();
         plan->infer();
-        plan->write();
+	plan->write();
         plan->makeGraph();
       } catch (std::exception &ex) {
         CV_Error_(cv::Error::StsError,

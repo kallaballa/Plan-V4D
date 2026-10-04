@@ -312,7 +312,7 @@ void FrameBufferContext::init() {
   FrameBufferContext::WindowScope winScope(self());
 
   if (!hasParent()) {
-    glfwSwapInterval(configFlags() & FBConfigFlags::VSYNC ? 1 : 0);
+      glfwSwapInterval(configFlags() & FBConfigFlags::VSYNC ? 1 : 0);
   }
 
 #if !defined(__APPLE__) && !defined(OPENCV_V4D_USE_ES3)

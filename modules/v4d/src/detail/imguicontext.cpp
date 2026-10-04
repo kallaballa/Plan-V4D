@@ -142,6 +142,8 @@ int ImGuiContextImpl::execute(const cv::Rect &vp, std::function<void()> fn) {
     window_flags |= ImGuiWindowFlags_NoDecoration;
     window_flags |= ImGuiWindowFlags_NoInputs;
     if (GlobalState::get<bool>(GlobalState::Keys::SHOW_FRAME_TIME)) {
+      ImGuiStyle& style = ImGui::GetStyle();
+      style.FontScaleDpi = 1.6f;
       ImVec2 pos(0, 0);
       ImGui::SetNextWindowPos(pos, ImGuiCond_Once);
       ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));

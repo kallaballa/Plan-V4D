@@ -166,13 +166,12 @@ More than two dozen small programs in [modules/v4d/samples/](modules/v4d/samples
 | `font_rendering.cpp` | the smallest visible program (32 lines) |
 | `imshow_reimplementation.cpp` | a full GUI image viewer |
 | `image_carousel.cpp` | a glossy animated image carousel |
-| `shadertoy-player.cpp` | a playable subset of shadertoy.com: official API, image/buffer passes, textures, mouse + keyboard |
 
 Plus: raw OpenGL (`render_opengl`, `cube-demo`, `shader-demo`), vector graphics
 (`nanovg-demo`, `font-demo`), video processing (`optflow-demo`,
 `pedestrian-demo`, `skeletal-tracker-demo`), multi-window (`montage-demo`,
 `many_cubes-demo`), custom I/O (`custom_source_and_sink`), and more. The
-pedestrian, skeletal tracker and shadertoy player demos' run commands and
+pedestrian, skeletal tracker and shadertoy editor demos' run commands and
 controls are documented in the [V4D module README](modules/v4d/README.md).
 
 ## Requirements
@@ -183,6 +182,42 @@ controls are documented in the [V4D module README](modules/v4d/README.md).
   features2d, flann)
 * GLFW 3 (V4D only)
 * An OpenGL-capable driver (or OpenGL ES 3.0)
+
+### DNN on the GPU (OpenVINO / OpenCL) — read this first
+
+OpenCV 5.x imports ONNX/TF/Caffe into its own graph engine, and that engine
+**refuses every backend except OpenCV and CUDA**. On such a net both
+`setPreferableBackend()` and `setPreferableTarget()` are no-ops that only log:
+
+```text
+Back-ends are not supported by the new graph engine for now
+Targets are not supported by the new graph engine for now
+```
+
+Nothing throws, so the net silently runs on CPU. This affects
+`DNN_BACKEND_INFERENCE_ENGINE`, `DNN_TARGET_OPENCL`, **and** `DNN_TARGET_VULKAN`
+— including `OpenCV`'s own `ocl4dnn` engine. Do not trust a "successful"
+`forward()` as evidence of GPU placement; compare timings with
+`cv::ocl::setUseOpenCL(false)` or check `Net::dump()` for a `main_graph`.
+
+The OpenVINO OpenCL GPU device *is* built in and does work — it is just only
+reachable for models given to OpenCV as OpenVINO IR:
+
+```cpp
+cv::dnn::Net net = cv::dnn::Net::readFromModelOptimizer("m.xml", "m.bin");
+net.setPreferableTarget(cv::dnn::DNN_TARGET_OPENCL);   // or OPENCL_FP16
+```
+
+`DNN_TARGET_OPENCL` maps to OpenVINO's `GPU` device, so this needs
+`libopenvino_intel_gpu_plugin.so` next to the linked `libopenvino.so`
+(`<libdir>/openvino-<version>/`), plus an Intel OpenCL ICD
+(`intel-opencl-icd`) for the GPU itself. Set `OPENCV_DNN_IE_GPU_CACHE_DIR` to
+cache the compiled OpenCL kernels.
+
+Run [`./check-dnn-openvino.sh`](check-dnn-openvino.sh) to see what a given
+build tree really offers; it reports the registered backend/target pairs, the
+linked OpenVINO, the GPU plugin, and runs an end-to-end probe of all four
+paths.
 
 ## Building
 
@@ -209,6 +244,12 @@ below, or add them to an existing OpenCV build via `OPENCV_EXTRA_MODULES_PATH`
 | `OPENCV_V4D_ENABLE_BGFX`        | Build the bgfx context and link bgfx.        |
 | `OPENCV_V4D_ENABLE_MALI`        | Mali GPU support (requires libmali).         |
 | `BUILD_EXAMPLES`                | Build the programs in `modules/v4d/samples/`. |
+
+Deleting a sample leaves its binary, its `CMakeFiles` target directory, any
+helper copied next to it and its ImGui window geometry behind. Run
+[`./prune-stale-build-artifacts.sh`](prune-stale-build-artifacts.sh) to sweep
+those out of the build tree (add `-n` to look without deleting) before the next
+build.
 
 Run the Plan-DSL test suite with:
 

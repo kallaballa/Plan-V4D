@@ -228,12 +228,13 @@ modules/v4d/
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
 │   ├── imshow_reimplementation.cpp   full GUI image viewer
 │   ├── image_carousel.cpp         animated glossy image carousel
-│   ├── shadertoy-player.cpp       interactive Shadertoy player: official API,
-│   │                              image/buffer passes, textures, mouse+keyboard
-│   ├── shadertoy_api.hpp          its JSON, API client and texture downloads
-│   ├── shadertoy_mock_api.py      offline stand-in for the Shadertoy API
-│   ├── shadertoy-player-test.sh   smoke test against that mock
-│   └── shadertoy-player-test/     its logs and screenshot (generated)
+│   ├── shadertoy-editor.cpp       offline Shadertoy editor: JSON projects,
+│   │                              per-pass code, recompile as you type
+│   ├── shadertoy_renderer.hpp     the Shadertoy render model, as plain OpenGL
+│   ├── shadertoy_model.hpp        passes, channel inputs, the shader
+│   ├── shadertoy_project.hpp      project files and local texture loading
+│   ├── shadertoy_json.hpp         the minimal JSON reader behind that
+│   └── shadertoy-editor-test.sh   compile / export / screenshot smoke test
 ├── src/
 │   ├── v4d.cpp                    V4D runtime lifecycle
 │   ├── nvg.cpp                    NanoVG wrapper
@@ -347,45 +348,54 @@ The sample's checks live in
 the pose crop's geometry, and the pipeline's track, duplicate and timing
 behaviour on one- and two-person clips.
 
-### Shadertoy player
+### Shadertoy editor
 
-`samples/shadertoy-player.cpp` is a playable subset of shadertoy.com. It talks to
-the official REST API (`https://www.shadertoy.com/api/v1`) and renders image and
-buffer passes with the real Shadertoy semantics: per-pass framebuffers ping-ponged
-through the channel graph, `common` code injected into every pass, the standard
-uniform set (`iResolution`, `iTime`, `iFrame`, `iMouse`, `iDate`, …), texture
-presets downloaded on demand, and the 256x3 `iChannelKeyboard` texture.
-
-```bash
-cmake --build . --target example_v4d_shadertoy-player
-# [options] [app-key] [search-term]  -- see --help
-./bin/example_v4d_shadertoy-player --id XsofXRnMf
-```
-
-The panel on the left searches by term and by id, pages through results, and can
-pick a random shader; any output pass can be displayed. Press <kbd>Space</kbd> to
-pause, <kbd>R</kbd> to reload the shader, <kbd>Tab</kbd> to hide the panel,
-<kbd>F</kbd> for fullscreen and <kbd>H</kbd> for the HUD. The resolution scale,
-the displayed pass and the HUD are all in the panel.
-
-You need an app key from <https://www.shadertoy.com/api>. It is read from
-`SHADERTOY_API_KEY` or from `--key`, so it does not have to live in your shell
-history. `--api` points the player at a mirror, or at the bundled mock.
-
-`shadertoy.com` answers plain command line requests with an HTML bot challenge,
-so an unattended run cannot get through it from a datacenter address. The sample
-reports that as a clear error and keeps its window up. For tests there is an
-offline stand-in, `samples/shadertoy_mock_api.py`, which serves a few fixtures
-that exercise the single-image pass, the feedback-buffer graph, texture presets
-and the keyboard texture:
+`samples/shadertoy-editor.cpp` is a workbench for GLSL that never touches the
+network. It opens and saves Shadertoy JSON — the format the site exports, so a
+project can be dropped onto shadertoy.com unchanged — edits every pass in a
+multiline field, recompiles as you type and puts the caret on the line the
+driver complained about. Underneath, `shadertoy_renderer.hpp` renders with the
+real Shadertoy semantics: per-pass framebuffers ping-ponged through the channel
+graph, `common` code injected into every pass, the standard uniform set
+(`iResolution`, `iTime`, `iFrame`, `iMouse`, `iDate`, …), textures loaded from
+local files, and the 256x3 `iChannelKeyboard` texture.
 
 ```bash
-./modules/v4d/samples/shadertoy-player-test.sh
+cmake --build . --target example_v4d_shadertoy-editor
+# [options] [project.json]
+./bin/example_v4d_shadertoy-editor --new feedback
+./bin/example_v4d_shadertoy-editor shader.json
 ```
 
-It runs every mock shader, checks that the right API calls were made, that each
-one compiles and that a missing shader is reported instead of fatal, and it saves
-a screenshot when the window maps (on Wayland through `swaymsg`/`grim`).
+`--new` starts from a built-in sample (`gradient`, `feedback`, `keyboard`,
+`common`), `--size <WxH>` sets the window size, and `--export <file>` writes the
+project back out as Shadertoy JSON. Two options make it usable unattended:
+`--verify` compiles the project, prints the result and exits non-zero when it
+does not compile, and `--shot <file>` renders `--frames` frames (12 by default)
+into a PNG. Neither opens a window.
+
+The panel works on the document: Open, Save (Save as when the project has no
+file yet) and Reload, a combo box of the built-in samples, reorderable per-pass
+tabs, the channel table with type, filter, wrap and a local texture file, an
+error list with one entry per driver message, and playback: play/pause, reset
+time, resolution scale, which pass to show, mouse + keyboard feeding the
+shader, and a HUD with time, frame, fps, resolution and compile time.
+
+<kbd>Space</kbd> play, <kbd>F5</kbd> compile, <kbd>F9</kbd> save,
+<kbd>R</kbd> reset the time, <kbd>P</kbd> screenshot, <kbd>Tab</kbd> the panel,
+<kbd>F</kbd> fullscreen, <kbd>H</kbd> the HUD.
+
+`samples/shadertoy-editor-test.sh` is the smoke test: every built-in sample
+compiles, a shader that does not compile is reported with the pass and the line
+the author wrote, a project survives a round trip through `--export`, a channel
+wired to a local image renders that image, and `--shot` writes a PNG that is not
+a blank frame. It opens no socket — it needs no app key, no mock server and no
+route to shadertoy.com. The window screenshot is skipped when there is no
+compositor to grab:
+
+```bash
+./modules/v4d/samples/shadertoy-editor-test.sh
+```
 
 V4D requires:
 

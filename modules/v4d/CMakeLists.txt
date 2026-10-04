@@ -61,8 +61,10 @@ set(V4D_MODULES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../")
 set(V4D_ASSET_PATH_DIRS
   "${CMAKE_CURRENT_BINARY_DIR}/assets"
   "${CMAKE_CURRENT_BINARY_DIR}/samples/data"
+  "${CMAKE_CURRENT_BINARY_DIR}/samples/fonts"
   "${CMAKE_CURRENT_SOURCE_DIR}/assets"
   "${CMAKE_CURRENT_SOURCE_DIR}/samples/data"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/fonts"
   "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATAROOTDIR}/opencv4"
   "/usr/local/share/opencv4")
 list(REMOVE_DUPLICATES V4D_ASSET_PATH_DIRS)
@@ -115,6 +117,49 @@ macro(populate_assets_local lbfmodel_path yunet_path)
     "${yunet_path}"
     "${CMAKE_CURRENT_BINARY_DIR}/assets/models/face_detection_yunet_2023mar.onnx")
 endmacro(populate_assets_local)
+
+# Copy one model asset into the build tree, keeping the two in sync.
+#   v4d_copy_model_asset(<source> <path relative to assets/models/>)
+# Declared as a file-level rule (OUTPUT/DEPENDS) rather than a PRE_BUILD command
+# so that editing the asset in place refreshes the copy on the next `make`.
+function(v4d_copy_model_asset source relative)
+  if(NOT EXISTS "${source}")
+    message(WARNING "V4D: asset '${source}' does not exist, skipping copy")
+    return()
+  endif()
+  set(dst "${CMAKE_CURRENT_BINARY_DIR}/assets/models/${relative}")
+  get_filename_component(dst_name "${dst}" NAME)
+  add_custom_command(
+    OUTPUT "${dst}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/assets/models/pose"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${source}" "${dst}"
+    DEPENDS "${source}"
+    COMMENT "V4D asset: ${relative}"
+    VERBATIM)
+  add_custom_target(v4d_asset_${dst_name} ALL DEPENDS "${dst}")
+endfunction()
+
+# Fetch a font the editor samples need (the code pane wants a monospace face).
+# The files are checked in, so this only ever runs on a checkout that predates
+# them; when they are already there the build costs nothing.
+#   v4d_fetch_font(<name> <url> <sha256>)
+function(v4d_fetch_font name url sha)
+  set(dst "${CMAKE_CURRENT_SOURCE_DIR}/samples/fonts/${name}")
+  if(EXISTS "${dst}")
+    return()
+  endif()
+  file(DOWNLOAD "${url}" "${dst}.tmp" STATUS _st EXPECTED_HASH "SHA256=${sha}")
+  list(GET _st 0 _code)
+  if(NOT _code EQUAL 0)
+    list(GET _st 1 _msg)
+    file(REMOVE "${dst}.tmp")
+    message(WARNING "V4D: could not download ${name}: ${_msg}. The sample falls "
+                    "back to a system font.")
+    return()
+  endif()
+  file(RENAME "${dst}.tmp" "${dst}")
+  message(STATUS "V4D: fetched ${name}")
+endfunction()
 
 # Macro to add a native sample
 #   add_binary_sample(<target> <source> [extra opencv modules...])
@@ -170,7 +215,8 @@ macro(add_binary_sample sample source)
       "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui"
       "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/"
       "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/"
-      "${CMAKE_CURRENT_SOURCE_DIR}/third/AnyProperty"
+"${CMAKE_CURRENT_SOURCE_DIR}/third/AnyProperty"
+      "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui-color-text-edit"
       "${CMAKE_HOME_DIRECTORY}/modules/features/include"
       "${CMAKE_HOME_DIRECTORY}/modules/flann/include"
       "${V4D_MODULES_DIR}/xobjdetect/include"
@@ -295,20 +341,19 @@ if(NOT (TARGET ${the_module}))
     "${CMAKE_CURRENT_SOURCE_DIR}/samples/fonts/*.ttf"
     "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts/")
 
-  add_custom_command(TARGET ${the_module} PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-    "${YUNET_PATH}"
-    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/face_detection_yunet_2023mar.onnx")
-
-  add_custom_command(TARGET ${the_module} PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
+  # Single model files are copied through OUTPUT/DEPENDS rules rather than
+  # PRE_BUILD commands. A PRE_BUILD command only runs when the module is
+  # actually recompiled, so editing an asset in place (regenerating a model,
+  # say) left a stale copy sitting in the build tree -- and that copy is the
+  # first directory cv::samples::findFile() searches. As a proper file-level
+  # rule, `make` compares timestamps and refreshes it.
+  v4d_copy_model_asset("${YUNET_PATH}" "face_detection_yunet_2023mar.onnx")
+  v4d_copy_model_asset(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/models/pose/person_detection_mediapipe_2023mar.onnx"
-    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/pose/person_detection_mediapipe_2023mar.onnx")
-
-  add_custom_command(TARGET ${the_module} PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
+    "pose/person_detection_mediapipe_2023mar.onnx")
+  v4d_copy_model_asset(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/models/pose/pose_estimation_mediapipe_2023mar.onnx"
-    "${CMAKE_CURRENT_BINARY_DIR}/assets/models/pose/pose_estimation_mediapipe_2023mar.onnx")
+    "pose/pose_estimation_mediapipe_2023mar.onnx")
 
   #Add sample targets
   if(BUILD_EXAMPLES)
@@ -352,21 +397,33 @@ if(NOT (TARGET ${the_module}))
     add_binary_sample(example_v4d_montage-demo samples/montage-demo.cpp)
     add_binary_sample(example_v4d_pipeline-demo samples/pipeline-demo.cpp)
     add_binary_sample(example_v4d_image_carousel-demo samples/image_carousel-demo.cpp)
-    add_binary_sample(example_v4d_shadertoy-player samples/shadertoy-player.cpp)
-    # The player's HTTP transport. shadertoy.com sits behind Cloudflare and
-    # challenges clients that do not present a browser TLS fingerprint, which no
-    # C++ HTTP stack here can do, so requests go through this python helper.
-    # It lives next to the executable so the player finds it however it is run.
-    add_custom_command(TARGET example_v4d_shadertoy-player POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${CMAKE_CURRENT_SOURCE_DIR}/samples/shadertoy_fetch.py"
-      "$<TARGET_FILE_DIR:example_v4d_shadertoy-player>/shadertoy_fetch.py"
-      COMMENT "Copying shadertoy_fetch.py next to example_v4d_shadertoy-player")
-    target_compile_definitions(example_v4d_shadertoy-player PRIVATE
-      "SHADERTOY_SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/samples\"")
-    # The offline editor. It shares the renderer with the player but needs no
-    # python transport next to it: it only ever reads and writes local files.
+    # The offline Shadertoy editor.
+    #   v4d_fetch_font(<file> <url> <sha256>)
+    # JetBrains Mono 2.304 (SIL OFL 1.1, see samples/fonts/OFL.txt), fetched
+    # from the tag's raw tree so the hash below is the hash of the file itself.
+    v4d_fetch_font(JetBrainsMono-Regular.ttf
+      "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Regular.ttf"
+      "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f")
+    v4d_fetch_font(JetBrainsMono-Bold.ttf
+      "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Bold.ttf"
+      "5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb")
+    v4d_fetch_font(JetBrainsMono-Italic.ttf
+      "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Italic.ttf"
+      "9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4")
     add_binary_sample(example_v4d_shadertoy-editor samples/shadertoy-editor.cpp)
+    # The code pane is a vendored ImGui widget (ImGuiColorTextEdit, MIT) rather
+    # than part of libv4d: only this sample edits code, and TextEditor.cpp is a
+    # third-party translation unit that no other target should have to compile.
+    # It reaches into imgui_internal.h, which the include list above already
+    # covers. samples/shadertoy-widget-vendor.sh re-derives the two files from
+    # the pinned upstream tag and verifies their hashes.
+    target_sources(example_v4d_shadertoy-editor PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui-color-text-edit/TextEditor.cpp")
+    # Vendored third-party code: its warnings are not ours to fix, and silencing
+    # the whole target would hide warnings from the sample itself.
+    set_source_files_properties(
+      "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui-color-text-edit/TextEditor.cpp"
+      PROPERTIES COMPILE_OPTIONS "-w")
   endif()
 
   if(OPENCV_V4D_ENABLE_ES3)
