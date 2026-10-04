@@ -546,11 +546,11 @@ void V4D::run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
               result = false;
             }
           } else {
+            runGraph();
             reseq.waitFor(seq, [&result, runtime](uint64_t s) {
               CV_UNUSED(s);
               result = runtime->display();
             });
-            runGraph();
           }
         });
         if (!result)
