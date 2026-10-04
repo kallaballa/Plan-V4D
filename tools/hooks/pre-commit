@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+#
+# pre-commit - warn when the sources staged for this commit do not follow
+# CODE_CONVENTION.md, and offer to fix them.
+#
+# Installed by tools/install-hooks.sh, which points core.hooksPath at this
+# directory so the hook is versioned instead of living in .git/hooks where it would
+# never be shared.
+#
+# What it does:
+#   1. runs `tools/format-check.sh --staged` on the staged sources
+#   2. if something is off, prints the diagnostics and asks what to do:
+#        f  clang-format the files, stage the result, carry on
+#        d  show the patch that 'f' would apply, then ask again
+#        b  commit anyway
+#        a  abort the commit
+#   3. exits non-zero on abort, and also when it has no terminal to ask on
+#
+# CODE_CONVENTION.md §1 grandfathers existing files, so a violation here is a
+# question, not a veto: nothing is ever rewritten without an answer, and 'b' always
+# gets you out. Only whole files that are part of this commit are examined, so
+# unrelated legacy files elsewhere in the tree cannot block you - though note that
+# reformatting a legacy file that this commit touches does rewrite all of it.
+#
+# Get past it with SKIP_FORMAT_CHECK=1 git commit ... or git commit --no-verify.
+
+set -uo pipefail
+
+readonly HOOK_NAME="pre-commit"
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+readonly REPO_ROOT
+
+CHECKER="$REPO_ROOT/tools/format-check.sh"
+if [[ ! -x $CHECKER ]]; then
+  printf '%s: %s is missing, so the code convention was not checked.\n' \
+    "$HOOK_NAME" "${CHECKER#"$REPO_ROOT"/}" >&2
+  exit 0
+fi
+
+cd "$REPO_ROOT" || exit 0
+
+# An explicit opt-out for the times the formatter is in the way.
+case "${SKIP_FORMAT_CHECK:-}" in
+  1 | true | yes | on) exit 0 ;;
+esac
+
+if [[ -z ${CLANG_FORMAT:-} ]] && ! command -v clang-format >/dev/null 2>&1; then
+  printf '%s: clang-format is not installed, so the code convention was not checked.\n' \
+    "$HOOK_NAME" >&2
+  exit 0
+fi
+
+# Nothing staged, nothing to check. Also covers an empty commit or a merge.
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+[[ -n $staged ]] || exit 0
+
+# --- check ------------------------------------------------------------------------
+#
+# Three pieces of state describe the situation, and refresh() rebuilds all of them:
+#   report     the diagnostics as the checker prints them
+#   OFFENDERS  the staged paths that are off-convention
+#   BLOCKED    the subset that also has unstaged worktree edits, and therefore
+#              cannot be re-staged automatically without swallowing that work
+
+declare -a OFFENDERS=()
+declare -a BLOCKED=()
+report=""
+status=0
+
+refresh() {
+  report="$("$CHECKER" --staged 2>&1)"
+  status=$?
+  OFFENDERS=()
+  BLOCKED=()
+  local file
+  while IFS= read -r file; do
+    [[ -n $file ]] && OFFENDERS+=("$file")
+  done < <("$CHECKER" --staged --print-offenders 2>/dev/null)
+  for file in "${OFFENDERS[@]}"; do
+    if ! git diff --quiet -- "$file" 2>/dev/null; then BLOCKED+=("$file"); fi
+  done
+}
+
+refresh
+case $status in
+  0) exit 0 ;; # conforming
+  1) ;; # violations
+  *)
+    printf '%s\n' "$report" >&2
+    printf '%s: the code convention check itself failed (exit %d).\n' \
+      "$HOOK_NAME" "$status" >&2
+    exit "$status"
+    ;;
+esac
+
+((${#OFFENDERS[@]})) || exit 0 # nothing to repair; the report was a false alarm
+
+# --- no terminal: refuse rather than reformat behind the user's back --------------
+#
+# git hands a pre-commit hook its standard input on /dev/null so that the hook
+# cannot eat the commit message, so stdin is useless for asking anything. The
+# question therefore goes to /dev/tty, which is the terminal the user is sitting
+# at; whether there is one at all is decided by stdout.
+
+TTY=/dev/tty
+if [[ ! -t 1 ]] || { [[ ! -r $TTY ]] && [[ ! -t 0 ]]; }; then
+  printf '%s\n' "$report" >&2
+  cat >&2 <<EOF
+
+$HOOK_NAME: commit refused - there is no terminal to ask on, so nothing was changed.
+Fix it and commit again:
+  tools/format-check.sh --staged --fix
+or commit anyway with:
+  SKIP_FORMAT_CHECK=1 git commit ...
+  git commit --no-verify
+EOF
+  exit 1
+fi
+
+# Ask on the terminal, not on stdin: stdin is /dev/null here.
+ask() {
+  local reply
+  if [[ -r $TTY ]]; then
+    read -r reply <"$TTY" || return 1
+  else
+    read -r reply || return 1
+  fi
+  answer=$reply
+}
+
+printf '%s\n' "$report" >&2
+
+# --- what can and cannot be repaired automatically --------------------------------
+#
+# refresh() has already worked out which offenders also have unstaged worktree
+# edits. Those cannot be fixed here: re-staging them would sweep the unstaged work
+# into this commit. Their diagnostics stay on screen and 'f' is withdrawn.
+
+if ((${#BLOCKED[@]})); then
+  printf '\nThese files have staged changes *and* unstaged edits in the worktree:\n'
+  printf '  %s\n' "${BLOCKED[@]}"
+  printf '%s\n' \
+    "Formatting them now would pull the unstaged edits into this commit, so 'f' is" \
+    "withdrawn for them. Commit or stash the worktree changes first, then retry."
+fi
+
+# --- ask --------------------------------------------------------------------------
+
+while true; do
+  {
+    cat <<EOF
+
+  f) format the offending files, stage the result, carry on
+  d) show the patch that 'f' would apply, then ask again
+  b) commit anyway
+  a) abort the commit
+EOF
+    ((${#BLOCKED[@]})) && printf '     (f is unavailable for the files listed above)\n'
+    printf '\nchoice [f/d/b/a]: '
+  } >&2
+
+  answer=""
+  ask || {
+    printf '\n' >&2
+    printf '%s: no answer; treating the commit as aborted.\n' "$HOOK_NAME" >&2
+    exit 1
+  }
+
+  case "${answer:-}" in
+    f | F)
+      if ((${#BLOCKED[@]})); then
+        printf '\nCannot format while the worktree has unstaged edits.\n' >&2
+        continue
+      fi
+      printf '\n' >&2
+      "$CHECKER" --staged --fix
+      fix_status=$?
+      # 'f' means "and stage it", so the result is staged even when something is
+      # left over. Staging it also keeps the next round honest: without this the
+      # worktree would hold a fix the index does not, and the file would then look
+      # blocked by edits nobody made.
+      git add -- "${OFFENDERS[@]}" || exit 1
+      if ((fix_status != 0)); then
+        # Report what is actually staged now, not what was staged a moment ago.
+        refresh
+        printf '\n' >&2
+        printf '%s\n' "$report" >&2
+        printf '%s\n' \
+          "The formatting has been staged. What is left is what clang-format cannot" \
+          "express - a long literal or URL, a tab inside a comment or string." \
+          "'b' commits anyway, 'a' aborts and leaves it staged." >&2
+        continue
+      fi
+      printf '%s\n' "Formatted and re-staged." >&2
+      exit 0
+      ;;
+
+    d | D)
+      printf '\n' >&2
+      "$CHECKER" --diff "${OFFENDERS[@]}" 2>&1 | sed 's/^/  /' >&2
+      ;;
+    b | B)
+      printf '\n' >&2
+      printf '%s\n' \
+        "Committing as is. CODE_CONVENTION.md §2 is not satisfied by this commit;" \
+        "that is recorded here rather than silently ignored." >&2
+      exit 0
+      ;;
+    a | A | q | Q)
+      printf '\n' >&2
+      printf '%s: commit aborted.\n' "$HOOK_NAME" >&2
+      exit 1
+      ;;
+    *)
+      printf '\nNot understood: %s. Answer f, d, b or a.\n' "${answer:-<empty>}" >&2
+      ;;
+  esac
+done

@@ -1,0 +1,107 @@
+# clang-format configuration for the plan and v4d OpenCV modules.
+#
+# Implements the mechanical part of CODE_CONVENTION.md §2 (rules F1-F16, H1-H3).
+# The style was recovered from the reference programs
+# modules/v4d/samples/optflow-demo.cpp and beauty-demo.cpp: every pin below is
+# the value clang-format's LLVM base style already uses, so this file is
+# behaviour-identical to `--style=LLVM` on all 96 module files while making the
+# rules explicit and immune to a future LLVM default change.
+#
+# Scope: this file sits in modules/, so it governs modules/plan/** and
+# modules/v4d/** only. It deliberately does NOT govern opencv/ (the sibling git
+# submodule), nor samples/, web/ or obs/ at the repository root.
+#
+# Out of scope: modules/v4d/third/ holds vendored code (stb, glad, imgui,
+# TextEditor, midi*) and three git submodules. Reformatting it would rewrite
+# ~45k lines of upstream code for no benefit, so any driver script must exclude
+# that subtree. There is no .clang-format in third/ and there must never be one.
+#
+# Verify with:  clang-format --dry-run -Werror <file>
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+# --- F2 indentation: two spaces, never tabs ---------------------------------
+IndentWidth: 2
+TabWidth: 8
+UseTab: Never
+ContinuationIndentWidth: 4
+
+# --- F1 the 80 column limit is hard ------------------------------------------
+ColumnLimit: 80
+
+# --- F3 attached (K&R) braces, never Allman ----------------------------------
+BreakBeforeBraces: Attach
+
+# --- F5 access specifiers at column 0 of the class body ----------------------
+AccessModifierOffset: -2
+
+# --- F4 case labels are not indented inside their switch ---------------------
+IndentCaseLabels: false
+# F4b preprocessor directives are not indented either
+IndentPPDirectives: None
+
+# --- F6 continuations align to the opening delimiter, then bin-pack ---------
+AlignAfterOpenBracket: Align
+BinPackArguments: true
+BinPackParameters: true
+AllowAllParametersOfDeclarationOnNextLine: true
+PenaltyBreakBeforeFirstCallParameter: 19
+PenaltyBreakAssignment: 2
+PenaltyReturnTypeOnItsOwnLine: 60
+PenaltyExcessCharacter: 1000000
+
+# --- F7 binary and ternary operators stay at the end of the line -------------
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+
+# --- F13 initialiser lists: colon first, indented 4, packed ------------------
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+ConstructorInitializerIndentWidth: 4
+
+# --- F8 exactly one space before a trailing comment; comments reflow to F1 ---
+SpacesBeforeTrailingComments: 1
+AlignTrailingComments: true
+ReflowComments: Always
+PenaltyBreakComment: 300
+PenaltyBreakString: 1000
+
+# --- F9 short functions may stay on one line ---------------------------------
+AllowShortFunctionsOnASingleLine: All
+# --- F12 short enums may stay on one line ------------------------------------
+AllowShortEnumsOnASingleLine: true
+# --- F10 single-statement bodies drop the braces and go on the next line -----
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# --- F11 at most one blank line; a blank line may open a block ---------------
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: true
+
+# --- F15 pointer and reference binding hugs the type ------------------------
+# Never derive alignment from a file's own (possibly foreign) style: a new file
+# and a reformatted file must produce the same result.
+PointerAlignment: Right
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+DerivePointerBinding: false
+
+# --- H1-H3 include blocks are authored by hand -------------------------------
+# Sort case-sensitively *inside* each hand-made block, but never merge or
+# regroup the blocks: the convention puts the framework headers in block 1 and
+# everything else in block 2, and that boundary is deliberate.
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+
+# --- the promotion list in U1 stays alphabetical -----------------------------
+SortUsingDeclarations: LexicographicNumeric
+
+# --- these modules use no namespaces and no escaped newlines -----------------
+NamespaceIndentation: None
+AlignEscapedNewlines: Right
+
+# --- both modules require C++20 (modules/*/CMakeLists.txt: cxx_std_20) ------
+Standard: Latest
