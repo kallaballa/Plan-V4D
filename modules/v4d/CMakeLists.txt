@@ -410,7 +410,7 @@ if(NOT (TARGET ${the_module}))
     v4d_fetch_font(JetBrainsMono-Italic.ttf
       "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Italic.ttf"
       "9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4")
-    add_binary_sample(example_v4d_shadertoy-editor samples/shadertoy-editor/shadertoy-editor.cpp)
+    add_binary_sample(example_v4d_shadertoy-editor samples/shadertoy-editor.cpp)
     # The code pane is a vendored ImGui widget (ImGuiColorTextEdit, MIT) rather
     # than part of libv4d: only this sample edits code, and TextEditor.cpp is a
     # third-party translation unit that no other target should have to compile.

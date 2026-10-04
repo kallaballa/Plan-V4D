@@ -29,7 +29,7 @@
 
 #include "imgui.h"
 
-#include "shadertoy-editor/shadertoy_syntax.hpp"
+#include "shadertoy_syntax.hpp"
 
 namespace shadertoy {
 

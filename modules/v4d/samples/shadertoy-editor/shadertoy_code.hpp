@@ -32,8 +32,8 @@
 
 #include "TextEditor.h"
 
-#include "shadertoy-editor/shadertoy_syntax.hpp"
-#include "shadertoy-editor/shadertoy_theme.hpp"
+#include "shadertoy_syntax.hpp"
+#include "shadertoy_theme.hpp"
 
 namespace shadertoy {
 namespace code {
