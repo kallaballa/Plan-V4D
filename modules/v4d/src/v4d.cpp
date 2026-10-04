@@ -24,7 +24,8 @@ namespace v4d {
 
 CV_EXPORTS std::mutex V4D::instance_mtx_;
 CV_EXPORTS thread_local cv::Ptr<V4D> V4D::instance_;
-CV_EXPORTS thread_local anyproperty::ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
+CV_EXPORTS thread_local anyproperty::ThreadSafeAnyMap<V4D::Keys::Enum>
+    V4D::properties_;
 CV_EXPORTS std::mutex V4D::windowRegistry_mtx_;
 CV_EXPORTS std::map<GLFWwindow *, V4D *> V4D::windowRegistry_;
 
@@ -535,7 +536,7 @@ void V4D::run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
           if (runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
             state.frameSyncSemaSwap.release();
             runGraph();
-	    reseq.waitFor(seq, [&state](uint64_t s) {
+            reseq.waitFor(seq, [&state](uint64_t s) {
               CV_UNUSED(s);
               state.frameSyncRender.acquire();
             });
@@ -545,11 +546,11 @@ void V4D::run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
               result = false;
             }
           } else {
-            runGraph();
             reseq.waitFor(seq, [&result, runtime](uint64_t s) {
               CV_UNUSED(s);
               result = runtime->display();
             });
+            runGraph();
           }
         });
         if (!result)
