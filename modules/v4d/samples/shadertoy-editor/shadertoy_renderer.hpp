@@ -39,7 +39,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/v4d/v4d.hpp>
 
-#include "shadertoy_model.hpp"
+#include "shadertoy-editor/shadertoy_model.hpp"
 
 namespace shadertoy {
 

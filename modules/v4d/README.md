@@ -350,7 +350,7 @@ behaviour on one- and two-person clips.
 
 ### Shadertoy editor
 
-`samples/shadertoy-editor.cpp` is a workbench for GLSL that never touches the
+`samples/shadertoy-editor/shadertoy-editor.cpp` is a workbench for GLSL that never touches the
 network. It opens and saves Shadertoy JSON — the format the site exports, so a
 project can be dropped onto shadertoy.com unchanged — edits every pass in a
 multiline field, recompiles as you type and puts the caret on the line the
@@ -385,7 +385,7 @@ shader, and a HUD with time, frame, fps, resolution and compile time.
 <kbd>R</kbd> reset the time, <kbd>P</kbd> screenshot, <kbd>Tab</kbd> the panel,
 <kbd>F</kbd> fullscreen, <kbd>H</kbd> the HUD.
 
-`samples/shadertoy-editor-test.sh` is the smoke test: every built-in sample
+`samples/shadertoy-editor/shadertoy-editor-test.sh` is the smoke test: every built-in sample
 compiles, a shader that does not compile is reported with the pass and the line
 the author wrote, a project survives a round trip through `--export`, a channel
 wired to a local image renders that image, and `--shot` writes a PNG that is not
@@ -394,7 +394,7 @@ route to shadertoy.com. The window screenshot is skipped when there is no
 compositor to grab:
 
 ```bash
-./modules/v4d/samples/shadertoy-editor-test.sh
+./modules/v4d/samples/shadertoy-editor/shadertoy-editor-test.sh
 ```
 
 V4D requires:

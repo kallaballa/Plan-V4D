@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-#include "shadertoy_syntax.hpp"
+#include "shadertoy-editor/shadertoy_syntax.hpp"
 
 namespace shadertoy {
 namespace text {

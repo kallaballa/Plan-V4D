@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test for modules/v4d/samples/shadertoy-editor.cpp.
+# Test for modules/v4d/samples/shadertoy-editor/shadertoy-editor.cpp.
 #
 # The editor is the only Shadertoy front end here that never touches the
 # network, so everything it needs can be tested unattended:

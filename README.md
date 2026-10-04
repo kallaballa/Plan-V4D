@@ -171,7 +171,7 @@ Plus: raw OpenGL (`render_opengl`, `cube-demo`, `shader-demo`), vector graphics
 (`nanovg-demo`, `font-demo`), video processing (`optflow-demo`,
 `pedestrian-demo`, `skeletal-tracker-demo`), multi-window (`montage-demo`,
 `many_cubes-demo`), custom I/O (`custom_source_and_sink`), and more. The
-pedestrian, skeletal tracker and shadertoy editor demos' run commands and
+pedestrian, skeletal tracker and shadertoy-editor demo' run commands and
 controls are documented in the [V4D module README](modules/v4d/README.md).
 
 ## Requirements

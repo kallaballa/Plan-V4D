@@ -20,8 +20,8 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
-#include "shadertoy_json.hpp"
-#include "shadertoy_model.hpp"
+#include "shadertoy-editor/shadertoy_json.hpp"
+#include "shadertoy-editor/shadertoy_model.hpp"
 
 namespace shadertoy {
 

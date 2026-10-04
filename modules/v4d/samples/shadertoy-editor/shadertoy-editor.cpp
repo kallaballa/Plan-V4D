@@ -31,10 +31,10 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/v4d/v4d.hpp>
 
-#include "shadertoy_code.hpp"
-#include "shadertoy_project.hpp"
-#include "shadertoy_renderer.hpp"
-#include "shadertoy_theme.hpp"
+#include "shadertoy-editor/shadertoy_code.hpp"
+#include "shadertoy-editor/shadertoy_project.hpp"
+#include "shadertoy-editor/shadertoy_renderer.hpp"
+#include "shadertoy-editor/shadertoy_theme.hpp"
 
 using namespace cv;
 using namespace cv::v4d;
