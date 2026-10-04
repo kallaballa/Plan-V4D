@@ -10,3 +10,6 @@
 [submodule "modules/v4d/third/AnyProperty"]
 	path = modules/v4d/third/AnyProperty
 	url = git@github.com:kallaballa/AnyProperty.git
+[submodule "modules/v4d/third/glfw"]
+	path = modules/v4d/third/glfw
+	url = https://github.com/glfw/glfw.git

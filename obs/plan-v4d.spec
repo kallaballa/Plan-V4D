@@ -27,11 +27,14 @@ BuildRequires:  libXi-devel
 # opencv_v4d unconditionally does find_package(Freetype REQUIRED) and links
 # Freetype::Freetype into the module and the samples, so the freetype headers
 # and import library must be present even though BUILD_opencv_freetype is OFF.
+#
+# GLFW is NOT a BuildRequires: it is vendored in modules/v4d/third/glfw and built
+# as part of the module, and the resulting libglfw.so.3 (same soname as the
+# distribution's) is installed by plan-v4d-libs itself.
 %if 0%{?suse_version}
 BuildRequires:  Mesa-libGL-devel
 BuildRequires:  glu-devel
 BuildRequires:  glew-devel
-BuildRequires:  libglfw-devel
 BuildRequires:  libqt5-qtbase-devel
 BuildRequires:  ocl-icd-devel
 BuildRequires:  freetype2-devel
@@ -42,7 +45,6 @@ BuildRequires:  fdupes
 BuildRequires:  mesa-libGL-devel
 BuildRequires:  mesa-libGLU-devel
 BuildRequires:  glew-devel
-BuildRequires:  glfw-devel
 BuildRequires:  qt5-qtbase-devel
 BuildRequires:  ocl-icd-devel
 BuildRequires:  freetype-devel
@@ -122,13 +124,11 @@ Requires:       plan-v4d-libs = %{epoch}:%{version}-%{release}
 Recommends:     Mesa-libGL-devel
 Recommends:     glu-devel
 Recommends:     glew-devel
-Recommends:     libglfw-devel
 Recommends:     libqt5-qtbase-devel
 Recommends:     ffmpeg-devel
 %endif
 
 %if 0%{?fedora}
-Recommends:     glfw-devel
 Recommends:     mesa-libGL-devel
 Recommends:     mesa-libGLU-devel
 Recommends:     glew-devel
@@ -414,10 +414,15 @@ install -m 0644 %{_builddir}/extra_modules/v4d/samples/fonts/*.ttf \
 %dir %{_docdir}/%{name}
 %{_libdir}/libopencv*.so.*
 %{_libdir}/libnanovg.so*
+# Vendored GLFW (modules/v4d/third/glfw), built and installed by the module.
+%{_libdir}/libglfw.so*
 
 %files -n plan-v4d-devel
 %{_includedir}/opencv5/
 %{_includedir}/nanovg/
+# v4d/events.hpp includes <GLFW/glfw3.h>, so its headers are part of the
+# installed interface.
+%{_includedir}/GLFW/
 %{_bindir}/setup_vars_opencv5.sh
 %{_libdir}/libopencv*.so
 %{_libdir}/pkgconfig/opencv*.pc

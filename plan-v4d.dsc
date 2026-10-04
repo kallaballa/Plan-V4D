@@ -22,7 +22,6 @@ Build-Depends: debhelper-compat (= 13),
                libgl1-mesa-dev,
                libglu1-mesa-dev,
                libglew-dev,
-               libglfw3-dev,
                qtbase5-dev,
                ocl-icd-opencl-dev
 DEBTRANSFORM-TAR: opencv-5.x.x~beta~kallaballa.tar.gz

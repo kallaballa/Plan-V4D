@@ -294,6 +294,13 @@ cmake --build . --target example_v4d_video_editing
 ./bin/example_v4d_video_editing in.mp4 out.mkv
 ```
 
+GLFW is vendored: `third/glfw` is a submodule, built together with the module
+and installed next to `libnanovg.so`, so no GLFW package is needed. Its
+include, library and pkg-config files land in `${prefix}/include/GLFW` and
+`${prefix}/lib`/`${prefix}/lib64`. Configure with `-DOPENCV_V4D_USE_SYSTEM_GLFW=ON`
+to link a system GLFW instead. Wayland support in the vendored copy follows
+OpenCV's `-DWITH_WAYLAND`; X11 support needs the usual X11 development files.
+
 The pedestrian demo can be built and run separately. It displays the video and
 tracked pedestrian ellipses; it does not write an annotated output file:
 
@@ -420,20 +427,19 @@ CMake options:
 
 ## Building on macOS
 
-V4D is a windowed, GLFW + OpenGL runtime, so on macOS you need GLFW
-and must leave `OPENCV_V4D_ENABLE_ES3=OFF` (the OpenGL ES path uses
-EGL, which is not available on macOS).
+V4D is a windowed, GLFW + OpenGL runtime, so on macOS it needs the Xcode
+command line tools for the Cocoa backend and you must leave
+`OPENCV_V4D_ENABLE_ES3=OFF` (the OpenGL ES path uses EGL, which is not
+available on macOS). GLFW itself is vendored — see [Building](#building).
 
 Requirements:
 
 * macOS 13+ (Ventura) with Xcode 14+ (Apple Clang 14+ / libc++ 14+)
   for C++20 `<barrier>` and `<semaphore>`, and for the vendored
   third-party code.
-* GLFW 3, via Homebrew: `brew install glfw`
 * Homebrew's `opencv` (or build the main OpenCV tree from source).
 
 ```bash
-brew install glfw
 mkdir build && cd build
 cmake -DOPENCV_EXTRA_MODULES_PATH=../modules \
       -DBUILD_opencv_plan=ON \
