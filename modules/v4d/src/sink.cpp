@@ -180,6 +180,16 @@ bool Sink::isOpen() {
 
 void Sink::operator()(const uint64_t &seq, const cv::UMat &frame) {
   std::lock_guard<std::mutex> lock(mtx_);
+  // A null sink (the default constructor) has no consumer, and that is what
+  // Sink::makeDefault returns where no video writer exists -- Android, see
+  // there. A demo may still hand such a sink to another sink's consumer, and
+  // the runtime does not know the difference: it asks isOpen() of the sink it
+  // was given and then writes to it. Dropping the frame is what a closed sink
+  // is for; calling the empty std::function throws std::bad_function_call,
+  // which takes down the pipeline on the first frame (and libc++ does not
+  // override what() for it, so it is logged as a bare "std::exception").
+  if (!consumer_)
+    return;
   if (seq > nextSeq_) {
     uint64_t currentSeq = seq;
     cv::UMat currentFrame = frame;

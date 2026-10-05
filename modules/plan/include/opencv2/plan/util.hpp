@@ -319,24 +319,25 @@ class SharedVariables {
 public:
   template <typename Tplan, typename Tvar>
   static bool isPlanMember(Tplan &plan, Tvar &var) {
-    const char *planPtr = reinterpret_cast<const char *>(&plan);
-    const char *varPtr = reinterpret_cast<const char *>(&var);
-    off_t parentOffset = plan.getParentOffset();
-    off_t parentActualSize = plan.getParentActualTypeSize();
-    off_t actualTypeSize = plan.getActualTypeSize();
-    off_t varOffset = off_t(varPtr);
-    off_t planOffset = off_t(planPtr);
+    // Unsigned, because these are addresses: an Android heap pointer is tagged
+    // (0xB4..), so reading one into a signed off_t yields a negative number and
+    // every "offset > 0" test on it is false.
+    size_t parentOffset = plan.getParentOffset();
+    size_t parentActualSize = plan.getParentActualTypeSize();
+    size_t actualTypeSize = plan.getActualTypeSize();
+    size_t varOffset = reinterpret_cast<size_t>(&var);
+    size_t planOffset = reinterpret_cast<size_t>(&plan);
 
     CV_Assert((parentOffset == 0 && parentActualSize == 0) ||
-              (parentOffset > 0 && parentActualSize > 0));
+              (parentOffset != 0 && parentActualSize > 0));
 
-    off_t parentLowerBound = parentOffset;
-    off_t parentUpperBound = parentOffset + parentActualSize;
-    off_t lowerBound = planOffset;
-    off_t upperBound = planOffset + actualTypeSize;
+    size_t parentLowerBound = parentOffset;
+    size_t parentUpperBound = parentOffset + parentActualSize;
+    size_t lowerBound = planOffset;
+    size_t upperBound = planOffset + actualTypeSize;
 
     if (!((varOffset >= lowerBound && varOffset <= upperBound) ||
-          (parentOffset > 0 && varOffset >= parentLowerBound &&
+          (parentOffset != 0 && varOffset >= parentLowerBound &&
            varOffset <= parentUpperBound))) {
       return false;
     }
