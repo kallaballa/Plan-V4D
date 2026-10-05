@@ -6,7 +6,13 @@
 #include <opencv2/core/ocl.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
+// Only get_cl_info() looks at dnn, and only to name the OpenCL backends dnn can
+// run on. Where OpenCL is off there is nothing to describe, so dnn is not a
+// dependency -- otherwise every build without dnn (Android) would fail on an
+// include it never uses.
+#ifdef HAVE_OPENCL
 #include <opencv2/dnn.hpp>
+#endif
 #include "../include/opencv2/v4d/detail/gl.hpp"
 #include "../include/opencv2/v4d/v4d.hpp"
 
@@ -167,6 +173,35 @@ void add_asset_search_paths() {
   });
 }
 
+std::string demo_video_input(const char *assetName, int argc, char **argv) {
+#if defined(__ANDROID__)
+  // Not a path: Source::makeDefault() ignores it and opens the camera. See the
+  // comment in util.hpp -- it only has to be non-empty and read sensibly in a
+  // log line.
+  (void)argc;
+  (void)argv;
+  (void)assetName;
+  return "<android camera>";
+#else
+  if (argc > 1 && argv[1] != nullptr && *argv[1] != '\0') {
+    return argv[1];
+  }
+  return cv::samples::findFile(assetName);
+#endif
+}
+
+bool demo_video_input_readable(const std::string &input) {
+#if defined(__ANDROID__)
+  // The camera, so there is nothing to open. Source::makeDefault() is what
+  // reports a failure to open it, and it does so with a message that names the
+  // camera and the permission.
+  (void)input;
+  return true;
+#else
+  return !input.empty() && std::ifstream(input).good();
+#endif
+}
+
 void gl_check_error(const std::filesystem::path &file, unsigned int line,
                     const char *expression) {
   int errorCode = glGetError();
@@ -187,7 +222,6 @@ void init_fragment_shader(unsigned int handles[2], const char *fshader) {
 
   handles[0] = glCreateProgram();
 
-  ;
   handles[1] = glCreateShader(s.type);
   glShaderSource(handles[1], 1, (const GLchar **)&s.source, NULL);
   glCompileShader(handles[1]);
@@ -338,35 +372,49 @@ std::string get_gl_info() {
   return oss.str();
 }
 
-static const cv::dnn::Backend kIeNgraph        = (cv::dnn::Backend)1000000;
+#ifdef HAVE_OPENCL
+static const cv::dnn::Backend kIeNgraph = (cv::dnn::Backend)1000000;
 static const cv::dnn::Backend kIeNnBuilder2019 = (cv::dnn::Backend)1000001;
 
 static bool isOpenVINO(cv::dnn::Backend b) {
-    return b == cv::dnn::DNN_BACKEND_INFERENCE_ENGINE ||
-           b == kIeNgraph || b == kIeNnBuilder2019;
+  return b == cv::dnn::DNN_BACKEND_INFERENCE_ENGINE || b == kIeNgraph ||
+         b == kIeNnBuilder2019;
 }
 
-static const char* backendName(cv::dnn::Backend b) {
-    switch (b) {
-        case cv::dnn::DNN_BACKEND_DEFAULT: return "DEFAULT";
-        case cv::dnn::DNN_BACKEND_OPENCV: return "OPENCV";
-        case cv::dnn::DNN_BACKEND_INFERENCE_ENGINE: return "OPENVINO";
-        case cv::dnn::DNN_BACKEND_VKCOM: return "VKCOM";
-        case cv::dnn::DNN_BACKEND_CUDA: return "CUDA";
-        default: return isOpenVINO(b) ? "OPENVINO(internal)" : "?";
-    }
+static const char *backendName(cv::dnn::Backend b) {
+  switch (b) {
+  case cv::dnn::DNN_BACKEND_DEFAULT:
+    return "DEFAULT";
+  case cv::dnn::DNN_BACKEND_OPENCV:
+    return "OPENCV";
+  case cv::dnn::DNN_BACKEND_INFERENCE_ENGINE:
+    return "OPENVINO";
+  case cv::dnn::DNN_BACKEND_VKCOM:
+    return "VKCOM";
+  case cv::dnn::DNN_BACKEND_CUDA:
+    return "CUDA";
+  default:
+    return isOpenVINO(b) ? "OPENVINO(internal)" : "?";
+  }
 }
 
-static const char* targetName(cv::dnn::Target t) {
-    switch (t) {
-        case cv::dnn::DNN_TARGET_CPU: return "CPU";
-        case cv::dnn::DNN_TARGET_OPENCL: return "OPENCL";
-        case cv::dnn::DNN_TARGET_OPENCL_FP16: return "OPENCL_FP16";
-        case cv::dnn::DNN_TARGET_VULKAN: return "VULKAN";
-        case cv::dnn::DNN_TARGET_CUDA: return "CUDA";
-        default: return "?";
-    }
+static const char *targetName(cv::dnn::Target t) {
+  switch (t) {
+  case cv::dnn::DNN_TARGET_CPU:
+    return "CPU";
+  case cv::dnn::DNN_TARGET_OPENCL:
+    return "OPENCL";
+  case cv::dnn::DNN_TARGET_OPENCL_FP16:
+    return "OPENCL_FP16";
+  case cv::dnn::DNN_TARGET_VULKAN:
+    return "VULKAN";
+  case cv::dnn::DNN_TARGET_CUDA:
+    return "CUDA";
+  default:
+    return "?";
+  }
 }
+#endif // HAVE_OPENCL
 
 std::string get_cl_info() {
   std::stringstream ss;
@@ -400,13 +448,15 @@ std::string get_cl_info() {
     bool haveOpenVINO = false;
     bool haveOpenVINOOpenCL = false;
     printf("   backends/targets :\n");
-    for (const auto& bt : cv::dnn::getAvailableBackends()) {
-        printf("      backend=%-18s target=%s\n", backendName(bt.first), targetName(bt.second));
-        if (isOpenVINO(bt.first)) {
-            haveOpenVINO = true;
-            if (bt.second == cv::dnn::DNN_TARGET_OPENCL || bt.second == cv::dnn::DNN_TARGET_OPENCL_FP16)
-                haveOpenVINOOpenCL = true;
-        }
+    for (const auto &bt : cv::dnn::getAvailableBackends()) {
+      printf("      backend=%-18s target=%s\n", backendName(bt.first),
+             targetName(bt.second));
+      if (isOpenVINO(bt.first)) {
+        haveOpenVINO = true;
+        if (bt.second == cv::dnn::DNN_TARGET_OPENCL ||
+            bt.second == cv::dnn::DNN_TARGET_OPENCL_FP16)
+          haveOpenVINOOpenCL = true;
+      }
     }
   }
 #endif

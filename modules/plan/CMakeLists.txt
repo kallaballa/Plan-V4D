@@ -17,6 +17,19 @@ endif()
 # include(CTest), which would clash with OpenCV's test setup.
 set(ANYPROPERTY_DIR "${CMAKE_CURRENT_LIST_DIR}/../v4d/third/AnyProperty")
 
+# Optimisation flags for the optimised configurations, shared by the module and
+# its test and perf targets.
+#
+# -march=native is deliberately absent when cross-compiling: it resolves against
+# the CPU of the *build* machine, which means a binary tuned for the wrong one,
+# and the NDK's Clang rejects it outright ("unknown target CPU") -- so any
+# Release/RelWithDebInfo cross build of plan failed while Debug succeeded, which
+# made the problem easy to miss. Android builds are cross builds.
+set(PLAN_OPT_FLAGS -ftree-vectorize -funroll-loops)
+if(NOT CMAKE_CROSSCOMPILING)
+  list(INSERT PLAN_OPT_FLAGS 0 -march=native)
+endif()
+
 if(NOT EXISTS "${ANYPROPERTY_DIR}/anyproperty.hpp")
   # v4d also runs 'git submodule update --init --recursive', but that only
   # happens while the v4d module is configured, and a plan-only build never
@@ -50,8 +63,8 @@ if(NOT (TARGET ${the_module}))
   target_compile_features(${the_module} PRIVATE cxx_std_20)
 
   target_compile_options(${the_module} PRIVATE
-    $<$<CONFIG:Release>:-march=native -ftree-vectorize -funroll-loops>
-    $<$<CONFIG:RelWithDebInfo>:-march=native -ftree-vectorize -funroll-loops>
+    $<$<CONFIG:Release>:${PLAN_OPT_FLAGS}>
+    $<$<CONFIG:RelWithDebInfo>:${PLAN_OPT_FLAGS}>
   )
 endif()
 
@@ -63,8 +76,8 @@ if(BUILD_TESTS AND NOT BUILD_opencv_world)
     target_compile_features(opencv_test_plan PRIVATE cxx_std_20)
     target_include_directories(opencv_test_plan PRIVATE "${ANYPROPERTY_DIR}")
     target_compile_options(opencv_test_plan PRIVATE
-      $<$<CONFIG:Release>:-march=native -ftree-vectorize -funroll-loops>
-      $<$<CONFIG:RelWithDebInfo>:-march=native -ftree-vectorize -funroll-loops>
+      $<$<CONFIG:Release>:${PLAN_OPT_FLAGS}>
+      $<$<CONFIG:RelWithDebInfo>:${PLAN_OPT_FLAGS}>
     )
   endif()
 endif()
@@ -78,8 +91,8 @@ if(BUILD_PERF_TESTS AND NOT BUILD_opencv_world)
     target_compile_features(opencv_perf_plan PRIVATE cxx_std_20)
     target_include_directories(opencv_perf_plan PRIVATE "${CMAKE_CURRENT_LIST_DIR}/test" "${ANYPROPERTY_DIR}")
     target_compile_options(opencv_perf_plan PRIVATE
-      $<$<CONFIG:Release>:-march=native -ftree-vectorize -funroll-loops>
-      $<$<CONFIG:RelWithDebInfo>:-march=native -ftree-vectorize -funroll-loops>
+      $<$<CONFIG:Release>:${PLAN_OPT_FLAGS}>
+      $<$<CONFIG:RelWithDebInfo>:${PLAN_OPT_FLAGS}>
     )
   endif()
 endif()

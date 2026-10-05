@@ -1,15 +1,63 @@
 cmake_policy(SET CMP0079 NEW)
 
+# Whether GL is available to this build at all. OpenCV hides WITH_OPENGL on
+# Android (opencv/CMakeLists.txt: `VISIBLE_IF NOT ANDROID`, default OFF), so
+# HAVE_OPENGL is false there even though the NDK ships EGL and GLESv3 and V4D
+# links them directly. Verifying the ES3/BGFX/MALI options against HAVE_OPENGL
+# would therefore make OPENCV_V4D_ENABLE_ES3 unconfigurable on a device, which is
+# the one platform where it is not optional. macOS is in the same boat for a
+# different reason: it needs no EGL, so V4D drives desktop GL 3.2 there.
+if(ANDROID OR APPLE)
+  set(V4D_HAVE_GL TRUE)
+else()
+  set(V4D_HAVE_GL ${HAVE_OPENGL})
+endif()
+
 OCV_OPTION(OPENCV_V4D_ENABLE_ES3 "Enable OpenGL ES 3.0 backend for V4D" OFF
-  VERIFY HAVE_OPENGL)
+  VERIFY V4D_HAVE_GL)
 
 OCV_OPTION(OPENCV_V4D_ENABLE_BGFX "Enable bgfx for V4D" OFF
-  VERIFY HAVE_OPENGL)
+  VERIFY V4D_HAVE_GL)
 
 OCV_OPTION(OPENCV_V4D_ENABLE_MALI "Enable mali gpu support for V4D" OFF
-  VERIFY HAVE_OPENGL)
+  VERIFY V4D_HAVE_GL)
 
 OCV_OPTION(OPENCV_V4D_USE_SYSTEM_GLFW "Link the GLFW found by find_package(glfw3) instead of the vendored third/glfw copy" OFF)
+
+# Android has no GLFW at all: third/glfw has no Android platform (src/platform.c
+# enumerates only WIN32/COCOA/WAYLAND/X11) and does not even configure under the
+# NDK toolchain, where its X11 and Wayland backends default to ON and then hard
+# require X11 headers the sysroot does not ship. third/glfw-android supplies the
+# same `glfw` target over EGL + ANativeWindow instead, and is selected here
+# rather than by the caller, because there is nothing else it could be.
+if(ANDROID)
+  set(OPENCV_V4D_ANDROID_GLFW ON)
+else()
+  set(OPENCV_V4D_ANDROID_GLFW OFF)
+endif()
+
+# Which samples become a loadable .so instead of an executable on Android. An
+# Android "executable" is a library NativeActivity loads, and not every desktop
+# sample survives the move, so the set is explicit rather than all-or-nothing.
+OCV_OPTION(OPENCV_V4D_SAMPLES "Samples to build as Android shared objects (comma separated)" "")
+
+if(OPENCV_V4D_ANDROID_GLFW)
+  # There is no desktop GL on a device, so ES3 is not a choice there. Setting it
+  # here (rather than leaving it to the caller) keeps the source-level ES3 paths
+  # and the link line in agreement no matter how the build was invoked.
+  set(OPENCV_V4D_ENABLE_ES3 ON CACHE BOOL "Enable OpenGL ES 3.0 backend for V4D" FORCE)
+  # OPENCV_V4D_SAMPLES names samples as they are spelled in this file
+  # (font_rendering), not as they are spelled as targets
+  # (example_v4d_font_rendering), because that is how they are listed here and in
+  # the docs. An empty list means "no demo is built", which is a legitimate way to
+  # ask for just the libraries.
+  set(OPENCV_V4D_ANDROID_SAMPLE_LIST "")
+  if(OPENCV_V4D_SAMPLES)
+    string(REPLACE "," ";" OPENCV_V4D_ANDROID_SAMPLE_LIST "${OPENCV_V4D_SAMPLES}")
+    list(REMOVE_DUPLICATES OPENCV_V4D_ANDROID_SAMPLE_LIST)
+    message(STATUS "V4D Android samples: ${OPENCV_V4D_ANDROID_SAMPLE_LIST}")
+  endif()
+endif()
 
 if(OPENCV_V4D_ENABLE_BGFX)
     add_definitions(-DOPENCV_V4D_ENABLE_BGFX=1)
@@ -49,7 +97,10 @@ if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.git" AND NOT DEFINED
 endif()
 
 set(V4D_THIRD_PARTY_DEPS imgui nanovg)
-if(NOT OPENCV_V4D_USE_SYSTEM_GLFW)
+if(OPENCV_V4D_ANDROID_GLFW)
+  # The Android replacement is in-tree rather than a submodule, so it is always
+  # there; see third/glfw-android/CMakeLists.txt.
+elseif(NOT OPENCV_V4D_USE_SYSTEM_GLFW)
   list(APPEND V4D_THIRD_PARTY_DEPS glfw)
 endif()
 foreach(dep ${V4D_THIRD_PARTY_DEPS})
@@ -62,8 +113,20 @@ endforeach()
 # this module, so a checkout needs no GLFW development package. Configure with
 # -DOPENCV_V4D_USE_SYSTEM_GLFW=ON to link whatever find_package(glfw3) locates
 # instead. Both paths provide the same `glfw` target, so the module and the
-# samples link it the same way either way.
-if(OPENCV_V4D_USE_SYSTEM_GLFW)
+# samples link it the same way either way. On Android there is a third path:
+# third/glfw-android, for the same reason.
+if(OPENCV_V4D_ANDROID_GLFW)
+  if(NOT TARGET glfw)
+    # FindOpenGL reports failure under the NDK: it looks for GL/gl.h and the
+    # sysroot ships GLES3/gl3.h. Neither FindOpenGL nor the FreeType it comes
+    # with is needed on Android -- V4D links the NDK's libEGL/libGLESv3, and
+    # FreeType comes from FREETYPE_* -- so the report is overridden rather than
+    # worked around.
+    set(OpenGL_FOUND TRUE)
+    set(OPENGL_FOUND TRUE)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third/glfw-android")
+  endif()
+elseif(OPENCV_V4D_USE_SYSTEM_GLFW)
   find_package(glfw3 3 REQUIRED)
 elseif(NOT TARGET glfw)
   # GLFW's own options, set as plain variables rather than cache entries:
@@ -224,9 +287,51 @@ endfunction()
 # use -- geometry, for instance, which OpenCV 5 requires for
 # getRotationMatrix2D -- are passed per sample, so that a build without one of
 # them still gets BUILD_EXAMPLES for the samples that do not need it.
+#
+# On Android the same call produces a loadable .so instead of an executable,
+# for the samples named in OPENCV_V4D_SAMPLES; see v4d_add_android_sample.
 macro(add_binary_sample sample source)
+    if(OPENCV_V4D_ANDROID_GLFW)
+      # OPENCV_V4D_SAMPLES spells samples the way this file does
+      # (font_rendering), not the way the targets are named
+      # (example_v4d_font_rendering).
+      string(REGEX REPLACE "^example_v4d_" "" sample_stem "${sample}")
+      if(sample_stem IN_LIST OPENCV_V4D_ANDROID_SAMPLE_LIST)
+        v4d_add_android_sample(${sample} ${source} ${ARGN})
+      else()
+        message(STATUS "V4D: skipping ${sample} on Android "
+                       "(not in OPENCV_V4D_SAMPLES)")
+      endif()
+    else()
+      _v4d_add_host_sample(${sample} ${source} ${ARGN})
+    endif()
+endmacro()
+
+# The OpenCV modules a sample links, minus the four every one of them needs
+# (core, imgproc, videoio and imgcodecs, named per flavour below because the
+# Android line adds nanovg and the host line adds glfw).
+#
+# One list for both hosts rather than one each: the Android line used to name a
+# shorter list, on the reasoning that naming a module this build does not produce
+# is a link error -- which was true while the Android BUILD_LIST left dnn, face,
+# objdetect, optflow, stitching and tracking out, and stopped being true when
+# tools/android/opencv-cmake-args.sh grew them. Divergence is not worth keeping:
+# the libraries are static archives, so an object nothing references is never
+# pulled in and the unused entries cost nothing in the .so, whereas the missing
+# ones (pedestrian-demo needs HOG and KCF) cost a failed link. Keep this in step
+# with BUILD_LIST in tools/android/opencv-cmake-args.sh.
+set(V4D_SAMPLE_MODULES
+  opencv_objdetect opencv_xobjdetect opencv_optflow opencv_tracking
+  opencv_stitching opencv_face opencv_features opencv_dnn)
+
+# The parts of add_binary_sample() that are the same everywhere. Kept as its own
+# macro so that both sample flavours share one description of what a sample
+# links and includes.
+macro(_v4d_add_host_sample sample source)
     ocv_add_executable(${sample} ${source})
-    ocv_target_link_libraries(${sample} opencv_v4d opencv_plan opencv_core opencv_imgproc opencv_ximgproc opencv_videoio opencv_video opencv_imgcodecs opencv_objdetect opencv_xobjdetect opencv_optflow opencv_tracking opencv_stitching opencv_face opencv_features opencv_dnn glfw nanovg)
+    ocv_target_link_libraries(${sample} opencv_v4d opencv_plan opencv_core
+      opencv_imgproc opencv_ximgproc opencv_videoio opencv_video
+      opencv_imgcodecs ${V4D_SAMPLE_MODULES} glfw nanovg)
     if(ARGN)
       ocv_target_link_libraries(${sample} ${ARGN})
     endif()
@@ -249,9 +354,73 @@ macro(add_binary_sample sample source)
     endif()
     target_compile_features(${sample} PRIVATE cxx_std_20)
     target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
+    _v4d_configure_sample(${sample} ${ARGN})
+endmacro()
+
+# A sample as an Android app: a shared object that NativeActivity loads, with the
+# activity entry point linked into it and the demo entered through
+# v4ddemo_main() instead of main().
+function(v4d_add_android_sample sample source)
+    # The target keeps the desktop name, so --target <sample> means the same
+    # thing everywhere; only the file on disk differs. The stem is the sample's
+    # name without the example_v4d_ prefix the target carries, so that the file
+    # is libv4ddemo_font_rendering.so and the manifest can name it.
+    string(REGEX REPLACE "^example_v4d_" "" so_stem "${sample}")
+    set(so_name "v4ddemo_${so_stem}")
+
+    add_library(${sample} SHARED
+      "${source}"
+      # ANativeActivity_onCreate and the eight callbacks the system calls
+      # alongside it. Nothing references them, so the linker would otherwise drop
+      # them: -u pulls them in as undefined, which the .so's own symbol table
+      # resolves.
+      "${CMAKE_CURRENT_SOURCE_DIR}/third/glfw-android/android_main.cpp")
+
+    set_target_properties(${sample} PROPERTIES
+      OUTPUT_NAME "${so_name}"
+      PREFIX "lib"
+      LIBRARY_OUTPUT_DIRECTORY "${LIBRARY_OUTPUT_PATH}"
+      RUNTIME_OUTPUT_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}")
+
+    target_link_options(${sample} PRIVATE "LINKER:-u,ANativeActivity_onCreate")
+
+    # opencv_v4d already contains the GLFW shim (see
+    # third/glfw-android/CMakeLists.txt: it must exist exactly once in the final
+    # image), so `glfw` is deliberately not named here.
+    ocv_target_link_libraries(${sample} opencv_v4d opencv_plan opencv_core
+      opencv_imgproc opencv_ximgproc opencv_videoio opencv_video
+      opencv_imgcodecs nanovg ${V4D_SAMPLE_MODULES} ${ARGN})
+    # EGL + GLESv3 for the context, android for the activity, log for
+    # __android_log_print. A .so loaded by NativeActivity links no crt, so the GL
+    # entry points have to be resolved against libGLESv3.so explicitly.
+    ocv_target_link_libraries(${sample} EGL GLESv3 android log)
+    ocv_target_link_libraries(${sample} Freetype::Freetype)
+    ocv_target_include_directories(${sample} PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/third/glfw-android")
+
+    _v4d_configure_sample(${sample} ${ARGN})
+endfunction()
+
+# The include list, the C++20 request, the asset path and the ES3 define: what
+# every sample needs on every platform.
+macro(_v4d_configure_sample sample)
+    target_compile_features(${sample} PRIVATE cxx_std_20)
     target_compile_definitions(${sample} PRIVATE
       "V4D_ASSET_PATH=\"${V4D_ASSET_PATH}\""
       "V4D_ASSETS_PATH=\"${V4D_ASSET_PATH}\"") # V4D_ASSETS_PATH is the deprecated spelling of V4D_ASSET_PATH
+    # Without this a sample takes the desktop branch of detail/gl.hpp and tries
+    # to include GL/glcorearb.h, which the NDK does not ship. It used to be set by
+    # appending to CMAKE_CXX_FLAGS *after* every sample had been created, which
+    # changed nothing for them.
+    if(OPENCV_V4D_ENABLE_ES3)
+      target_compile_definitions(${sample} PRIVATE OPENCV_V4D_USE_ES3=1)
+    endif()
+    # android_main.cpp is entirely inside `#if defined(OPENCV_V4D_ANDROID)`, so
+    # without this the library links but exports no entry point at all and the
+    # system cannot start the demo.
+    if(OPENCV_V4D_ANDROID_GLFW)
+      target_compile_definitions(${sample} PRIVATE OPENCV_V4D_ANDROID=1)
+    endif()
     if(OPENCV_V4D_ENABLE_BGFX)
       set(BGFX_INC_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
     endif()
@@ -282,6 +451,14 @@ macro(add_binary_sample sample source)
       "${V4D_MODULES_DIR}/face/include"
       ${BGFX_INC_DIRS}
       "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/")
+    # On Android the samples reach the GLFW shim through opencv_v4d rather than
+    # through its `glfw` target, so that the shim ends up in the final image
+    # once. That means the include directory has to be named here as well, or
+    # <GLFW/glfw3.h> (events.hpp) resolves to the vendored desktop header.
+    if(OPENCV_V4D_ANDROID_GLFW)
+      ocv_target_include_directories(${sample} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/third/glfw-android")
+    endif()
     if(OPENCV_V4D_ENABLE_BGFX)
       add_dependencies(${sample} v4d_copy_shaders)
     endif()
@@ -334,8 +511,18 @@ if(NOT (TARGET ${the_module}))
 
   file(GLOB imgui_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/misc/freetype/imgui_freetype.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/imguicontext.cpp")
   file(GLOB imgui_backend_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp")
-  file(GLOB imgui_glfw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
-  file(GLOB imgui_thirdparty_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
+  if(OPENCV_V4D_ANDROID_GLFW)
+    # imgui_impl_glfw.cpp talks to a real GLFW. The shim answers the GLFW API but
+    # not through a GLFWwindow ImGui can be handed, and ImGui's own Android
+    # backend wants an ANativeWindow* and raw AInputEvents instead -- so the
+    # platform backend changes with the platform. imgui_impl_android.cpp is the
+    # one file here that needs the shim's internal header, which is why its
+    # include directory is added to the module list below.
+    file(GLOB imgui_glfw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_android.cpp")
+  else()
+    file(GLOB imgui_glfw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
+  endif()
+  file(GLOB imgui_thirdparty_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp" ${imgui_glfw_sources})
   set_source_files_properties(${imgui_thirdparty_sources} COMPILE_OPTIONS "-w")
   ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/" ${imgui_sources} ${imgui_backend_sources} ${imgui_glfw_sources})
   set(_v4d_module_includes
@@ -347,6 +534,9 @@ if(NOT (TARGET ${the_module}))
     "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/"
     "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/"
     "${CMAKE_CURRENT_SOURCE_DIR}/third/AnyProperty")
+  if(OPENCV_V4D_ANDROID_GLFW)
+    list(APPEND _v4d_module_includes "${CMAKE_CURRENT_SOURCE_DIR}/third/glfw-android")
+  endif()
   if(OPENCV_V4D_ENABLE_BGFX)
     list(APPEND _v4d_module_includes
       "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/"
@@ -474,21 +664,34 @@ if(NOT (TARGET ${the_module}))
     # It reaches into imgui_internal.h, which the include list above already
     # covers. samples/shadertoy-editor/shadertoy-widget-vendor.sh re-derives the two files from
     # the pinned upstream tag and verifies their hashes.
-    target_sources(example_v4d_shadertoy-editor PRIVATE
-      "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui-color-text-edit/TextEditor.cpp")
-    # Vendored third-party code: its warnings are not ours to fix, and silencing
-    # the whole target would hide warnings from the sample itself.
-    set_source_files_properties(
-      "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui-color-text-edit/TextEditor.cpp"
-      PROPERTIES COMPILE_OPTIONS "-w")
-  endif()
-
-  if(OPENCV_V4D_ENABLE_ES3)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOPENCV_V4D_USE_ES3=1")
+    if(TARGET example_v4d_shadertoy-editor)
+      target_sources(example_v4d_shadertoy-editor PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui-color-text-edit/TextEditor.cpp")
+      # Vendored third-party code: its warnings are not ours to fix, and silencing
+      # the whole target would hide warnings from the sample itself.
+      set_source_files_properties(
+        "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui-color-text-edit/TextEditor.cpp"
+        PROPERTIES COMPILE_OPTIONS "-w")
+    endif()
   endif()
 
   target_compile_features(${the_module} PRIVATE cxx_std_20)
   target_compile_definitions(${the_module} PRIVATE "V4D_ASSET_PATH=\"${V4D_ASSET_PATH}\"")
+
+  # The module's own translation units need the same ES3 switch the samples do.
+  # It used to be appended to CMAKE_CXX_FLAGS here, below the point where every
+  # sample had been created, which meant neither the samples nor anything created
+  # later saw it.
+  if(OPENCV_V4D_ENABLE_ES3)
+    target_compile_definitions(${the_module} PRIVATE OPENCV_V4D_USE_ES3=1)
+  endif()
+
+  # glfw_android.hpp is empty unless OPENCV_V4D_ANDROID is defined, and the define
+  # only reaches the shim's own target. Without it here the module compiles
+  # without any of the surface and input hooks the shim exposes.
+  if(OPENCV_V4D_ANDROID_GLFW)
+    target_compile_definitions(${the_module} PRIVATE OPENCV_V4D_ANDROID=1)
+  endif()
 
   target_link_directories(${the_module} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
   ocv_target_link_libraries(${the_module} opencv_plan glfw nanovg)
@@ -498,6 +701,11 @@ if(NOT (TARGET ${the_module}))
     ocv_target_link_libraries(${the_module} OpenGL)
   else()
     ocv_target_link_libraries(${the_module} OpenGL GLU)
+  endif()
+  # EGL and GLESv3 rather than the GLESv2 the ES3 option links elsewhere: V4D
+  # asks for a GL 3.0 / ES 3.0 context, which is EGL_OPENGL_ES3_BIT.
+  if(OPENCV_V4D_ANDROID_GLFW)
+    ocv_target_link_libraries(${the_module} EGL GLESv3 android log)
   endif()
   ocv_target_link_libraries(${the_module} Freetype::Freetype)
 

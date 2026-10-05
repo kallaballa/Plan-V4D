@@ -3,6 +3,7 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 static void draw_color_wheel(cv::Size sz, float hue) {
@@ -10,7 +11,6 @@ static void draw_color_wheel(cv::Size sz, float hue) {
   // https://github.com/memononen/nanovg/blob/master/example/demo.c
   using namespace cv::v4d::nvg;
   float x = (sz.width - (sz.width / 5));
-  ;
   float y = (sz.height - (sz.width / 5));
   sz.width = (sz.width / 6);
   sz.height = sz.width;
@@ -143,6 +143,15 @@ class NanoVGDemoPlan : public V4DPlan {
   constexpr static auto MERGE_ =
       _OL_(void, cv::merge, cv::InputArrayOfArrays, cv::OutputArray);
   constexpr static auto ROUND_ = _OL_(double, std::round, double);
+  // fabs and fmod are overload sets -- one float, double and long double
+  // flavour each, plus integer templates for fmod -- so naming them is not
+  // enough to form a function pointer: the target type has to be stated. GCC
+  // accepts the address of an overload set as an extension and resolves it
+  // against the arguments; clang rejects it, which is the only reason these two
+  // lines mention the signature. _OL_ is the same spelling the rest of the
+  // module uses for cv::split and cv::merge above.
+  constexpr static auto FABS_ = _OL_(double, std::fabs, double);
+  constexpr static auto FMOD_ = _OL_(double, std::fmod, double, double);
 
 public:
   NanoVGDemoPlan() {}
@@ -165,7 +174,7 @@ public:
           V(cv::ALGO_HINT_DEFAULT))
         ->plain(SPLIT_, R(hsv_), RW(hsvChannels_))
         ->plain(&cv::UMat::setTo, RW(hsvChannels_[0]),
-                F(&fmod, F(&fabs, R(hue_) - V(255)) - V(81), V(255)),
+                F(FMOD_, F(FABS_, R(hue_) - V(255)) - V(81), V(255)),
                 V(cv::noArray()))
         ->plain(MERGE_, R(hsvChannels_), RW(hsv_))
         ->plain(cv::cvtColor, R(hsv_), RW(frame_), V(cv::COLOR_HSV2RGB_FULL),
@@ -181,11 +190,10 @@ public:
   }
 };
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  std::string videoFile =
-      (argc > 1) ? argv[1] : cv::samples::findFile("videos/bunny.mp4");
+  std::string videoFile = demo_video_input("videos/bunny.mp4", argc, argv);
   if (videoFile.empty()) {
     std::cerr << "Usage: nanovg-demo <video-file>" << std::endl;
     return 1;
@@ -194,7 +202,7 @@ int main(int argc, char **argv) {
   cv::Rect viewport(0, 0, 1920, 1080);
   cv::Ptr<V4D> runtime = V4D::init(
       viewport, "NanoVG Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-  auto src = Source::make(runtime, videoFile);
+  auto src = Source::makeDefault(runtime, videoFile);
   runtime->setSource(src);
 
   V4DPlan::run<NanoVGDemoPlan>(2);

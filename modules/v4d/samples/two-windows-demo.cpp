@@ -8,6 +8,7 @@
 // own frame synchronization, their own GUI and their own input queue, and
 // closing one window ends that plan only - the other one keeps running.
 
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 #include <algorithm>
@@ -99,7 +100,7 @@ static void runPlanInThread(const std::string &title, const cv::Rect &viewport,
   t.detach();
 }
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   // Both plans stop themselves after 5 seconds unless --no-auto-close is given,
   // so that the demo terminates on its own. Close one of the two windows by
   // hand to see that only that plan stops.

@@ -1,3 +1,4 @@
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 using namespace cv;
@@ -28,11 +29,10 @@ public:
   }
 };
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  std::string inputVideo =
-      (argc > 1) ? argv[1] : cv::samples::findFile("videos/bunny.mp4");
+  std::string inputVideo = demo_video_input("videos/bunny.mp4", argc, argv);
   std::string outputVideo = (argc > 2) ? argv[2] : "video_editing_out.mkv";
   if (inputVideo.empty()) {
     std::cerr << "Usage: video_editing <input-video-file> <output-video-file>"
@@ -45,10 +45,11 @@ int main(int argc, char **argv) {
                                AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
   // Make the video source
-  auto src = Source::make(runtime, inputVideo);
+  auto src = Source::makeDefault(runtime, inputVideo);
 
   // Make the video sink
-  auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
+  auto sink =
+      Sink::makeDefault(runtime, outputVideo, src->fps(), viewport.size());
 
   // Attach source and sink
   runtime->setSource(src);

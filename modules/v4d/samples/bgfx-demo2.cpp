@@ -3,6 +3,7 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 using namespace cv::v4d;
@@ -221,11 +222,12 @@ public:
   }
 };
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::Ptr<V4D> runtime = V4D::init(cv::Rect(0, 0, 1280, 720), "Bgfx Demo",
                                    AllocateFlags::BGFX | AllocateFlags::IMGUI);
-  auto src = Source::make(runtime, argc > 1 ? argv[1] : "");
-  auto sink = Sink::make(runtime, "bgfx-demo2.mkv", 60, cv::Size(1280, 720));
+  auto src = Source::makeDefault(runtime, argc > 1 ? argv[1] : "");
+  auto sink =
+      Sink::makeDefault(runtime, "bgfx-demo2.mkv", 60, cv::Size(1280, 720));
   runtime->setSource(src);
   runtime->setSink(sink);
   V4DPlan::run<BgfxDemoPlan>(2);

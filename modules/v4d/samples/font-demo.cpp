@@ -3,6 +3,7 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "samples.hpp"
 #include <algorithm>
 #include <iostream>
 #include <limits>
@@ -18,12 +19,27 @@ using std::vector;
 
 using namespace cv::v4d;
 
-inline static const cv::Scalar_<float> INITIAL_COLOR =
-    cv::v4d::convert_pix<cv::COLOR_HLS2RGB_FULL, cv::Vec3b, cv::Scalar_<float>>(
-        cv::Vec3b(35, 127, 255), 1.0 / 255.0);
+// hypot is an overload set -- float, double and long double flavours, plus the
+// three-argument form -- so `hypot` on its own does not name a function that
+// F() can take by value: the target type has to be stated. GCC resolves it
+// against the call arguments as an extension, clang does not.
+static constexpr auto v4d_hypot_ = _OL_(double, std::hypot, double, double);
+
+// The text colour is an HLS->RGB conversion of a blue:
+//   convert_pix<cv::COLOR_HLS2RGB_FULL, cv::Vec3b, cv::Scalar_<float>>(
+//       cv::Vec3b(35, 127, 255), 1.0 / 255.0)
+// ... which is written out here rather than computed. This object is a
+// namespace-scope static, and each Android demo .so links OpenCV statically, so
+// a member initialiser runs during dlopen(), before OpenCV's own globals --
+// kleidicv's thread pool among them -- exist. Calling convert_pix() from there
+// faulted on arm64 inside kleidicv::hal::parallel() with a call through a null
+// std::function target, before main() was ever entered.
+inline cv::Scalar_<float> initialColor() {
+  return cv::Scalar_<float>(254.0f / 255.0f, 209.0f / 255.0f, 0.0f, 0.0f);
+}
 
 struct TextRenderer {
-  cv::Scalar_<float> color_ = INITIAL_COLOR;
+  cv::Scalar_<float> color_ = initialColor();
   // the text to display
   vector<string> lines_;
   // Height of the text in pixels
@@ -194,7 +210,7 @@ public:
 
     branch(BranchType::ONCE, always_)
         ->assign(RW(timeOffset_), F(seconds))
-        ->construct(RW(text_), F(hypot, F(&cv::Size::width, size_),
+        ->construct(RW(text_), F(v4d_hypot_, F(&cv::Size::width, size_),
                                  F(&cv::Size::height, size_)) /
                                    V(60.0))
         ->endBranch();
@@ -231,7 +247,7 @@ StarsRenderer FontDemoPlan::stars_;
 Warp FontDemoPlan::warp_;
 double FontDemoPlan::timeOffset_ = 0.0f;
 
-int main() {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::Rect viewport(0, 0, 1920, 1080);
   cv::Ptr<V4D> runtime =
       V4D::init(viewport, viewport.size(), "Font Demo",

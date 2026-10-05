@@ -4,6 +4,7 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include "cubescene.hpp"
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 using std::cerr;
@@ -23,11 +24,10 @@ public:
   void teardown() override { gl(&CubeScene::destroy, RW(scene_)); }
 };
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  std::string videoFile =
-      (argc > 1) ? argv[1] : cv::samples::findFile("videos/bunny.mp4");
+  std::string videoFile = demo_video_input("videos/bunny.mp4", argc, argv);
   if (videoFile.empty()) {
     cerr << "Usage: video-demo <video-file>" << endl;
     return 1;
@@ -36,9 +36,9 @@ int main(int argc, char **argv) {
   cv::Rect viewport(0, 0, 1280, 720);
   cv::Ptr<V4D> runtime =
       V4D::init(viewport, "Video Demo", AllocateFlags::IMGUI);
-  auto src = Source::make(runtime, videoFile);
+  auto src = Source::makeDefault(runtime, videoFile);
   auto sink =
-      Sink::make(runtime, "video-demo.mkv", src->fps(), viewport.size());
+      Sink::makeDefault(runtime, "video-demo.mkv", src->fps(), viewport.size());
   runtime->setSource(src);
   runtime->setSink(sink);
   V4DPlan::run<VideoDemoPlan>(2);

@@ -16,6 +16,7 @@
 // shadertoy_model.hpp (the data), shadertoy_project.hpp (the files) and
 // shadertoy_renderer.hpp (the GL) are linked in.
 
+#include "samples.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -1803,7 +1804,7 @@ int builtInByName(const std::string &name) {
 
 } // namespace
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
   std::string project;

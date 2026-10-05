@@ -68,6 +68,21 @@ public:
                             const float fps, const cv::Size &frameSize,
                             int fourcc);
 
+  /*!
+   * The sink a demo should use, resolved for the platform it was built for.
+   *
+   * On the host this is make(window, outputFilename, fps, frameSize). On
+   * Android it returns the null sink: writing a video file needs FFmpeg, which
+   * the Android build does not enable (OpenCV's Android MediaNDK backend reads
+   * files but does not write them), and make() would throw rather than degrade.
+   * A demo on a phone renders to the screen, which is what the window is for.
+   *
+   * @see Source::makeDefault, which resolves the input side the same way.
+   */
+  static cv::Ptr<Sink> makeDefault(cv::Ptr<V4D> window,
+                                   const string &outputFilename,
+                                   const float fps, const cv::Size &frameSize);
+
 private:
   static cv::Ptr<Sink> makeVaSink(cv::Ptr<V4D> window,
                                   const string &outputFilename,

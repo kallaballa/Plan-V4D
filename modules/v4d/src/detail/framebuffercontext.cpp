@@ -7,11 +7,12 @@
 #include "../../third/imgui/backends/imgui_impl_glfw.h"
 #include "../include/opencv2/v4d/detail/gl.hpp"
 #include "../include/opencv2/v4d/v4d.hpp"
-#include "opencv2/core/opengl.hpp"
 #include <algorithm>
 #include <exception>
 #include <iostream>
+#include <mutex>
 #include <opencv2/core/ocl.hpp>
+#include <opencv2/core/opengl.hpp>
 #include <opencv2/core/utils/logger.hpp>
 
 #define GLAD_GL_IMPLEMENTATION
@@ -235,6 +236,26 @@ void FrameBufferContext::init() {
   // lock is held for the whole creation, released before the first frame.
   std::lock_guard<std::mutex> glfwInitGuard(glfw_init_mtx());
 
+#if !defined(OPENCV_V4D_USE_ES3) && !defined(__APPLE__)
+  // glfwInitHint(GLFW_PLATFORM, ...) has to be issued *before* glfwInit(),
+  // afterwards it has no effect, so asking for Wayland after init never
+  // actually selected it.
+  //
+  // glfwPlatformSupported() is documented as callable before initialisation;
+  // glfwGetPlatform() is not -- it sets GLFW_NOT_INITIALIZED and returns NULL,
+  // which is not GLFW_PLATFORM_NULL, so testing it here silently never fired.
+  // Only the un-initialised case is interesting: a second window arrives with
+  // GLFW already initialised and its platform already fixed.
+#if GLFW_VERSION_MAJOR > 3 ||                                                  \
+    (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
+  static std::once_flag platformOnce;
+  std::call_once(platformOnce, []() {
+    if (glfwPlatformSupported(GLFW_PLATFORM_WAYLAND))
+      glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
+  });
+#endif
+#endif
+
   if (!parent_ && glfwInit() != GLFW_TRUE) {
     cerr << "Can't init GLFW" << endl;
     exit(1);
@@ -255,17 +276,7 @@ void FrameBufferContext::init() {
   glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
   glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 #else
-#if GLFW_VERSION_MAJOR > 3 ||                                                  \
-    (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
-  if (glfwPlatformSupported(GLFW_PLATFORM_WAYLAND)) {
-    glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
-  } else {
-    CV_LOG_WARNING(nullptr, "No Wayland Support");
-  }
-#else
-  CV_LOG_WARNING(nullptr, "Wayland platform selection requires GLFW >= 3.4");
-#endif
-
+  // The Wayland platform was already selected above, before glfwInit().
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, major_);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, minor_);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -273,13 +284,20 @@ void FrameBufferContext::init() {
   glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
 #endif
   glfwWindowHint(GLFW_SAMPLES, samples_);
-  auto monitor = glfwGetPrimaryMonitor();
-  const GLFWvidmode *mode = glfwGetVideoMode(monitor);
-
-  glfwWindowHint(GLFW_RED_BITS, mode->redBits);
-  glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
-  glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
-  glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+  // The monitor is asked for only to borrow its colour depths and refresh rate
+  // as window hints, all of which are optional. There need not be a monitor:
+  // Android has none at all (glfwGetPrimaryMonitor() is NULL there, so
+  // dereferencing the mode below crashed before the window was even created),
+  // and neither does GLFW_PLATFORM_NULL or a Wayland session with no X11.
+  const GLFWvidmode *mode = nullptr;
+  if (auto monitor = glfwGetPrimaryMonitor())
+    mode = glfwGetVideoMode(monitor);
+  if (mode) {
+    glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+    glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+    glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+    glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+  }
 
   glfwWindowHint(GLFW_ALPHA_BITS, 8);
   glfwWindowHint(GLFW_STENCIL_BITS, 8);
@@ -312,7 +330,7 @@ void FrameBufferContext::init() {
   FrameBufferContext::WindowScope winScope(self());
 
   if (!hasParent()) {
-      glfwSwapInterval(configFlags() & FBConfigFlags::VSYNC ? 1 : 0);
+    glfwSwapInterval(configFlags() & FBConfigFlags::VSYNC ? 1 : 0);
   }
 
 #if !defined(__APPLE__) && !defined(OPENCV_V4D_USE_ES3)

@@ -3,6 +3,7 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 using namespace cv::v4d;
@@ -364,11 +365,10 @@ public:
 
 ShaderDemoPlan::Params ShaderDemoPlan::params_;
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  std::string videoFile =
-      (argc > 1) ? argv[1] : cv::samples::findFile("videos/bunny.mp4");
+  std::string videoFile = demo_video_input("videos/bunny.mp4", argc, argv);
   if (videoFile.empty()) {
     std::cerr << "Usage: shader-demo <video-file>" << std::endl;
     return 1;
@@ -377,7 +377,7 @@ int main(int argc, char **argv) {
   cv::Rect viewport(0, 0, 1920, 1080);
   cv::Ptr<V4D> runtime =
       V4D::init(viewport, "Mandelbrot Shader Demo", AllocateFlags::IMGUI);
-  auto src = Source::make(runtime, videoFile);
+  auto src = Source::makeDefault(runtime, videoFile);
   //	auto sink = Sink::make(runtime, "shader-demo.mkv", 60, viewport.size());
   runtime->setSource(src);
   //	runtime->setSink(sink);

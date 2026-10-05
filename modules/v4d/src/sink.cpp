@@ -3,10 +3,10 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
-#include "opencv2/v4d/sink.hpp"
-#include "opencv2/v4d/detail/sourcecontext.hpp"
-#include "opencv2/v4d/v4d.hpp"
 #include <opencv2/core/utils/logger.hpp>
+#include <opencv2/v4d/detail/sourcecontext.hpp>
+#include <opencv2/v4d/sink.hpp>
+#include <opencv2/v4d/v4d.hpp>
 
 namespace cv {
 namespace v4d {
@@ -133,10 +133,36 @@ cv::Ptr<Sink> Sink::make(cv::Ptr<V4D> window, const string &outputFilename,
   }
 }
 
+cv::Ptr<Sink> Sink::makeDefault(cv::Ptr<V4D> window,
+                                const string &outputFilename, const float fps,
+                                const cv::Size &frameSize) {
+#if defined(__ANDROID__)
+  // Writing a video file goes through FFmpeg, which the Android build does not
+  // enable -- OpenCV's Android MediaNDK backend can read a file but cannot
+  // write one -- so make() would throw here and take the whole demo down with
+  // it, a frame or two after the camera opened. That is not a failure worth
+  // reporting: a demo on a phone renders to the screen, and the .mkv it wrote
+  // on the desktop was never what anyone looked at.
+  //
+  // Returning the null sink is enough because the runtime asks isOpen() before
+  // writing, and skips a closed sink -- see detail::SinkContext::execute.
+  CV_LOG_INFO(nullptr,
+              "Android has no video writer (FFmpeg is not built); the demo "
+              "renders to the screen only and '" +
+                  outputFilename + "' is not written.");
+  (void)window;
+  (void)fps;
+  (void)frameSize;
+  return new Sink();
+#else
+  return make(window, outputFilename, fps, frameSize);
+#endif
+}
+
 Sink::Sink(std::function<bool(const uint64_t &, const cv::UMat &)> consumer)
     : consumer_(consumer) {}
 
-Sink::Sink() {}
+Sink::Sink() : open_(false) {}
 Sink::~Sink() {}
 
 bool Sink::isReady() {

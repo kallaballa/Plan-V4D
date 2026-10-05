@@ -2,6 +2,7 @@
 // It is subject to the license terms in the LICENSE file found in the top-level
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
+#include "samples.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -1000,7 +1001,7 @@ private:
   }
 };
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
   cv::Rect viewport(0, 0, 1920, 1080);
   std::string filename;

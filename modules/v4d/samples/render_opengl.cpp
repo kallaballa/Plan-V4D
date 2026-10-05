@@ -1,3 +1,4 @@
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 using namespace cv;
@@ -32,7 +33,7 @@ public:
   }
 };
 
-int main() {
+V4D_DEMO_MAIN(int argc, char **argv) {
   // The viewport may be changed at runtime by creating a set node (via a "set"
   // call)
   cv::Rect viewport(0, 0, 960, 960);

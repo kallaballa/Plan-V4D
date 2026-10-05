@@ -3,6 +3,7 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 #include "cubescene.hpp"
@@ -40,7 +41,7 @@ public:
   }
 };
 
-int main() {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::Rect viewport(0, 0, 1920, 1080);
   cv::Ptr<V4D> runtime =
       V4D::init(viewport, "Many Cubes Demo", AllocateFlags::IMGUI);

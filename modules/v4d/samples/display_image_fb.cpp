@@ -1,3 +1,4 @@
+#include "samples.hpp"
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/v4d/v4d.hpp>
 
@@ -36,7 +37,7 @@ public:
   }
 };
 
-int main() {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
   cv::Rect viewport(0, 0, 960, 960);
   // Creates a V4D object

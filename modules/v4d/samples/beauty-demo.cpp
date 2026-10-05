@@ -2,6 +2,7 @@
 // It is subject to the license terms in the LICENSE file found in the top-level
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
+#include "samples.hpp"
 #include <opencv2/core/utils/logger.hpp>
 #include <opencv2/dnn/dnn.hpp>
 #include <opencv2/face.hpp>
@@ -180,7 +181,8 @@ public:
       : sz_(inputSize), scale_(inputScale) {
     detector_ = cv::FaceDetectorYN::create(
         cv::samples::findFile("models/face_detection_yunet_2023mar.onnx"), "",
-        inputSize, 0.9, 0.3, 5000, cv::dnn::DNN_BACKEND_OPENCV, cv::dnn::DNN_TARGET_OPENCL);
+        inputSize, 0.9, 0.3, 5000, cv::dnn::DNN_BACKEND_OPENCV,
+        cv::dnn::DNN_TARGET_OPENCL);
     facemark_->loadModel(cv::samples::findFile("models/lbfmodel.yaml"));
   }
 
@@ -517,26 +519,26 @@ public:
 BeautyDemoPlan::Params BeautyDemoPlan::params_;
 FaceFeatures BeautyDemoPlan::features_;
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  std::string videoFile =
-      (argc > 1) ? argv[1] : cv::samples::findFile("videos/kristen.mp4");
+  std::string videoFile = demo_video_input("videos/kristen.mp4", argc, argv);
   if (videoFile.empty()) {
     std::cerr << "Usage: beauty-demo <input-video-file>" << std::endl;
     return 1;
   }
 
   cv::Rect viewport(0, 0, 1280, 720);
-  cv::Ptr<V4D> runtime =
-      V4D::init(viewport, "Beautification Demo",
-                AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::RESIZEABLE);
+  cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo",
+                                   AllocateFlags::NANOVG | AllocateFlags::IMGUI,
+                                   ConfigFlags::RESIZEABLE);
   // V4D provides a source, sink system which is used mostly but not exclusively
   // with video data.
-  auto src = Source::make(runtime, videoFile);
-  //auto sink = Sink::make(runtime, "beauty-demo.mkv", 60, cv::Size(1920, 1080));
+  auto src = Source::makeDefault(runtime, videoFile);
+  // auto sink = Sink::make(runtime, "beauty-demo.mkv", 60, cv::Size(1920,
+  // 1080));
   runtime->setSource(src);
-  //runtime->setSink(sink);
+  // runtime->setSink(sink);
   V4DPlan::run<BeautyDemoPlan>(3);
 
   return 0;

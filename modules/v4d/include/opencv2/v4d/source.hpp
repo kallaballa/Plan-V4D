@@ -68,9 +68,45 @@ public:
    */
   CV_EXPORTS cv::UMat operator()();
 
+  /*!
+   * Opens a video file, using whatever hardware acceleration the platform
+   * offers. On Android this is not usable for a live camera: it goes through
+   * FFmpeg, which the Android build does not enable, so a sample that wants the
+   * camera there wants makeDefault() instead.
+   */
   static cv::Ptr<Source> make(cv::Ptr<V4D> window, const string &inputFilename);
 
+  /*!
+   * The source a sample that wants video should use, resolved for the platform
+   * it was built for.
+   *
+   * On the host this is make(window, inputFilename). On Android it ignores
+   * inputFilename entirely and opens camera `cameraIndex` through
+   * cv::CAP_ANDROID, which OpenCV's Android backend implements on the NDK
+   * (camera2 / MediaCodec) with no Java and no OpenCV Java build in sight.
+   *
+   * Samples call this rather than branching on __ANDROID__ themselves: a demo
+   * that takes a path from argv[1] has no way to tell a user of an APK that the
+   * argument is ignored there, and eleven samples that each carried their own
+   * #ifdef is eleven chances to get that message wrong.
+   *
+   * @param cameraIndex Camera to open on Android. Ignored elsewhere. 0 is
+   * whichever camera the platform lists first, which on a phone is the rear
+   * one.
+   */
+  static cv::Ptr<Source> makeDefault(cv::Ptr<V4D> window,
+                                     const string &inputFilename,
+                                     int cameraIndex = 0);
+
 private:
+  /*!
+   * Opens camera `cameraIndex` via cv::CAP_ANDROID. The frame rate is reported
+   * as `fps` because a camera does not have one to read: it produces frames as
+   * fast as the pipeline consumes them.
+   */
+  static cv::Ptr<Source> makeCamera(cv::Ptr<V4D> window, int cameraIndex,
+                                    float fps = 30.f);
+
   static cv::Ptr<Source> makeVaSource(cv::Ptr<V4D> window,
                                       const string &inputFilename,
                                       const int vaDeviceIndex);

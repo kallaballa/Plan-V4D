@@ -43,8 +43,13 @@ using namespace cv::plan;
 #include <set>
 #include <shared_mutex>
 #include <string>
+// Bionic ships <sys/resource.h> and <sys/syscall.h> as well, but its
+// setpriority() is a stub that always fails; the one place those two are used
+// is fenced off for Android below.
+#if !defined(__ANDROID__)
 #include <sys/resource.h>
 #include <sys/syscall.h>
+#endif
 #include <type_traits>
 #include <unistd.h>
 #include <vector>
@@ -136,7 +141,8 @@ public:
 private:
   CV_EXPORTS static std::mutex instance_mtx_;
   CV_EXPORTS static thread_local cv::Ptr<V4D> instance_;
-  CV_EXPORTS static thread_local anyproperty::ThreadSafeAnyMap<Keys::Enum> properties_;
+  CV_EXPORTS static thread_local anyproperty::ThreadSafeAnyMap<Keys::Enum>
+      properties_;
 
 public:
   /*!
@@ -400,7 +406,9 @@ public:
     }
 
     if (debugFlagsVal() & DebugFlags::LOWER_WORKER_PRIORITY) {
-#if defined(__linux__)
+      // Bionic declares setpriority() but implements it as a stub that fails
+      // with ENOSYS, so asking on Android would only log a spurious error.
+#if defined(__linux__) && !defined(__ANDROID__)
       CV_LOG_INFO(&v4d_tag, "Lowering worker thread niceness from: "
                                 << getpriority(PRIO_PROCESS, gettid())
                                 << " to: " << 1);

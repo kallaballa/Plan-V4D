@@ -11,15 +11,21 @@ BUILD_TYPE=debug
 REBUILD=
 TEST_ARGS=
 DNN_BACKEND=openvino
+ANDROID_ABI=arm64-v8a
+ANDROID_API_LEVEL=32
+ANDROID_PACKAGE=0
+ANDROID_CONFIGURE_ONLY=0
+ANDROID_DEMO=all
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [options] [-- <test args>]
 
-Build the OpenCV plan / plan+v4d stack.
+Build the OpenCV plan / plan+v4d stack, or the V4D demos for Android.
 
 Options:
-  -t, --target TARGET    What to build: 'plan' or 'plan+v4d' (default: plan)
+  -t, --target TARGET    What to build: 'plan', 'plan+v4d' or 'android'
+                         (default: plan)
   -b, --build-type TYPE  Build configuration: release, debug, asan, ubsan, tsan
                          (default: debug)
   -j, --jobs N           Parallel build jobs (default: 4)
@@ -33,6 +39,20 @@ Options:
                          build directory contents
   -h, --help             Show this help
 
+Android options (only meaningful with --target android; everything below is
+handed to tools/android-build.sh, which owns the NDK settings):
+
+      --abi ABI          Android ABI: arm64-v8a, armeabi-v7a or x86_64
+                         (default: arm64-v8a)
+      --api-level N      Android API level to compile against (default: 32)
+      --demo NAME        Which demos to build and package (default: all);
+                         a comma separated list of sample names, or 'all' for
+                         every sample that has an Android path (see
+                         tools/android/sample-list.sh)
+      --configure-only   Configure, but do not compile
+      --apk              Also assemble a signed APK with
+                         tools/android/package-apk.sh
+
 Any arguments after '--' are passed through to the test binaries (only relevant
 when target is 'plan', which builds and runs the plan tests).
 
@@ -41,12 +61,16 @@ Environment:
                  /usr/lib64/cmake/OpenVINO (the default when unset). The runtime
                  plugins have to match: <libdir>/openvino-<version>/ must hold
                  libopenvino_intel_gpu_plugin.so for DNN_TARGET_OPENCL.
+  ANDROID_SDK_ROOT / ANDROID_HOME  Android SDK location (default: ~/Android/Sdk)
+  ANDROID_API_LEVEL / ANDROID_ABI  Defaults for the Android options above
 
 Examples:
   $(basename "$0")
   $(basename "$0") -t plan+v4d
   $(basename "$0") -t plan -b asan -j 8 -- --gtest_filter=Plan.*
   $(basename "$0") -r -d openvino
+  $(basename "$0") -t android --apk --demo font_rendering
+  $(basename "$0") -t android --abi x86_64 --configure-only
 EOF
   exit 0
 }
@@ -65,6 +89,19 @@ while [ $# -gt 0 ] && [ "$1" != "--" ]; do
     -d|--dnn-backend)
       [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
       DNN_BACKEND="$2"; shift 2 ;;
+    --abi)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      ANDROID_ABI="$2"; shift 2 ;;
+    --api-level)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      ANDROID_API_LEVEL="$2"; shift 2 ;;
+    --demo)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      ANDROID_DEMO="$2"; shift 2 ;;
+    --apk)
+      ANDROID_PACKAGE=1; shift ;;
+    --configure-only)
+      ANDROID_CONFIGURE_ONLY=1; shift ;;
     -r|--rebuild)
       REBUILD=1; shift ;;
     -h|--help)
@@ -78,9 +115,51 @@ done
 TEST_ARGS="$*"
 
 case "$TARGET" in
-  plan|plan+v4d) ;;
-  *) echo "Invalid target '$TARGET' (expected 'plan' or 'plan+v4d')" >&2; exit 1 ;;
+  plan|plan+v4d|android) ;;
+  *) echo "Invalid target '$TARGET' (expected 'plan', 'plan+v4d' or 'android')" >&2; exit 1 ;;
 esac
+
+# --- Android -----------------------------------------------------------------
+# Delegated wholesale to tools/android-build.sh rather than reimplemented here.
+# The host build below assumes an X11/Wayland desktop, OpenVINO, FFmpeg with
+# VAAPI and `sudo make install` into /usr/local -- none of which exists on a
+# device, and every one of which would fight the NDK toolchain if it were tried.
+# The two share nothing but this argument parsing.
+if [ "$TARGET" = android ]; then
+  # 'all' is expanded here rather than in the sub-scripts so that the same list
+  # drives the build (one cmake option) and the packaging loop (one APK each).
+  if [ "$ANDROID_DEMO" = all ]; then
+    ANDROID_DEMO="$("$SCRIPT_DIR/tools/android/sample-list.sh")"
+    echo "==> Demos: all ($(tr ',' '\n' <<< "$ANDROID_DEMO" | wc -l) samples)"
+  fi
+  ANDROID_ARGS=(--abi "$ANDROID_ABI" --api-level "$ANDROID_API_LEVEL" -j "$JOBS")
+  [ "$ANDROID_CONFIGURE_ONLY" = 1 ] && ANDROID_ARGS+=(--configure-only)
+  [ "$REBUILD" = 1 ] && ANDROID_ARGS+=(--clean)
+  # The demo list is a configure-time option, so it has to be set before the
+  # configure rather than passed as an argument.
+  export OPENCV_V4D_SAMPLES="$ANDROID_DEMO"
+  "$SCRIPT_DIR/tools/android-build.sh" "${ANDROID_ARGS[@]}"
+  # An --apk run of a configure-only build would package whatever was left in
+  # the staging directory, which is at best stale.
+  if [ "$ANDROID_PACKAGE" = 1 ] && [ "$ANDROID_CONFIGURE_ONLY" != 1 ]; then
+    # --demo is a comma list (that is the form OPENCV_V4D_SAMPLES takes, and the
+    # build above just consumed it as one), but packaging is a per-demo step, so
+    # split it back out. `read -ra` with a one-shot IFS is used rather than
+    # saving/restoring IFS around a `for` loop: IFS is global state, and the
+    # build above runs arbitrary commands (which may reset or export it), so a
+    # loop body that assumed the split had happened hands package-apk.sh one
+    # "demo name" that is the whole list separated by spaces -- and the error it
+    # produces, "libv4ddemo_a b c.so not found", points at the wrong place.
+    IFS=',' read -r -a ANDROID_DEMOS <<< "$ANDROID_DEMO"
+    for demo in "${ANDROID_DEMOS[@]}"; do
+      demo="$(printf '%s' "$demo" | tr -d '[:space:]')"
+      [ -n "$demo" ] || continue
+      "$SCRIPT_DIR/tools/android/package-apk.sh" --demo "$demo" --abi "$ANDROID_ABI" \
+        --api-level "$ANDROID_API_LEVEL"
+    done
+  fi
+  exit 0
+fi
 
 case "$DNN_BACKEND" in
   openvino|opencv) ;;

@@ -3,6 +3,8 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "samples.hpp"
+
 // Runs every sample of this directory at the same time, each one in its own
 // tile of a grid. The samples that are left out are the ones that bring their
 // own runtime and cannot run as a sub-plan: two-windows-demo (one window per
@@ -16,42 +18,49 @@
 // ::SparseOpticalFlow, so it goes first. Everything else is free to follow in
 // any order.
 
-int v4d_optflow_main(int argc, char **argv);
-int v4d_cube_main();
-int v4d_font_main();
-int v4d_many_cubes_main();
-int v4d_nanovg_main(int argc, char **argv);
-int v4d_pedestrian_main(int argc, char **argv);
-int v4d_shader_main(int argc, char **argv);
-int v4d_vector_graphics_main();
-int v4d_video_main(int argc, char **argv);
-#define main v4d_optflow_main
+V4D_SAMPLE_ENTRY(v4d_optflow_main)(int argc, char **argv);
+V4D_SAMPLE_ENTRY(v4d_cube_main)(int argc, char **argv);
+V4D_SAMPLE_ENTRY(v4d_font_main)(int argc, char **argv);
+V4D_SAMPLE_ENTRY(v4d_many_cubes_main)(int argc, char **argv);
+V4D_SAMPLE_ENTRY(v4d_nanovg_main)(int argc, char **argv);
+V4D_SAMPLE_ENTRY(v4d_pedestrian_main)(int argc, char **argv);
+V4D_SAMPLE_ENTRY(v4d_shader_main)(int argc, char **argv);
+V4D_SAMPLE_ENTRY(v4d_vector_graphics_main)(int argc, char **argv);
+V4D_SAMPLE_ENTRY(v4d_video_main)(int argc, char **argv);
+// Each sample declares its entry point as
+// V4D_SAMPLE_ENTRY(V4D_SAMPLE_ENTRY_NAME), so redirecting the second one
+// renames it in whichever TU this lands in -- main() on the host,
+// v4ddemo_main() on Android, where two included samples defining the same name
+// would otherwise be a redefinition.
+#define V4D_SAMPLE_ENTRY_NAME v4d_optflow_main
 #include "optflow-demo.cpp"
-#undef main
-#define main v4d_cube_main
+#undef V4D_SAMPLE_ENTRY_NAME
+#define V4D_SAMPLE_ENTRY_NAME v4d_cube_main
 #include "cube-demo.cpp"
-#undef main
-#define main v4d_font_main
+#undef V4D_SAMPLE_ENTRY_NAME
+#define V4D_SAMPLE_ENTRY_NAME v4d_font_main
 #include "font-demo.cpp"
-#undef main
-#define main v4d_many_cubes_main
+#undef V4D_SAMPLE_ENTRY_NAME
+#define V4D_SAMPLE_ENTRY_NAME v4d_many_cubes_main
 #include "many_cubes-demo.cpp"
-#undef main
-#define main v4d_nanovg_main
+#undef V4D_SAMPLE_ENTRY_NAME
+#define V4D_SAMPLE_ENTRY_NAME v4d_nanovg_main
 #include "nanovg-demo.cpp"
-#undef main
-#define main v4d_pedestrian_main
+#undef V4D_SAMPLE_ENTRY_NAME
+#define V4D_SAMPLE_ENTRY_NAME v4d_pedestrian_main
 #include "pedestrian-demo.cpp"
-#undef main
-#define main v4d_shader_main
+#undef V4D_SAMPLE_ENTRY_NAME
+#define V4D_SAMPLE_ENTRY_NAME v4d_shader_main
 #include "shader-demo.cpp"
-#undef main
-#define main v4d_vector_graphics_main
+#undef V4D_SAMPLE_ENTRY_NAME
+#define V4D_SAMPLE_ENTRY_NAME v4d_vector_graphics_main
 #include "vector_graphics.cpp"
-#undef main
-#define main v4d_video_main
+#undef V4D_SAMPLE_ENTRY_NAME
+#define V4D_SAMPLE_ENTRY_NAME v4d_video_main
 #include "video-demo.cpp"
-#undef main
+#undef V4D_SAMPLE_ENTRY_NAME
+// Back to the platform name for this file's own entry point at the bottom.
+#define V4D_SAMPLE_ENTRY_NAME V4D_SAMPLE_SELF_NAME
 
 class MontageDemoPlan : public V4DPlan {
   using K = V4D::Keys;
@@ -117,11 +126,10 @@ public:
   }
 };
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  std::string videoFile =
-      (argc > 1) ? argv[1] : cv::samples::findFile("videos/kristen.mp4");
+  std::string videoFile = demo_video_input("videos/kristen.mp4", argc, argv);
   if (videoFile.empty()) {
     cerr << "Usage: montage-demo <video-file>" << endl;
     return 1;
@@ -129,8 +137,9 @@ int main(int argc, char **argv) {
   cv::Rect viewport(0, 0, 640, 480);
   cv::Ptr<V4D> runtime = V4D::init(
       viewport, "Montage Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-  auto sink = Sink::make(runtime, "montage-demo.mkv", 30, viewport.size());
-  auto src = Source::make(runtime, videoFile);
+  auto sink =
+      Sink::makeDefault(runtime, "montage-demo.mkv", 30, viewport.size());
+  auto src = Source::makeDefault(runtime, videoFile);
   runtime->setSource(src);
   runtime->setSink(sink);
   V4DPlan::run<MontageDemoPlan>(7);

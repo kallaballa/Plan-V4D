@@ -3,6 +3,7 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "samples.hpp"
 #include <algorithm>
 #include <cmath>
 #include <opencv2/objdetect.hpp>
@@ -417,8 +418,14 @@ public:
           detection.hog_.setSVMDetector(
               cv::HOGDescriptor::getDefaultPeopleDetector());
           params.scale_ = {4.0f, 4.0f};
-          params.downSize_ = {sz.width / params.scale_.width,
-                              sz.height / params.scale_.height};
+          // downSize_ is a cv::Size (int) and scale_ a cv::Size_<float>, so the
+          // division yields a float, and a float cannot be narrowed into a
+          // braced initializer (ill-formed since C++11). The rounding is
+          // spelled out rather than left to an implicit conversion that is not
+          // allowed here.
+          params.downSize_ = {
+              static_cast<int>(sz.width / params.scale_.width),
+              static_cast<int>(sz.height / params.scale_.height)};
           frames.videoFrame_.create(sz, CV_8UC4);
           frames.videoFrameBGR_.create(sz, CV_8UC3);
           frames.videoFrameDownGrey_.create(sz, CV_8UC1);
@@ -450,11 +457,10 @@ public:
 
 PedestrianDemoPlan::TrackParams PedestrianDemoPlan::trackParams_;
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  std::string videoFile =
-      (argc > 1) ? argv[1] : cv::samples::findFile("videos/dance.mp4");
+  std::string videoFile = demo_video_input("videos/dance.mp4", argc, argv);
   if (videoFile.empty()) {
     std::cerr << "Usage: pedestrian-demo <input-video-file>" << endl;
     return 1;
@@ -464,7 +470,7 @@ int main(int argc, char **argv) {
   cv::Ptr<V4D> runtime =
       V4D::init(viewport, "Pedestrian Demo",
                 AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-  auto src = Source::make(runtime, videoFile);
+  auto src = Source::makeDefault(runtime, videoFile);
   //    auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 60,
   //    viewport.size());
   runtime->setSource(src);

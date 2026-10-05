@@ -1,6 +1,7 @@
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "samples.hpp"
 #include <opencv2/core/utility.hpp>
 #include <opencv2/v4d/v4d.hpp>
 
@@ -256,7 +257,6 @@ class SparseOpticalFlow {
   struct Temp {
     vector<cv::Point2f> hull_;
     vector<cv::Point2f> nextPoints_, trimmedPoints_;
-    ;
     vector<std::tuple<float, int, cv::Point2f>> prevPoints_;
     vector<std::tuple<float, int, cv::Point2f>> newPoints_;
     vector<cv::Point2f> upTrimmedPoints_, upNextPoints_;
@@ -546,11 +546,10 @@ public:
 
 OptflowDemoPlan::Params OptflowDemoPlan::params_;
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  std::string videoFile =
-      (argc > 1) ? argv[1] : cv::samples::findFile("videos/dance.mp4");
+  std::string videoFile = demo_video_input("videos/dance.mp4", argc, argv);
   if (videoFile.empty()) {
     std::cerr << "Usage: optflow-demo <input-video-file>" << endl;
     return 1;
@@ -560,7 +559,7 @@ int main(int argc, char **argv) {
   cv::Ptr<V4D> runtime =
       V4D::init(viewport, "Sparse Optical Flow Demo",
                 AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-  auto src = Source::make(runtime, videoFile);
+  auto src = Source::makeDefault(runtime, videoFile);
   //	auto sink = Sink::make(runtime, "optflow-demo.mkv", 60, cv::Size(1280,
   // 720));
   runtime->setSource(src);

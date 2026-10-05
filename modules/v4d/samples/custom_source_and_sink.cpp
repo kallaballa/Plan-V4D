@@ -1,3 +1,4 @@
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 #include <string>
 
@@ -71,7 +72,7 @@ public:
   }
 };
 
-int main() {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::Rect viewport(0, 0, 960, 960);
   cv::Ptr<V4D> runtime =
       V4D::init(viewport, "Custom Source/Sink",
@@ -80,8 +81,8 @@ int main() {
   // by conditional branching the frame rate is set to one frame every 3 seconds
   // because that is what we are going to emit to the video. anyway, xou may
   // choose a fps value to your own liking.
-  cv::Ptr<Sink> videoSink =
-      Sink::make(runtime, "custom_source_and_sink.mkv", 10, viewport.size());
+  cv::Ptr<Sink> videoSink = Sink::makeDefault(
+      runtime, "custom_source_and_sink.mkv", 10, viewport.size());
 
   // Make a source that generates a rainbow frames series.
   cv::Ptr<Source> src = new Source(

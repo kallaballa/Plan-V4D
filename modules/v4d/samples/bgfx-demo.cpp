@@ -3,6 +3,7 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 using namespace cv::v4d;
@@ -65,7 +66,7 @@ public:
   }
 };
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::Rect viewport(0, 0, 1280, 720);
   cv::Ptr<V4D> runtime = V4D::init(viewport, "Display an image using bgfx",
                                    AllocateFlags::BGFX | AllocateFlags::IMGUI);

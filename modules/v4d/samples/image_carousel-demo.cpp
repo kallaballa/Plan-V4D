@@ -14,6 +14,7 @@
 //   Mouse scroll               previous / next image
 //   Click left / right side    previous / next image
 
+#include "samples.hpp"
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/v4d/v4d.hpp>
@@ -621,7 +622,7 @@ private:
 
 CarouselState ImageCarousel::state_;
 
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
   std::vector<std::string> paths;

@@ -52,6 +52,34 @@ no effect.
 */
 CV_EXPORTS void add_asset_search_paths();
 
+/** @brief The video input a demo should run on
+
+Returns `argv[1]` if the caller named one, otherwise `assetName` looked up
+through the registered sample data search paths. Returns an empty string only
+when neither is available, which is the condition a demo reports its usage on.
+
+On Android an APK carries no sample video and a NativeActivity is handed no
+argv, so both branches fail -- yet the demo does have an input, because
+`Source::makeDefault` opens the camera. This returns a non-empty placeholder
+there rather than an empty string, so that a demo's "no input given" check
+cannot fire on a platform that has input and needs no name for it.
+
+@param assetName Sample data path the host should fall back to, e.g.
+       "videos/bunny.mp4". Ignored on Android.
+@param argc, argv Passed through from the demo's entry point.
+*/
+CV_EXPORTS std::string demo_video_input(const char *assetName, int argc,
+                                        char **argv);
+
+/** @brief Whether the result of `demo_video_input` names something openable
+
+A demo that wants to report its usage when it has no input should ask this
+rather than testing the string, or opening an ifstream on it: on Android the
+input is the camera and has no path to open, so a path check there rejects the
+one input that always works.
+*/
+CV_EXPORTS bool demo_video_input_readable(const std::string &input);
+
 template <typename T> constexpr int matrix_depth() {
   if constexpr (std::is_same_v<T, uchar>) {
     return CV_8U;

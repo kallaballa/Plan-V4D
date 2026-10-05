@@ -17,6 +17,7 @@
 // skeletal-tracker-pipeline.hpp, so that tools/skeletal-tracker/ can drive the
 // same pipeline without redefining main().
 
+#include "samples.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -374,16 +375,16 @@ cv::Ptr<MediaPipePosePipeline> SkeletalTrackerPlan::pipeline_;
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
-int main(int argc, char **argv) {
+V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  std::string inputVideo =
-      (argc > 1) ? argv[1] : cv::samples::findFile("videos/dance.mp4");
+  std::string inputVideo = demo_video_input("videos/dance.mp4", argc, argv);
   std::string outputVideo = (argc > 2) ? argv[2] : "";
 
   // A readable file must exist even when an argument was supplied: without
-  // this check a typo in the path just opens an empty window.
-  if (inputVideo.empty() || !std::ifstream(inputVideo).good()) {
+  // this check a typo in the path just opens an empty window. On Android the
+  // input is the camera, which the helper accepts as-is.
+  if (!demo_video_input_readable(inputVideo)) {
     std::cerr << "Cannot read input video: "
               << (inputVideo.empty() ? "<no bundled video found>" : inputVideo)
               << "\n"
@@ -393,14 +394,16 @@ int main(int argc, char **argv) {
   }
 
   cv::Rect viewport(0, 0, 1920, 1080);
-  cv::Ptr<V4D> runtime = V4D::init(viewport, "Skeletal Tracker",
-                                   AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+  cv::Ptr<V4D> runtime =
+      V4D::init(viewport, "Skeletal Tracker",
+                AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
-  auto src = Source::make(runtime, inputVideo);
+  auto src = Source::makeDefault(runtime, inputVideo);
 
   runtime->setSource(src);
   if (!outputVideo.empty()) {
-    auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
+    auto sink =
+        Sink::makeDefault(runtime, outputVideo, src->fps(), viewport.size());
     runtime->setSink(sink);
   }
 
