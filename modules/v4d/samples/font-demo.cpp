@@ -35,7 +35,7 @@ static constexpr auto v4d_hypot_ = _OL_(double, std::hypot, double, double);
 // faulted on arm64 inside kleidicv::hal::parallel() with a call through a null
 // std::function target, before main() was ever entered.
 inline cv::Scalar_<float> initialColor() {
-  return cv::Scalar_<float>(254.0f / 255.0f, 209.0f / 255.0f, 0.0f, 0.0f);
+  return cv::Scalar_<float>(254.0f / 255.0f, 209.0f / 255.0f, 0.0f, 1.0f);
 }
 
 struct TextRenderer {
@@ -248,6 +248,7 @@ Warp FontDemoPlan::warp_;
 double FontDemoPlan::timeOffset_ = 0.0f;
 
 V4D_DEMO_MAIN(int argc, char **argv) {
+  cv::v4d::add_asset_search_paths();
   cv::Rect viewport(0, 0, 1920, 1080);
   cv::Ptr<V4D> runtime =
       V4D::init(viewport, viewport.size(), "Font Demo",
