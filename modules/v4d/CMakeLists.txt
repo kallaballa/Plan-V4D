@@ -435,6 +435,10 @@ macro(_v4d_configure_sample sample)
       "${CMAKE_HOME_DIRECTORY}/modules/stitching/include"
       "${CMAKE_HOME_DIRECTORY}/modules/imgcodecs/include"
       "${CMAKE_HOME_DIRECTORY}/modules/geometry/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/calib3d/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/calib/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/stereo/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/3d/include"
       "${V4D_MODULES_DIR}/plan/include"
       "${CMAKE_CURRENT_SOURCE_DIR}/include/"
       "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include"
@@ -634,6 +638,7 @@ if(NOT (TARGET ${the_module}))
     add_binary_sample(example_v4d_font-demo samples/font-demo.cpp opencv_geometry)
     add_binary_sample(example_v4d_shader-demo samples/shader-demo.cpp)
     add_binary_sample(example_v4d_pedestrian-demo samples/pedestrian-demo.cpp)
+    add_binary_sample(example_v4d_natural-marker-demo samples/natural-marker-demo.cpp opencv_geometry opencv_calib3d)
     add_binary_sample(example_v4d_skeletal-tracker-demo samples/skeletal-tracker-demo.cpp opencv_geometry)
     add_binary_sample(example_v4d_optflow-demo samples/optflow-demo.cpp opencv_geometry)
     add_binary_sample(example_v4d_beauty-demo samples/beauty-demo.cpp opencv_geometry)
