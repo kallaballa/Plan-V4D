@@ -23,7 +23,7 @@
 set -u -o pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo="$(cd "$here/../../.." && pwd)"
+repo="$(cd "$here/../../../.." && pwd)"
 
 outdir="${1:-${TMPDIR:-/tmp}/shadertoy-editor-test}"
 binary="$repo/opencv/build/bin/example_v4d_shadertoy-editor"

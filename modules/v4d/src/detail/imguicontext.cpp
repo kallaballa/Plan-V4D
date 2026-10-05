@@ -111,11 +111,8 @@ ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext)
   ImGui_ImplGlfw_InitForOpenGL(mainFbContext_->getGLFWWindow(), false);
 //	ImGui_ImplGlfw_SetCallbacksChainForAllWindows(true);
 #endif
-#if !defined(OPENCV_V4D_USE_ES3)
-  ImGui_ImplOpenGL3_Init("#version 330");
-#else
-  ImGui_ImplOpenGL3_Init("#version 300 es");
-#endif
+  ImGui_ImplOpenGL3_Init(
+      (std::string(OPENCV_V4D_GL_SHADER_VERSION) + "\n").c_str());
   // Creating the context made it current; hand the current context back to
   // whoever had it, so that a second window does not steal it.
   ImGui::SetCurrentContext(prevCtx);

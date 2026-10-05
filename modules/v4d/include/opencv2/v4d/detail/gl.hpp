@@ -7,6 +7,7 @@
 #define MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_GL_HPP_
 
 #if !defined(OPENCV_V4D_USE_ES3)
+#define OPENCV_V4D_GL_SHADER_VERSION "#version 330"
 #define GL_GLEXT_PROTOTYPES
 #if defined(__APPLE__)
 #include <OpenGL/gl3.h>
@@ -14,8 +15,9 @@
 #include "GL/glcorearb.h"
 #endif
 #else
-#include "GLES3/gl3.h"
+#define OPENCV_V4D_GL_SHADER_VERSION "#version 320 es"
 #include "GLES2/gl2ext.h"
+#include "GLES3/gl3.h"
 #endif
 
 #endif /* MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_GL_HPP_ */

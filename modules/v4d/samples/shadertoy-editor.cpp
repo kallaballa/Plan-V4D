@@ -1867,10 +1867,10 @@ V4D_DEMO_MAIN(int argc, char **argv) {
                               ? (AllocateFlags::NANOVG | AllocateFlags::IMGUI)
                               : AllocateFlags::NANOVG;
   auto configFlags =
-      interactive ? ConfigFlags::RESIZEABLE : ConfigFlags::OFFSCREEN;
+      interactive ? ConfigFlags::DEFAULT : ConfigFlags::OFFSCREEN;
 
-  V4D::init(cv::Rect(0, 0, window.width, window.height), "Shadertoy Editor",
-            allocFlags, configFlags);
+  V4D::init(cv::Rect(0, 0, 1920, 1080), "Shadertoy Editor", allocFlags,
+            configFlags);
 
   const auto mode = verify              ? ShadertoyEditorPlan::Mode::Verify
                     : !exportTo.empty() ? ShadertoyEditorPlan::Mode::Export

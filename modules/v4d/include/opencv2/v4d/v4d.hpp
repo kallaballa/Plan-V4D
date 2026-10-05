@@ -262,7 +262,7 @@ public:
     create<false>(Keys::DISABLE_INPUT_EVENTS, false);
     create<false, bool>(Keys::VISIBLE, fb->isVisible(),
                         [](const bool &v) { visibleFbCtx()->setVisible(v); });
-    create<false, bool>(Keys::AUTO_SCALE, true);
+    create<false, bool>(Keys::AUTO_SCALE, false);
   }
 
   template <bool Tread, typename Tval>

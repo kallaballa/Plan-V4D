@@ -267,13 +267,9 @@ void init_shaders(unsigned int handles[3], const string vShader,
                   const string outputAttributeName1,
                   const string outputAttributeName2,
                   const string outputAttributeName3) {
-#if !defined(OPENCV_V4D_USE_ES3)
-  const string version = "#version 330\n";
-#else
-  const string version = "#version 300 es\n";
-#endif
-  string vs = (version + vShader);
-  string fs = (version + fShader);
+  const string version = OPENCV_V4D_GL_SHADER_VERSION;
+  string vs = (version + "\n" + vShader);
+  string fs = (version + "\n" + fShader);
   struct Shader {
     GLenum type;
     const char *source;
