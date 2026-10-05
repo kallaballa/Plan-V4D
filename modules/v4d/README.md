@@ -210,7 +210,9 @@ modules/v4d/
 │   ├── display_image_fb.cpp       imshow-style, direct fb access
 │   ├── display_image_nvg.cpp      imshow-style, via NanoVG
 │   ├── video_editing.cpp          source → nvg → sink (read this first)
-│   ├── video-demo.cpp             capture → gl → write
+│   ├── video-demo.cpp             video source → GL 3D scene → sink
+│   ├── bgfx-demo.cpp              bgfx context showcase
+│   ├── bgfx-demo2.cpp             advanced bgfx multi-view/lighting
 │   ├── cube-demo.cpp              pure GL rendering
 │   ├── many_cubes-demo.cpp        multiple GL contexts in parallel
 │   ├── font-demo.cpp              warping + GUI + multiple sub-plans
@@ -219,6 +221,7 @@ modules/v4d/
 │   ├── shader-demo.cpp            GLSL fragment shader on a quad
 │   ├── custom_source_and_sink.cpp custom I/O + conditional writing
 │   ├── montage-demo.cpp           many windows in one process
+│   ├── pipeline-demo.cpp          multi-stage sub-plan pipeline with sources/sinks
 │   ├── pedestrian-demo.cpp        HOG/NMS detection + KCF tracking + ImGui controls
 │   ├── skeletal-tracker-demo.cpp  MediaPipe pose: detection, per-person RoI,
 │   │                              pose net, multi-person tracking, 1 Euro smoothing
@@ -228,6 +231,10 @@ modules/v4d/
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
 │   ├── imshow_reimplementation.cpp   full GUI image viewer
 │   ├── image_carousel.cpp         animated glossy image carousel
+│   ├── image_carousel-demo.cpp    image carousel demo runner
+│   ├── two-windows-demo.cpp       multi-window V4D application
+│   ├── vector_graphics.cpp        vector graphics with NanoVG
+│   ├── vector_graphics_and_fb.cpp vector graphics blended with framebuffer UMat
 │   ├── shadertoy-editor.cpp       offline Shadertoy editor: JSON projects,
 │   │                              per-pass code, recompile as you type
 │   ├── shadertoy_renderer.hpp     the Shadertoy render model, as plain OpenGL
