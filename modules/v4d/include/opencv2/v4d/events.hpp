@@ -1009,7 +1009,9 @@ static void poll_joystick_events() {
     }
     last = state;
 
-    // Axes: edges + repeats while held past deadzone
+    // Axes: the movement, the return to the deadzone, and repeats while it
+    // stays out of it. The repeat rate is what makes a held stick's position
+    // arrive at least every js_repeat_rate even when it is not moving.
     auto [initIt, newInit] = init_axis_values.try_emplace(jid);
     auto [prevIt, newPrev] = prev_axis_values.try_emplace(jid);
     auto [axisRepIt, newAxisRep] = axis_next_repeat_at.try_emplace(jid);
@@ -1047,6 +1049,20 @@ static void poll_joystick_events() {
 
       // If not active, stop repeats.
       if (!out_of_deadzone) {
+        // Coming back to the deadzone is the axis's release, and it used to go
+        // unreported: the value stopped being delivered the moment the stick
+        // returned, so an app that tracked the axis from its events was left
+        // holding the last deflected position forever -- a stick pushed aside
+        // and let go kept steering. Repeats only ever arrive while the axis is
+        // out of the deadzone, so there is no later event to correct it.
+        //
+        // The one event below reports the position the axis came back to, which
+        // is what makes an axis self-describing: every transition out of and
+        // into the deadzone arrives, and a stick at rest (never armed) still
+        // says nothing at all.
+        if (nextRepA[axis] >= 0.0)
+          detail::push(
+              std::make_shared<Joystick>(jid, a, init[axis], val, delta));
         nextRepA[axis] = -1.0;
         continue;
       }

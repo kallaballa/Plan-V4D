@@ -228,6 +228,11 @@ modules/v4d/
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
 │   ├── imshow_reimplementation.cpp   full GUI image viewer
 │   ├── image_carousel.cpp         animated glossy image carousel
+│   ├── tetralis-demo.cpp          Tetralis 3D: an orthographic shaft rendered
+│   │                              with NanoVG, input via keys and gamepad
+│   ├── tetralis-rules.hpp         its rules engine, dependency-free C++17
+│   ├── tetralis-selftest.cpp      the engine's checks, no window and no OpenCV
+│   ├── tetralis-selftest.sh       compiles and runs them headlessly
 │   ├── shadertoy-editor.cpp       offline Shadertoy editor: JSON projects,
 │   │                              per-pass code, recompile as you type
 │   ├── shadertoy_renderer.hpp     the Shadertoy render model, as plain OpenGL

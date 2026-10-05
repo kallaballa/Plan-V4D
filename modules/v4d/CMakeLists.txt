@@ -628,6 +628,11 @@ if(NOT (TARGET ${the_module}))
     add_binary_sample(example_v4d_video_editing samples/video_editing.cpp)
     add_binary_sample(example_v4d_cube-demo samples/cube-demo.cpp)
     add_binary_sample(example_v4d_many_cubes-demo samples/many_cubes-demo.cpp)
+    # Tetralis: the rules in samples/tetralis-rules.hpp, the window in
+    # samples/tetralis-demo.cpp. The header is not a target of its own -- only
+    # this sample includes it -- and samples/tetralis-selftest.sh compiles it
+    # headlessly against no OpenCV at all.
+    add_binary_sample(example_v4d_tetralis-demo samples/tetralis-demo.cpp)
     add_binary_sample(example_v4d_two-windows-demo samples/two-windows-demo.cpp)
     add_binary_sample(example_v4d_video-demo samples/video-demo.cpp)
     add_binary_sample(example_v4d_nanovg-demo samples/nanovg-demo.cpp)
