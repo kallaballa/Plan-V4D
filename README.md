@@ -180,7 +180,8 @@ controls are documented in the [V4D module README](modules/v4d/README.md).
 * OpenCV 5.x (core + imgproc; V4D samples additionally use videoio, video,
   imgcodecs, dnn, geometry, face, objdetect, tracking, optflow, plot,
   features2d, flann)
-* GLFW 3 (V4D only)
+* The X11 (and, with `-DWITH_WAYLAND=ON`, Wayland) development files — GLFW
+  itself is vendored, see [Third-party code](#third-party-code)
 * An OpenGL-capable driver (or OpenGL ES 3.0)
 
 ### DNN on the GPU (OpenVINO / OpenCL) — read this first
@@ -243,6 +244,7 @@ below, or add them to an existing OpenCV build via `OPENCV_EXTRA_MODULES_PATH`
 | `OPENCV_V4D_ENABLE_ES3`         | Build against OpenGL ES 3.0 instead of desktop GL. |
 | `OPENCV_V4D_ENABLE_BGFX`        | Build the bgfx context and link bgfx.        |
 | `OPENCV_V4D_ENABLE_MALI`        | Mali GPU support (requires libmali).         |
+| `OPENCV_V4D_USE_SYSTEM_GLFW`    | Link the system GLFW instead of the vendored `third/glfw`. |
 | `BUILD_EXAMPLES`                | Build the programs in `modules/v4d/samples/`. |
 
 Deleting a sample leaves its binary, its `CMakeFiles` target directory, any
@@ -261,8 +263,8 @@ cmake --build . --target opencv_test_plan
 
 ### macOS
 
-* Requires macOS 13+, Xcode 14+ (Apple Clang 14+ / libc++ 14+), and GLFW via
-  Homebrew: `brew install glfw`.
+* Requires macOS 13+, Xcode 14+ (Apple Clang 14+ / libc++ 14+) — for C++20
+  `<barrier>`/`<semaphore>` and for the vendored third-party code.
 * Leave `OPENCV_V4D_ENABLE_ES3=OFF` — the ES3 path uses EGL, which is not
   available on macOS. V4D automatically uses a desktop GL 3.2 core profile with
   forward compatibility and loads system GL function pointers.
@@ -271,10 +273,13 @@ cmake --build . --target opencv_test_plan
 
 ### Third-party code
 
-V4D vendors NanoVG, ImGui, GLAD and friends under
+V4D vendors GLFW, NanoVG, ImGui, GLAD and friends under
 [modules/v4d/third/](modules/v4d/third/); may require
-`git submodule update --init --recursive`. Assets such as the YuNet face
-detector and the LBF landmark model ship in
+`git submodule update --init --recursive`. GLFW
+([3.5.1](modules/v4d/third/glfw)) is built together with the module and
+installed alongside `libnanovg.so`, so no GLFW package is required; pass
+`-DOPENCV_V4D_USE_SYSTEM_GLFW=ON` to link a system GLFW instead. Assets such as
+the YuNet face detector and the LBF landmark model ship in
 [modules/v4d/assets/](modules/v4d/assets/).
 
 ## Documentation
@@ -308,8 +313,8 @@ What each package provides:
 
 | Package | Contents |
 |---|---|
-| `plan-v4d-libs` | Shared libraries (`libopencv_*.so`, `libnanovg.so`). |
-| `plan-v4d-devel` / `plan-v4d-dev` | Headers, pkgconfig and CMake config for building against the modules. |
+| `plan-v4d-libs` | Shared libraries (`libopencv_*.so`, `libnanovg.so`, `libglfw.so`). |
+| `plan-v4d-devel` / `plan-v4d-dev` | Headers (including the vendored `GLFW/` and `nanovg/`), pkgconfig and CMake config for building against the modules. |
 | `plan-v4d-data` | Pre-trained models, cascade classifiers, fonts (`/usr/share/opencv4`). |
 | `plan-v4d-docs` (RPM only) | Programming guides and module documentation. |
 | `plan-v4d-samples` | `example_v4d_*` binaries plus sample sources. |

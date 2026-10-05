@@ -9,6 +9,8 @@ OCV_OPTION(OPENCV_V4D_ENABLE_BGFX "Enable bgfx for V4D" OFF
 OCV_OPTION(OPENCV_V4D_ENABLE_MALI "Enable mali gpu support for V4D" OFF
   VERIFY HAVE_OPENGL)
 
+OCV_OPTION(OPENCV_V4D_USE_SYSTEM_GLFW "Link the GLFW found by find_package(glfw3) instead of the vendored third/glfw copy" OFF)
+
 if(OPENCV_V4D_ENABLE_BGFX)
     add_definitions(-DOPENCV_V4D_ENABLE_BGFX=1)
 endif()
@@ -21,7 +23,6 @@ if(OPENCV_V4D_ENABLE_MALI)
   pkg_check_modules(mali REQUIRED IMPORTED_TARGET mali)
 endif()
 
-find_package(glfw3 3 REQUIRED)
 include(FindOpenGL)
 find_package(Freetype REQUIRED)
 set(the_description "V4D Visualization Module")
@@ -47,8 +48,64 @@ if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.git" AND NOT DEFINED
   endif()
 endif()
 
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/")
-    message(FATAL_ERROR "The submodules were not downloaded! GIT_SUBMODULE was turned off or failed. Please update submodules and try again.")
+set(V4D_THIRD_PARTY_DEPS imgui nanovg)
+if(NOT OPENCV_V4D_USE_SYSTEM_GLFW)
+  list(APPEND V4D_THIRD_PARTY_DEPS glfw)
+endif()
+foreach(dep ${V4D_THIRD_PARTY_DEPS})
+  if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third/${dep}/")
+    message(FATAL_ERROR "The submodule 'third/${dep}' was not downloaded! GIT_SUBMODULE was turned off or failed. Please update submodules and try again.")
+  endif()
+endforeach()
+
+# GLFW. The vendored copy in third/glfw is a submodule and is built together with
+# this module, so a checkout needs no GLFW development package. Configure with
+# -DOPENCV_V4D_USE_SYSTEM_GLFW=ON to link whatever find_package(glfw3) locates
+# instead. Both paths provide the same `glfw` target, so the module and the
+# samples link it the same way either way.
+if(OPENCV_V4D_USE_SYSTEM_GLFW)
+  find_package(glfw3 3 REQUIRED)
+elseif(NOT TARGET glfw)
+  # GLFW's own options, set as plain variables rather than cache entries:
+  # option()/cmake_dependent_option() inside the subdirectory leave an
+  # already-defined normal variable alone (CMP0077 NEW), so these are defaults
+  # that any explicit -DGLFW_*=... on the command line still wins over.
+  set(GLFW_BUILD_EXAMPLES OFF)
+  set(GLFW_BUILD_TESTS OFF)
+  set(GLFW_BUILD_DOCS OFF)
+  # The library and its headers are installed below as part of OpenCV's own
+  # install rules; GLFW_INSTALL would add a second, independent set of them.
+  set(GLFW_INSTALL OFF)
+  # GLFW builds its Wayland backend only if asked to, but it then hard-requires
+  # the Wayland development files and wayland-scanner. OpenCV's WITH_WAYLAND
+  # (which V4D follows: the runtime asks for GLFW_PLATFORM_WAYLAND when the
+  # platform is available) doubles as the say for whether those are installed.
+  if(NOT WITH_WAYLAND)
+    set(GLFW_BUILD_WAYLAND OFF)
+  endif()
+
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third/glfw")
+
+  # Keep the library next to libnanovg.so instead of glfw's own binary dir.
+  set_target_properties(glfw PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${LIBRARY_OUTPUT_PATH}"
+    ARCHIVE_OUTPUT_DIRECTORY "${LIBRARY_OUTPUT_PATH}"
+    RUNTIME_OUTPUT_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}")
+  # Vendored third-party code: its warnings are not ours to fix, and silencing
+  # the whole target would hide warnings from the V4D module itself.
+  target_compile_options(glfw PRIVATE -w)
+
+  # opencv2/v4d/events.hpp includes <GLFW/glfw3.h>, so the headers have to
+  # travel with the library: the INSTALL_INTERFACE include directory glfw
+  # exports is ${CMAKE_INSTALL_INCLUDEDIR} and #include <GLFW/glfw3.h> resolves
+  # against it.
+  install(TARGETS glfw EXPORT OpenCVModules
+          LIBRARY DESTINATION "${OPENCV_LIB_INSTALL_PATH}"
+          ARCHIVE DESTINATION "${OPENCV_LIB_INSTALL_PATH}"
+          RUNTIME DESTINATION "${OPENCV_BIN_INSTALL_PATH}")
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/third/glfw/include/GLFW/glfw3.h"
+                "${CMAKE_CURRENT_SOURCE_DIR}/third/glfw/include/GLFW/glfw3native.h"
+          DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/GLFW")
 endif()
 
 set(V4D_MODULES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../")
@@ -169,6 +226,24 @@ endfunction()
 # them still gets BUILD_EXAMPLES for the samples that do not need it.
 macro(add_binary_sample sample source)
     ocv_add_executable(${sample} ${source})
+    _v4d_configure_sample(${sample} ${ARGN})
+endmacro()
+
+# Macro to add a native sample built from several translation units:
+#   add_multisource_sample(<target> <source>... )
+# It exists because add_binary_sample() cannot express this: it binds its second
+# argument to a single source and reads every argument after it as an extra
+# OpenCV module, so a second .cpp would become a bogus link flag. Extra modules
+# are linked by the caller instead.
+macro(add_multisource_sample sample)
+    ocv_add_executable(${sample} ${ARGN})
+    _v4d_configure_sample(${sample})
+endmacro()
+
+# Shared tail of the two macros above: what a V4D sample links against, the
+# include directories it needs, and the asset path it is compiled with. ARGN is
+# any extra OpenCV modules named by the caller.
+macro(_v4d_configure_sample sample)
     ocv_target_link_libraries(${sample} opencv_v4d opencv_plan opencv_core opencv_imgproc opencv_ximgproc opencv_videoio opencv_video opencv_imgcodecs opencv_objdetect opencv_xobjdetect opencv_optflow opencv_tracking opencv_stitching opencv_face opencv_features opencv_dnn glfw nanovg)
     if(ARGN)
       ocv_target_link_libraries(${sample} ${ARGN})
@@ -331,6 +406,17 @@ if(NOT (TARGET ${the_module}))
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/videos"
     "${CMAKE_CURRENT_BINARY_DIR}/assets/videos")
 
+  # The marker demo registers a photograph of its marker at start-up, so the
+  # images directory has to reach the build tree like the videos one does.
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/images")
+
+  add_custom_command(TARGET ${the_module} PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/images"
+    "${CMAKE_CURRENT_BINARY_DIR}/assets/images")
+
   add_custom_command(TARGET ${the_module} PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/samples/data"
@@ -354,6 +440,17 @@ if(NOT (TARGET ${the_module}))
   v4d_copy_model_asset(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/models/pose/pose_estimation_mediapipe_2023mar.onnx"
     "pose/pose_estimation_mediapipe_2023mar.onnx")
+
+  # DINOv3 ViT-B/16 for the marker demo. The graph and its external weights are
+  # two files that must stay side by side: onnxruntime resolves the ".onnx.data"
+  # name relative to the graph, so copying only the graph yields a session that
+  # fails to create at run time rather than a load-time error.
+  v4d_copy_model_asset(
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/models/dinov3_vitb16.onnx"
+    "dinov3_vitb16.onnx")
+  v4d_copy_model_asset(
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/models/dinov3_vitb16.onnx.data"
+    "dinov3_vitb16.onnx.data")
 
   #Add sample targets
   if(BUILD_EXAMPLES)
@@ -384,12 +481,104 @@ if(NOT (TARGET ${the_module}))
     add_binary_sample(example_v4d_two-windows-demo samples/two-windows-demo.cpp)
     add_binary_sample(example_v4d_video-demo samples/video-demo.cpp)
     add_binary_sample(example_v4d_nanovg-demo samples/nanovg-demo.cpp)
-    add_binary_sample(example_v4d_font-demo samples/font-demo.cpp opencv_geometry)
+    add_binary_sample(example_v4d_font-demo samples/font-demo.cpp)
     add_binary_sample(example_v4d_shader-demo samples/shader-demo.cpp)
     add_binary_sample(example_v4d_pedestrian-demo samples/pedestrian-demo.cpp)
-    add_binary_sample(example_v4d_skeletal-tracker-demo samples/skeletal-tracker-demo.cpp opencv_geometry)
-    add_binary_sample(example_v4d_optflow-demo samples/optflow-demo.cpp opencv_geometry)
-    add_binary_sample(example_v4d_beauty-demo samples/beauty-demo.cpp opencv_geometry)
+    add_binary_sample(example_v4d_skeletal-tracker-demo samples/skeletal-tracker-demo.cpp)
+    add_binary_sample(example_v4d_optflow-demo samples/optflow-demo.cpp)
+    add_binary_sample(example_v4d_beauty-demo samples/beauty-demo.cpp)
+
+    # DINOv3 Marker Demo. Split across five V4D-free translation units so that a
+    # head-less self-test can link the same code the window runs; see
+    # samples/dinov3-marker-demo/README.md. findHomography lives in geometry in
+    # OpenCV 5, so that is the one extra module; ORB and SIFT come from
+    # opencv_features, which the shared list in _v4d_configure_sample() already
+    # links (OpenCV 5 has no opencv_features2d -- it was folded into features).
+    # These are linked at the call site because add_multisource_sample() passes
+    # every argument to the compiler.
+    add_multisource_sample(example_v4d_dinov3-marker-demo
+      samples/dinov3-marker-demo.cpp
+      samples/dinov3-marker-demo/dinov3-embedder.cpp
+      samples/dinov3-marker-demo/dinov3-marker-database.cpp
+      samples/dinov3-marker-demo/dinov3-geometric-verifier.cpp
+      samples/dinov3-marker-demo/dinov3-patch-matcher.cpp
+      samples/dinov3-marker-demo/dinov3-marker-pipeline.cpp)
+    ocv_target_link_libraries(example_v4d_dinov3-marker-demo)
+    ocv_target_include_directories(example_v4d_dinov3-marker-demo PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/samples/dinov3-marker-demo")
+
+    # The demo's head-less self-test. It links the four helper translation units
+    # but neither the window nor opencv_v4d, so it runs on a machine with no
+    # display and no GL context -- which is the whole point of keeping the
+    # pipeline in V4D-free files.
+    ocv_add_executable(example_v4d_dinov3-marker-selftest
+      samples/dinov3-marker-demo/dinov3-marker-selftest.cpp
+      samples/dinov3-marker-demo/dinov3-embedder.cpp
+      samples/dinov3-marker-demo/dinov3-marker-database.cpp
+      samples/dinov3-marker-demo/dinov3-geometric-verifier.cpp
+      samples/dinov3-marker-demo/dinov3-patch-matcher.cpp
+      samples/dinov3-marker-demo/dinov3-marker-pipeline.cpp)
+    ocv_target_include_directories(example_v4d_dinov3-marker-selftest PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/samples/dinov3-marker-demo"
+      # The same list _v4d_configure_sample() adds by hand, trimmed to what this
+      # target actually includes: OpenCV does not propagate a module's headers
+      # to an executable through the link, so they have to be named here.
+      "${CMAKE_HOME_DIRECTORY}/modules/core/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/imgproc/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/imgcodecs/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/stereo/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/videoio/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/dnn/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/features/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/flann/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/geometry/include")
+    ocv_target_link_libraries(example_v4d_dinov3-marker-selftest
+      opencv_core opencv_imgproc opencv_imgcodecs opencv_videoio opencv_dnn
+      opencv_features opencv_geometry)
+
+    # Add underscore version from playbook (the one we fixed)
+    add_multisource_sample(example_v4d_dinov3_marker_demo
+      samples/dinov3_marker_demo/dinov3_marker_demo.cpp
+      samples/dinov3_marker_demo/dinov3_embedder.cpp
+      samples/dinov3_marker_demo/marker_database.cpp
+      samples/dinov3_marker_demo/geometric_verifier.cpp)
+    ocv_target_link_libraries(example_v4d_dinov3_marker_demo opencv_geometry opencv_calib)
+    ocv_target_include_directories(example_v4d_dinov3_marker_demo PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/samples/dinov3_marker_demo"
+      "${CMAKE_HOME_DIRECTORY}/modules/core/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/imgproc/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/imgcodecs/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/stereo/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/videoio/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/dnn/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/features/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/flann/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/calib/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/geometry/include")
+
+    # Its head-less self-test: the three V4D-free units above, but neither the
+    # window nor opencv_v4d, so it runs without a display or a GL context. This is
+    # the instrument the marker outline is measured with -- see
+    # samples/dinov3_marker_demo/README.md.
+    ocv_add_executable(example_v4d_dinov3_marker_selftest
+      samples/dinov3_marker_demo/dinov3_marker_selftest.cpp
+      samples/dinov3_marker_demo/dinov3_embedder.cpp
+      samples/dinov3_marker_demo/marker_database.cpp
+      samples/dinov3_marker_demo/geometric_verifier.cpp)
+    ocv_target_include_directories(example_v4d_dinov3_marker_selftest PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/samples/dinov3_marker_demo"
+      "${CMAKE_HOME_DIRECTORY}/modules/core/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/imgproc/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/imgcodecs/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/videoio/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/dnn/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/features/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/flann/include"
+      "${CMAKE_HOME_DIRECTORY}/modules/geometry/include")
+    ocv_target_link_libraries(example_v4d_dinov3_marker_selftest
+      opencv_core opencv_imgproc opencv_imgcodecs opencv_videoio opencv_dnn
+      opencv_features opencv_geometry)
+
     if(OPENCV_V4D_ENABLE_BGFX)
       add_binary_sample(example_v4d_bgfx-demo samples/bgfx-demo.cpp)
       add_binary_sample(example_v4d_bgfx-demo2 samples/bgfx-demo2.cpp)
