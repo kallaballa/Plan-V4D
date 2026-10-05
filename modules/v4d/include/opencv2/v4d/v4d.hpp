@@ -108,6 +108,8 @@ inline bool consume(const Window::Type &t) { return consume<Window>(t); }
 
 using namespace cv::v4d::detail;
 
+class V4DPlan;
+
 class CV_EXPORTS V4D : public PlanRuntime {
   friend class detail::FrameBufferContext;
   friend class detail::SourceContext;
@@ -424,6 +426,22 @@ public:
   void willGui(const cv::Ptr<cv::plan::Plan> &plan) override {
     V4D::set(V4D::Keys::NAMESPACE, plan->space());
   }
+
+  /*!
+   * Emitted by Plan::run before infer(). With a source configured, this
+   * copies the source frame into the framebuffer, so the plan finds the frame
+   * in the framebuffer rather than having to pull it in itself. Without a
+   * source it records nothing and the framebuffer holds whatever the plan
+   * draws.
+   */
+  void captureInput(const cv::Ptr<cv::plan::Plan> &plan) override;
+
+  /*!
+   * Emitted by Plan::run after infer(). With a sink configured, this hands
+   * the framebuffer to the sink, so the plan renders into the framebuffer and
+   * never names the sink. Without a sink it records nothing.
+   */
+  void writeOutput(const cv::Ptr<cv::plan::Plan> &plan) override;
 
   /*!
    * Starts a run. Called on the display thread before the workers are
@@ -774,6 +792,17 @@ public:
     return self<V4DPlan>();
   }
 
+  /*!
+   * \warning Runtime-internal. Do not call this from a plan.
+   *
+   * Reads the current source frame into the framebuffer. #Plan::run already
+   * emits this node around infer() for every worker, so a plan that calls it
+   * records a second copy that both duplicates the work and races the
+   * automatic one.
+   *
+   * A plan reads the frame the runtime already put in the framebuffer with
+   * fb(...) instead.
+   */
   template <typename Tfn, typename... Args>
   typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>,
                           cv::Ptr<V4DPlan>>::type
@@ -789,6 +818,12 @@ public:
     return self<V4DPlan>();
   }
 
+  /*!
+   * \warning Runtime-internal. Do not call this from a plan; see capture().
+   *
+   * Copies the source frame into the framebuffer. Emitted automatically by
+   * #Plan::run before infer().
+   */
   cv::Ptr<V4DPlan> capture() {
     capture(
         [](const cv::UMat &inputFrame, cv::UMat &f) {
@@ -808,6 +843,16 @@ public:
     return self<V4DPlan>();
   }
 
+  /*!
+   * \warning Runtime-internal. Do not call this from a plan.
+   *
+   * Hands a frame to the sink. #Plan::run already emits this node after
+   * infer() for every worker, so a plan that calls it records a second copy
+   * that both duplicates the work and races the automatic one.
+   *
+   * A plan writes the framebuffer with fb(...) instead; the runtime forwards
+   * whatever is in it to the sink at the end of the graph run.
+   */
   template <typename Tfn, typename... Args>
   typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>,
                           cv::Ptr<V4DPlan>>::type
@@ -828,6 +873,12 @@ public:
     return self<V4DPlan>();
   }
 
+  /*!
+   * \warning Runtime-internal. Do not call this from a plan; see write().
+   *
+   * Copies the framebuffer to the sink. Emitted automatically by #Plan::run
+   * after infer().
+   */
   cv::Ptr<V4DPlan> write() {
     auto writerEdge = makeInternalEdge<false>(writerFrame_);
     auto writerEdgeConst = makeInternalEdge<true>(writerFrame_);
@@ -841,6 +892,9 @@ public:
     return self<V4DPlan>();
   }
 
+  /*!
+   * \warning Runtime-internal. Do not call this from a plan; see write().
+   */
   template <typename Tedge> cv::Ptr<V4DPlan> write(Tedge &&edge) {
     write(
         [](cv::UMat &outputFrame, const cv::UMat &f) { f.copyTo(outputFrame); },
@@ -848,6 +902,9 @@ public:
     return self<V4DPlan>();
   }
 
+  /*!
+   * \warning Runtime-internal. Do not call this from a plan; see capture().
+   */
   template <typename Tedge> cv::Ptr<V4DPlan> capture(Tedge &&edge) {
     plain(
         [](const cv::UMat &inputFrame, cv::UMat &f) {
@@ -1200,6 +1257,24 @@ public:
     }
   }
 };
+
+// Defined out of line because both need V4DPlan to be complete, and V4D
+// derives from PlanRuntime, so it is necessarily declared before it.
+inline void V4D::captureInput(const cv::Ptr<cv::plan::Plan> &plan) {
+  if (!hasSource() || !hasSourceCtx())
+    return;
+  auto v4dPlan = std::dynamic_pointer_cast<V4DPlan>(plan);
+  CV_Assert(v4dPlan);
+  v4dPlan->capture();
+}
+
+inline void V4D::writeOutput(const cv::Ptr<cv::plan::Plan> &plan) {
+  if (!hasSink() || !hasSinkCtx())
+    return;
+  auto v4dPlan = std::dynamic_pointer_cast<V4DPlan>(plan);
+  CV_Assert(v4dPlan);
+  v4dPlan->write();
+}
 
 } /* namespace v4d */
 } /* namespace cv */

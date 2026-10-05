@@ -5,66 +5,130 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 # What is V4D?
-V4D offers a way of writing graphical (on- and offscreen) high performance applications with OpenCV. It is light-weight and unencumbered by QT or GTK licenses. It features vector graphics using [NanoVG](https://github.com/inniyah/nanovg) a GUI based on [ImGUI](https://github.com/ocornut/imgui) and (on supported systems) OpenCL/OpenGL and OpenCL/VAAPI interoperability. It should be included in [OpenCV-contrib](https://github.com/opencv/opencv_contrib) once it is ready.
+V4D offers a way of writing graphical (on- and offscreen) high performance
+applications with OpenCV. It is light-weight and unencumbered by QT or GTK
+licenses. It features vector graphics using
+[NanoVG](https://github.com/inniyah/nanovg), a GUI based on
+[ImGUI](https://github.com/ocornut/imgui) and (on supported systems)
+OpenCL/OpenGL and OpenCL/VAAPI interoperability. It is built on top of the
+[Plan-DSL](https://github.com/kallaballa/Plan-V4D/tree/beta-5.x/modules/plan),
+the type-safe dataflow language that V4D's `V4DPlan` derives from.
 
 # Why V4D?
-Please refer to the online demos in the \ref v4d_tutorials and \ref v4d_demos section to see at a glance what it can do for you. **But note**: The online demos are slower than native builds and are sometimes missing features. If you want full performance (including hardware acceleration) you should really create a native build and test it.
+Please refer to the online demos in the \ref v4d_tutorials and \ref v4d_demos
+section to see at a glance what it can do for you. **But note**: the online
+demos are slower than native builds and are sometimes missing features. If you
+want full performance (including hardware acceleration) you should really
+create a native build and test it.
 
 * **OpenGL**: Easy access to OpenGL.
 * **GUI**: Simple yet powerful user interfaces through ImGui.
 * **Vector graphics**: Elegant and fast vector graphics through NanoVG.
 * **Font rendering**: Loading of fonts and sophisticated rendering options.
-* **Video pipeline**: Through a simple source/sink system videos can be efficently read, displayed, edited and saved.
-* **Hardware acceleration**: Transparent hardware acceleration usage where possible. (e.g. CL-GL interop, VAAPI and CL-VAAPI interop). Actually it is possible to write programs that run almost entirely on the GPU, given driver-features are available.
+* **Video pipeline**: Through a simple source/sink system videos can be
+  efficently read, displayed, edited and saved.
+* **Hardware acceleration**: Transparent hardware acceleration usage where
+  possible. (e.g. CL-GL interop, VAAPI and CL-VAAPI interop). Actually it is
+  possible to write programs that run almost entirely on the GPU, given
+  driver-features are available.
 * **No more highgui** with it's heavy dependencies, licenses and limitations.
 * **\ref v4d_webassembly_support**.
 
 # Design Notes
-* V4D is not thread safe. Though it is possible to have several V4D objects in one or more threads and synchronize them using ```V4D::makeCurrent()```. This is a limitation of GLFW3/EGL. That said, OpenCV algorithms are multi-threaded as usual.
-* V4D uses InputArray/OutputArray/InputOutputArray which gives you the option to work with Mat, std::vector and UMat. Anyway, you should prefer to use UMat whenever possible to automatically use hardware capabilities where available.
-* Access to different subsystems (opengl, framebuffer, nanovg and imgui) is provided through "contexts". A context is simply a function that takes a functor, sets up the subsystem, executes the functor and tears-down the subsystem.
-* ```V4D::run``` is not a context. It is an abstraction of a run loop that takes a functor and runs until the application terminates or the functor returns false. This is necessary for portability reasons.
+* V4D is not thread safe. Though it is possible to have several V4D objects in
+  one or more threads and synchronize them using ```V4D::init(const V4D&, ...)```
+  to clone a runtime. That said, OpenCV algorithms are multi-threaded as usual,
+  and Plan-DSL runs one worker per worker thread, each with its own runtime
+  clone.
+* V4D uses InputArray/OutputArray/InputOutputArray which gives you the option to
+  work with Mat, std::vector and UMat. Anyway, you should prefer to use UMat
+  whenever possible to automatically use hardware capabilities where available.
+* Access to different subsystems (opengl, framebuffer, nanovg, imgui, bgfx) is
+  provided through "contexts". A context is simply a function that takes a
+  functor, sets up the subsystem, executes the functor and tears-down the
+  subsystem.
+* ```V4DPlan::run<YourPlan>(workers)``` is not a context. It is an abstraction of
+  a run loop that records the plan and replays it every frame until the
+  application terminates. This is necessary for portability reasons.
 * Contexts ***may not*** be nested.
 
-For example, to create an OpenGL context and set the GL viewport:
+For example, to set the GL clear color when the runtime starts up, and clear
+every frame:
 @code{.cpp}
-//Creates a V4D object for on screen rendering
-Ptr<V4D> v4d = V4D::make(Size(WIDTH, HEIGHT), "GL viewport");
+// Creates a V4D object for on screen rendering
+Ptr<V4D> runtime = V4D::init(cv::Rect(0, 0, WIDTH, HEIGHT), "Blue screen",
+                             AllocateFlags::IMGUI);
 
-//Takes care of OpenGL states in the background
-v4d->gl([](const Size sz) {
-    glViewPort(0, 0, sz.width, sz.height);
-});
+class BlueScreenPlan : public V4DPlan {
+public:
+  void setup() override {
+    // "gl" is a context-call that provides OpenGL state to the node;
+    // "V" is an edge-call that provides constants to the algorithm
+    gl(glClearColor, V(0), V(0), V(1), V(1));
+  }
+  void infer() override {
+    // The clear color set above is preserved between context-calls
+    gl(glClear, V(GL_COLOR_BUFFER_BIT));
+  }
+};
+
+// Takes care of the event loop, the workers and the frame loop
+V4DPlan::run<BlueScreenPlan>(2);
 @endcode
+
+That program is `samples/render_opengl.cpp`; see \ref v4d_render_opengl.
+
+# Input and output belong to the runtime
+When a `Source` is set on the runtime, its frame is copied into the framebuffer
+before the plan's graph runs; when a `Sink` is set, the framebuffer is handed to
+it after. `Plan::run` emits those two nodes with the plan's own `capture()` and
+`write()` calls, so **a plan never calls them itself** — it reads the frame with
+`fb(...)` and draws into the framebuffer with `fb(...)` too. See
+\ref v4d_display_image_pipeline and \ref v4d_video_editing.
 
 # GPU Support
 * Intel Gen 8+ (Tested: Gen 11 + Gen 13) is supported best
-* NVIDIA Ada Lovelace (Tested: GTX 4070 Ti) with proprietary drivers (535.104.05) and CUDA toolkit (12.2) works but video writing is very slow, unless: you change the codec to H264 or you create a gstreamer sink using nvenc.
+* NVIDIA Ada Lovelace (Tested: GTX 4070 Ti) with proprietary drivers works, but
+  video writing is very slow unless: you change the codec to H264 or you create
+  a gstreamer sink using nvenc.
 * AMD: never tested
 
+Note that on OpenCV 5.x the in-tree DNN engine only supports the OpenCV and CUDA
+backends, so `DNN_TARGET_OPENCL` and `DNN_TARGET_VULKAN` (including
+`ocl4dnn`) are silently no-ops there. The OpenVINO OpenCL GPU device V4D builds
+is only reachable for models handed to OpenCV as OpenVINO IR. Plan-DSL samples
+that load `.onnx` therefore run on CPU unless CUDA is built.
+
 # Requirements
-* C++20 (at the moment)
-* OpenGL 3.2 Core (optionally Compat)/OpenGL ES 3.0/WebGL2
+* C++20 (for `<barrier>` and `<semaphore>`)
+* OpenCV 5.x
+* OpenGL 3.2 Core (optionally Compat) / OpenGL ES 3.0 / WebGL2
 
 # Optional requirements
 * Support for OpenCL 1.2
 * Support for cl_khr_gl_sharing and cl_intel_va_api_media_sharing OpenCL extensions.
 
 # Dependencies
-* [My OpenCV 4.x fork](https://github.com/kallaballa/opencv) (It works with mainline OpenCV 4.x as well, but will miss some features)
-* GLEW
-* GLFW3
-* NanoVG (included as a sub-repo)
-* ImGui (included as a sub-repo)
-
-# Optional: Dependencies for demos
-* (At the time of writing) If you want CL-GL interop on a recent Intel Platform you might need to build [compute-runtime](https://github.com/intel/compute-runtime). The first version of compute-runtime shipping CL-GL interop is **23.13.26032**
+* GLFW 3 (vendored under `third/glfw`, built and installed with the module)
+* NanoVG (vendored under `third/nanovg`)
+* ImGui (vendored under `third/imgui`)
+* GLAD (vendored under `third/glad`)
+* [AnyProperty](https://github.com/kallaballa/AnyProperty) (vendored under
+  `third/AnyProperty`, backs Plan-DSL's `GlobalState` / `LocalState`)
+* bgfx, only with `OPENCV_V4D_ENABLE_BGFX=ON` (vendored, built through
+  `third/bgfx.cmake`)
 
 # Tutorials {#v4d_tutorials}
-The tutorials are designed to be read one after the other to give you a good overview over the key concepts of V4D. After that you can move on to the demos.
+The tutorials are designed to be read one after the other to give you a good
+overview over the key concepts of V4D. After that you can move on to the demos.
+The same tutorials, with the walkthrough text and the code broken down line by
+line, are in
+[doc/samples/README.md](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/doc/samples/README.md);
+[doc/README.md](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/doc/README.md)
+maps the two sets onto the samples.
 
 * \ref v4d_display_image_pipeline
 * \ref v4d_display_image_fb
@@ -78,7 +142,11 @@ The tutorials are designed to be read one after the other to give you a good ove
 * \ref v4d_font_with_gui
 
 # Demos {#v4d_demos}
-The goal of the demos is to show how to use V4D to the fullest. Also they show how to use V4D to create programs that run mostly (the part the matters) on the GPU (when driver capabilities allow). They are also a good starting point for your own applications because they touch many key aspects and algorithms of OpenCV.
+The goal of the demos is to show how to use V4D to the fullest. Also they show
+how to use V4D to create programs that run mostly (the part the matters) on the
+GPU (when driver capabilities allow). They are also a good starting point for
+your own applications because they touch many key aspects and algorithms of
+OpenCV.
 
 * \ref v4d_cube
 * \ref v4d_many_cubes
@@ -92,81 +160,127 @@ The goal of the demos is to show how to use V4D to the fullest. Also they show h
 * \ref v4d_image_carousel
 * \ref v4d_imshow_reimplementation
 
-# Instructions for Ubuntu 22.04.2 LTS
-You need to build OpenCV with V4D
+# Samples without a tutorial
+Five registered samples are documented only by their own comments, because they
+compose other samples rather than introduce an API:
+
+* `two-windows-demo.cpp` — two runtimes and two plans in one process
+* `pipeline-demo.cpp` — five samples composed as sub-plans
+* `montage-demo.cpp` — nine samples side by side in one window
+* `skeletal-tracker-demo.cpp` — MediaPipe pose detection, per-person rotated
+  RoIs, a pose network and multi-person tracking
+* `shadertoy-editor.cpp` — an offline Shadertoy workbench with a GLSL editor
+
+Two more, `bgfx-demo.cpp` and `bgfx-demo2.cpp`, need
+`OPENCV_V4D_ENABLE_BGFX=ON`.
+
+# Instructions for Ubuntu
+You need to build OpenCV 5.x with V4D.
 
 ## Install required packages
 
 ```bash
-apt install vainfo clinfo libqt5opengl5-dev freeglut3-dev ocl-icd-opencl-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libpostproc-dev libswresample-dev libswscale-dev libglfw3-dev libstb-dev libglew-dev cmake make git-core build-essential opencl-clhpp-headers pkg-config zlib1g-dev doxygen libxinerama-dev libxcursor-dev libxi-dev libva-dev yt-dlp wget intel-opencl-icd ca-certificates
+apt install cmake make git-core build-essential pkg-config zlib1g-dev \
+    libxinerama-dev libxcursor-dev libxi-dev libxrandr-dev libxext-dev \
+    libx11-dev libgl1-mesa-dev libglu1-mesa-dev freeglut3-dev \
+    ocl-icd-opencl-dev opencl-clhpp-headers clinfo info \
+    libva-dev libva-drm2 libavcodec-dev libavdevice-dev libavfilter-dev \
+    libavformat-dev libavutil-dev libpostproc-dev libswresample-dev \
+    libswscale-dev doxygen ca-certificates
 ```
-## Optional: Install if you want to build your own packages
+
+## Install if you want to build your own packages
 ```bash
 apt install ubuntu-dev-tools dh-cmake gdebi
 ```
-## EITHER: Minimal V4D build without examples and demos
+
+## EITHER: use the build script
+
+`build.sh` at the repository root configures OpenCV with both modules, builds
+them and installs them into `/usr/local`. It is the supported path and the one
+the CI jobs use.
 
 ```bash
-git clone --branch GCV https://github.com/kallaballa/opencv.git
-git clone https://github.com/kallaballa/V4D.git
-mkdir opencv/build
-cd opencv/build
- cmake -DCMAKE_BUILD_TYPE=Release -DCV_TRACE=OFF -DBUILD_SHARED_LIBS=ON -DWITH_OPENGL=ON -DOPENCV_ENABLE_EGL=ON -DOPENCV_FFMPEG_ENABLE_LIBAVDEVICE=ON -DWITH_QT=ON -DWITH_FFMPEG=ON -DOPENCV_FFMPEG_SKIP_BUILD_CHECK=ON -DWITH_VA=ON -DWITH_VA_INTEL=ON -DWITH_1394=OFF -DWITH_ADE=OFF -DWITH_VTK=OFF -DWITH_EIGEN=OFF -DWITH_GTK=OFF -DWITH_GTK_2_X=OFF -DWITH_IPP=OFF -DWITH_JASPER=OFF -DWITH_WEBP=OFF -DWITH_OPENEXR=OFF -DWITH_OPENVX=OFF -DWITH_OPENNI=OFF -DWITH_OPENNI2=OFF-DWITH_TBB=OFF -DWITH_TIFF=OFF -DWITH_OPENCL=ON -DWITH_OPENCL_SVM=ON -DWITH_OPENCLAMDFFT=OFF -DWITH_OPENCLAMDBLAS=OFF -DWITH_GPHOTO2=OFF -DWITH_LAPACK=OFF -DWITH_ITT=OFF -DWITH_QUIRC=ON -DBUILD_ZLIB=OFF -DBUILD_opencv_apps=OFF -DBUILD_opencv_calib3d=OFF -DBUIlD_opencv_ccalib=OFF -DBUILD_opencv_dnn=OFF -DBUILD_opencv_features2d=OFF -DBUILD_opencv_flann=OFF -DBUILD_opencv_gapi=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_photo=OFF -DBUILD_opencv_imgcodecs=ON -DBUILD_opencv_shape=OFF -DBUILD_opencv_videoio=ON -DBUILD_opencv_videostab=OFF -DBUILD_opencv_highgui=OFF -DBUILD_opencv_superres=OFF -DBUILD_opencv_stitching=OFF -DBUILD_opencv_java=OFF -DBUILD_opencv_js=OFF -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF -DBUILD_opencv_alphamat=OFF -DBUILD_opencv_aruco=OFF -DBUILD_opencv_barcode=OFF -DBUILD_opencv_bgsegm=OFF -DBUILD_opencv_bioinspired=OFF -DBUILD_opencv_ccalib=OFF -DBUILD_opencv_cnn_3dobj=OFF -DBUILD_opencv_cudaarithm=OFF -DBUILD_opencv_cudabgsegm=OFF -DBUILD_opencv_cudacodec=OFF -DBUILD_opencv_cudafeatures2d=OFF -DBUILD_opencv_cudafilters=OFF -DBUILD_opencv_cudaimgproc=OFF -DBUILD_opencv_cudalegacy=OFF -DBUILD_opencv_cudaobjdetect=OFF -DBUILD_opencv_cudaoptflow=OFF -DBUILD_opencv_cudastereo=OFF -DBUILD_opencv_cudawarping=OFF -DBUILD_opencv_cudev=OFF -DBUILD_opencv_cvv=OFF -DBUILD_opencv_datasets=OFF -DBUILD_opencv_dnn_objdetect=OFF -DBUILD_opencv_dnns_easily_fooled=OFF -DBUILD_opencv_dnn_superres=OFF -DBUILD_opencv_dpm=OFF -DBUILD_opencv_face=OFF -DBUILD_opencv_freetype=OFF -DBUILD_opencv_fuzzy=OFF -DBUILD_opencv_hdf=OFF -DBUILD_opencv_hfs=OFF -DBUILD_opencv_img_hash=OFF -DBUILD_opencv_intensity_transform=OFF -DBUILD_opencv_julia=OFF -DBUILD_opencv_line_descriptor=OFF -DBUILD_opencv_matlab=OFF -DBUILD_opencv_mcc=OFF -DBUILD_opencv_optflow=OFF -DBUILD_opencv_ovis=OFF -DBUILD_opencv_phase_unwrapping=OFF -DBUILD_opencv_plot=OFF -DBUILD_opencv_quality=OFF -DBUILD_opencv_rapid=OFF -DBUILD_opencv_README.md=OFF -DBUILD_opencv_reg=OFF -DBUILD_opencv_rgbd=OFF -DBUILD_opencv_saliency=OFF -DBUILD_opencv_sfm=OFF -DBUILD_opencv_shape=OFF -DBUILD_opencv_stereo=OFF -DBUILD_opencv_structured_light=OFF -DBUILD_opencv_superres=OFF -DBUILD_opencv_surface_matching=OFF -DBUILD_opencv_text=OFF -DBUILD_opencv_tracking=OFF -DBUILD_opencv_videostab=OFF -DBUILD_opencv_viz=OFF -DBUILD_opencv_wechat_qrcode=OFF -DBUILD_opencv_xfeatures2d=OFF -DBUILD_opencv_ximgproc=OFF -DBUILD_opencv_xobjdetect=OFF -DBUILD_opencv_xphoto=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PACKAGE=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF -DWITH_PTHREADS_PF=ON -DCV_ENABLE_INTRINSICS=ON -DOPENCV_EXTRA_MODULES_PATH=../../V4D/modules/ ..
-make -j8
+git clone --branch beta-5.x https://github.com/kallaballa/Plan-V4D.git
+cd Plan-V4D
+git submodule update --init --recursive
+
+# The plan module and its tests
+./build.sh plan -b release
+
+# Both modules, plus every sample
+./build.sh plan+v4d -b release
+
+# Or the parts separately
+./build.sh configure -t plan+v4d -b release
+./build.sh build -j 16
+./build.sh install
+./build.sh clean
+```
+
+Run `./build.sh --help` for the full option list. `./build.sh plan` also runs the
+test and perf binaries; pass `-- --gtest_filter=Plan.*` to narrow them.
+
+## OR: build through OpenCV's CMake directly
+
+```bash
+git clone --branch beta-5.x https://github.com/kallaballa/Plan-V4D.git
+cd Plan-V4D
+git submodule update --init --recursive
+
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release -DCV_TRACE=OFF -DBUILD_SHARED_LIBS=ON \
+      -DBUILD_opencv_plan=ON -DBUILD_opencv_v4d=ON \
+      -DBUILD_EXAMPLES=ON -DBUILD_DOCS=ON \
+      -DWITH_OPENGL=ON -DWITH_OPENCL=ON -DWITH_FFMPEG=ON -DWITH_GTK=OFF \
+      -DOPENCV_EXTRA_MODULES_PATH=.. ..
+make -j$(nproc)
 sudo make install
 ```
 
-## OR: Full V4D build with examples, demos and debian packages (takes a while)
-
-```bash
-git clone --branch GCV https://github.com/kallaballa/opencv.git
-git clone https://github.com/kallaballa/V4D.git
-mkdir opencv/build
-cd opencv/build
-cmake -DINSTALL_BIN_EXAMPLES=ON -DOPENCV_CUSTOM_PACKAGE_INFO=ON -DCPACK_PACKAGE_VERSION_MAJOR=4 -DCPACK_PACKAGE_VERSION_MINOR=8 -DCPACK_PACKAGE_VERSION_PATCH=0 -DCPACK_PACKAGE_VERSION=4:8.0-kallaballa -DCMAKE_BUILD_TYPE=Release -DCPACK_PACKAGE_CONTACT="amir@viel-zu.org" -DOPENCV_GENERATE_PKGCONFIG=ON -DCPACK_PACKAGE_VENDOR=kallaballa -DCPACK_DEBIAN_PACKAGE_DEPENDS="libqt5opengl5,freeglut3,ocl-icd-libopencl1,libavcodec58,libavdevice58,libavfilter7,libavformat58,libavutil56,libpostproc55,libswresample3,libswscale5,libglfw3,libstb0,libglew2.2,zlib1g,libxinerama1,libxcursor1,libxi6,libva2,intel-opencl-icd,ca-certificates" -DINSTALL_CREATE_DISTRIB=ON -DCPACK_BINARY_DEB=ON -DCV_TRACE=OFF -DBUILD_SHARED_LIBS=ON -DWITH_OPENGL=ON -DOPENCV_ENABLE_EGL=ON -DOPENCV_ENABLE_GLX=ON -DOPENCV_FFMPEG_ENABLE_LIBAVDEVICE=ON -DWITH_QT=ON -DWITH_FFMPEG=ON -DOPENCV_FFMPEG_SKIP_BUILD_CHECK=ON -DWITH_VA=ON -DWITH_VA_INTEL=ON -DWITH_1394=OFF -DWITH_ADE=OFF -DWITH_VTK=OFF -DWITH_EIGEN=OFF -DWITH_GTK=OFF -DWITH_GTK_2_X=OFF -DWITH_IPP=OFF -DWITH_JASPER=OFF -DWITH_WEBP=OFF -DWITH_OPENEXR=OFF -DWITH_OPENVX=OFF -DWITH_OPENNI=OFF -DWITH_OPENNI2=OFF-DWITH_TBB=OFF -DWITH_TIFF=OFF -DWITH_OPENCL=ON -DWITH_OPENCL_SVM=ON -DWITH_OPENCLAMDFFT=OFF -DWITH_OPENCLAMDBLAS=OFF -DWITH_GPHOTO2=OFF -DWITH_LAPACK=OFF -DWITH_ITT=OFF -DWITH_QUIRC=ON -DBUILD_ZLIB=OFF -DBUILD_opencv_apps=OFF -DBUILD_opencv_calib3d=ON -DBUIlD_opencv_ccalib=OFF -DBUILD_opencv_dnn=ON -DBUILD_opencv_features2d=ON -DBUILD_opencv_flann=ON -DBUILD_opencv_gapi=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_photo=ON -DBUILD_opencv_imgcodecs=ON -DBUILD_opencv_shape=OFF -DBUILD_opencv_videoio=ON -DBUILD_opencv_videostab=OFF -DBUILD_opencv_highgui=ON -DBUILD_opencv_superres=OFF -DBUILD_opencv_stitching=ON -DBUILD_opencv_java=OFF -DBUILD_opencv_js=OFF -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF -DBUILD_opencv_alphamat=OFF -DBUILD_opencv_aruco=OFF -DBUILD_opencv_barcode=OFF -DBUILD_opencv_bgsegm=OFF -DBUILD_opencv_bioinspired=OFF -DBUILD_opencv_ccalib=ON -DBUILD_opencv_cnn_3dobj=OFF -DBUILD_opencv_cudaarithm=OFF -DBUILD_opencv_cudabgsegm=OFF -DBUILD_opencv_cudacodec=OFF -DBUILD_opencv_cudafeatures2d=OFF -DBUILD_opencv_cudafilters=OFF -DBUILD_opencv_cudaimgproc=OFF -DBUILD_opencv_cudalegacy=OFF -DBUILD_opencv_cudaobjdetect=OFF -DBUILD_opencv_cudaoptflow=OFF -DBUILD_opencv_cudastereo=OFF -DBUILD_opencv_cudawarping=OFF -DBUILD_opencv_cudev=OFF -DBUILD_opencv_cvv=OFF -DBUILD_opencv_datasets=OFF -DBUILD_opencv_dnn_objdetect=OFF -DBUILD_opencv_dnns_easily_fooled=OFF -DBUILD_opencv_dnn_superres=OFF -DBUILD_opencv_dpm=OFF -DBUILD_opencv_face=ON -DBUILD_opencv_freetype=OFF -DBUILD_opencv_fuzzy=OFF -DBUILD_opencv_hdf=OFF -DBUILD_opencv_hfs=OFF -DBUILD_opencv_img_hash=OFF -DBUILD_opencv_intensity_transform=OFF -DBUILD_opencv_julia=OFF -DBUILD_opencv_line_descriptor=OFF -DBUILD_opencv_matlab=OFF -DBUILD_opencv_mcc=OFF -DBUILD_opencv_optflow=ON -DBUILD_opencv_ovis=OFF -DBUILD_opencv_phase_unwrapping=OFF -DBUILD_opencv_plot=ON -DBUILD_opencv_quality=OFF -DBUILD_opencv_rapid=OFF -DBUILD_opencv_README.md=OFF -DBUILD_opencv_reg=OFF -DBUILD_opencv_rgbd=OFF -DBUILD_opencv_saliency=OFF -DBUILD_opencv_sfm=OFF -DBUILD_opencv_shape=OFF -DBUILD_opencv_stereo=OFF -DBUILD_opencv_structured_light=OFF -DBUILD_opencv_superres=OFF -DBUILD_opencv_surface_matching=OFF -DBUILD_opencv_text=OFF -DBUILD_opencv_tracking=ON -DBUILD_opencv_videostab=OFF -DBUILD_opencv_viz=OFF -DBUILD_opencv_wechat_qrcode=OFF -DBUILD_opencv_xfeatures2d=OFF -DBUILD_opencv_ximgproc=ON -DBUILD_opencv_xobjdetect=OFF -DBUILD_opencv_xphoto=OFF -DBUILD_EXAMPLES=ON -DBUILD_PACKAGE=ON -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=ON -DWITH_PTHREADS_PF=ON -DCV_ENABLE_INTRINSICS=ON -DOPENCV_EXTRA_MODULES_PATH=../../V4D/modules/ ..
-make -j8
-sudo make install
-```
 ## Build debian packages
 ```bash
 cpack DEB
 ```
 
-## Download the example videos
+## Run the samples
 ```bash
-# big buck bunny video
-wget -O bunny.webm https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm
-# dance video
-yt-dlp -o dance.mp4 "https://www.youtube.com/watch?v=yg6LZtNeO_8"
-# kristen video
-yt-dlp -o kristen.webm "https://www.youtube.com/watch?v=hUAT8Jm_dvw&t=11s"
-```
-
-## Run the examples and demos
-```
-# Examples
-bin/example_v4d_display_image
+# Examples — no arguments
+bin/example_v4d_font_rendering
+bin/example_v4d_render_opengl
 bin/example_v4d_display_image_fb
+bin/example_v4d_display_image_nvg
 bin/example_v4d_vector_graphics
 bin/example_v4d_vector_graphics_and_fb
-bin/example_v4d_render_opengl
-bin/example_v4d_font_rendering
-bin/example_v4d_video_editing
-bin/example_v4d_custom_source_and_sink
 bin/example_v4d_font_with_gui
+bin/example_v4d_custom_source_and_sink
+
+# Examples taking a video — the bundled assets are found automatically
+bin/example_v4d_video_editing
 
 # Demos
 bin/example_v4d_cube-demo
-bin/example_v4d_many_cubes-demo
-bin/example_v4d_video-demo bunny.webm
-bin/example_v4d_nanovg-demo bunny.webm
-bin/example_v4d_shader-demo bunny.webm
+bin/example_v4d_many-cubes-demo
+bin/example_v4d_two-windows-demo
+bin/example_v4d_video-demo modules/v4d/assets/videos/bunny.mp4
+bin/example_v4d_nanovg-demo modules/v4d/assets/videos/bunny.mp4
+bin/example_v4d_shader-demo modules/v4d/assets/videos/bunny.mp4
 bin/example_v4d_font-demo
-bin/example_v4d_pedestrian-demo dance.mp4
-bin/example_v4d_optflow-demo dance.mp4
-bin/example_v4d_beauty-demo kristen.webm
-
+bin/example_v4d_pedestrian-demo modules/v4d/assets/videos/dance.mp4
+bin/example_v4d_optflow-demo modules/v4d/assets/videos/dance.mp4
+bin/example_v4d_skeletal-tracker-demo modules/v4d/assets/videos/dance.mp4
+bin/example_v4d_beauty-demo modules/v4d/assets/videos/kristen.mp4
+bin/example_v4d_imshow_reimplementation
+bin/example_v4d_image_carousel-demo
+bin/example_v4d_shadertoy-editor --help
+bin/example_v4d_pipeline-demo modules/v4d/assets/videos/dance.mp4
+bin/example_v4d_montage-demo modules/v4d/assets/videos/kristen.mp4
 ```
+
+The sample videos ship in `modules/v4d/assets/videos/` (`bunny.mp4`,
+`dance.mp4`, `dance2.mp4`, `kristen.mp4`), so nothing has to be downloaded. To
+substitute your own, pass the path as the first argument; most samples also
+accept an output file as the second.
 
 # Attribution
 * The author of the bunny video is the **Blender Foundation** ([Original video](https://www.bigbuckbunny.org)).

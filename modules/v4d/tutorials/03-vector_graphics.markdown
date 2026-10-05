@@ -6,7 +6,7 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 ## Vector graphics
 Through the html5-canvas-like nvg-context sophisticated vector graphics rendering is possible.

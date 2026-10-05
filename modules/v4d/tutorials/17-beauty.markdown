@@ -5,7 +5,7 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 Face beautification using face landmark detection (OpenCV), nanovg (OpenGL) for drawing masks and multi-band blending to put it all together.
 

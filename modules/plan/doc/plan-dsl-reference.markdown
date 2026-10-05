@@ -749,6 +749,22 @@ sink is set, the framebuffer content is written to it after the plan runs.
 Plans access the frame using `fb(...)` — there is no need for explicit
 `capture()` or `write()` calls.
 
+`capture()` and `write()` are runtime-internal. `Plan::run` calls them itself,
+around `infer()`:
+
+```cpp
+plan->runtime()->captureInput(plan);   // Source  → framebuffer  (V4D: plan->capture())
+plan->infer();                         // the plan's own graph
+plan->runtime()->writeOutput(plan);    // framebuffer → Sink     (V4D: plan->write())
+plan->makeGraph();
+```
+
+A plan that calls `capture()` or `write()` records a second copy of the
+automatic node, so the frame is read or written twice per frame and the copies
+race. Both methods default to no-ops on `PlanRuntime`, so a plain `Plan` with no
+runtime I/O never records them at all — which is also why a `Plan` subclass that
+does not define them compiles at all.
+
 ---
 
 ## 5.3 Entry points

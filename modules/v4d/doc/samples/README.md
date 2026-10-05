@@ -2,6 +2,8 @@
 
 > A comprehensive, hands-on guide to the Plan-V4D framework — from displaying your first image to building a full-featured `imshow` reimplementation.
 
+Each walkthrough below covers one sample, prints its complete source and breaks it down. The shorter Doxygen tutorials in [`../tutorials/`](../../tutorials/) cover the same samples for the rendered docs; [the index in `../README.md`](../README.md) maps one numbering onto the other, and lists the samples that have no walkthrough yet.
+
 ---
 
 ## Table of Contents
@@ -74,7 +76,7 @@ Key consequences:
 - **Side effects written directly in `infer()` (outside a node) happen once, at build time.** If you want something to happen every frame, it must be inside a node: `plain(...)`, `nvg(...)`, `fb(...)`, an operator, etc.
 - **Each worker thread builds and runs its own independent copy of the graph.** Workers never share nodes, share partial iterations, or migrate work. Think of `infer()` as the per-thread body of an OpenMP `#pragma omp parallel` region.
 
-A good analogy: Plan-DSL is a *CPU-side shader* for a per-frame computation graph. It reads inputs (`R`, `P`, `E`), computes (`+`, `IF`, `F`), and writes outputs (`RW`, `assign`, `set`, `write`) — once per frame, on fresh data.
+A good analogy: Plan-DSL is a *CPU-side shader* for a per-frame computation graph. It reads inputs (`R`, `P`, `E`), computes (`+`, `IF`, `F`), and writes outputs (`RW`, `assign`, `set`, `fb`) — once per frame, on fresh data. The one I/O edge a plan does *not* record itself is the video framebuffer: `capture()` and `write()` belong to the runtime (see [Tutorial 07](#tutorial-07--simple-video-editing)).
 
 ## Interacting with the Graph: Edges
 
@@ -165,7 +167,7 @@ Every tutorial links to its complete source sample in the [samples directory](ht
 16. [Tutorial 16 — Sparse Optical Flow Demo](#tutorial-16--sparse-optical-flow-demo) (`optflow-demo.cpp`)
 17. [Tutorial 17 — Real-Time "Beauty Filter" Demo](#tutorial-17--real-time-beauty-filter-demo) (`beauty-demo.cpp`)
 18. [Tutorial 18 — Parallel Rendering with Multiple OpenGL Contexts](#tutorial-18--parallel-rendering-with-multiple-opengl-contexts) (`many_cubes-demo.cpp`)
-19. [Tutorial 19 — An Interactive Image Carousel](#tutorial-19--an-interactive-image-carousel) (`image_carousel.cpp`)
+19. [Tutorial 19 — An Interactive Image Carousel](#tutorial-19--an-interactive-image-carousel) (`image_carousel-demo.cpp`)
 20. [Tutorial 20 — Reimplementing OpenCV's imshow](#tutorial-20--reimplementing-opencvs-imshow) (`imshow_reimplementation.cpp`)
 
 Ready to dive in? Let's start by displaying a simple image.
@@ -654,6 +656,7 @@ Plan-V4D provides a simple yet powerful source/sink architecture for building vi
 You can find the complete source in [`video_editing.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/video_editing.cpp).
 
 ```cpp
+#include "samples.hpp"
 #include <opencv2/v4d/v4d.hpp>
 
 using namespace cv;
@@ -662,9 +665,12 @@ using namespace cv::v4d;
 class VideoEditingPlan : public V4DPlan {
     cv::UMat frame_;
     const string hv_ = "Hello Video!";
+    // Property extends Edge which means it can be directly passed without
+    // Edge-directive
     Property<cv::Size> sz_ = P<cv::Size>(V4D::Keys::SIZE);
 public:
     void infer() override {
+        // Render on top of the video
         nvg([](const Size& sz, const string& str) {
             using namespace cv::v4d::nvg;
             fontSize(40.0f);
@@ -677,45 +683,84 @@ public:
 };
 
 int main(int argc, char** argv) {
-    if (argc != 3) {
+    cv::v4d::add_asset_search_paths();
+
+    std::string inputVideo = demo_video_input("videos/bunny.mp4", argc, argv);
+    std::string outputVideo = (argc > 2) ? argv[2] : "video_editing_out.mkv";
+    if (inputVideo.empty()) {
         std::cerr << "Usage: video_editing <input-video-file> <output-video-file>" << std::endl;
-        exit(1);
+        return 1;
     }
+
     cv::Rect viewport(0, 0, 960, 960);
     Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
-    auto src = Source::make(runtime, argv[1]);
-    auto sink = Sink::make(runtime, argv[2], src->fps(), viewport.size());
+    // Make the video source
+    auto src = Source::makeDefault(runtime, inputVideo);
 
+    // Make the video sink
+    auto sink = Sink::makeDefault(runtime, outputVideo, src->fps(), viewport.size());
+
+    // Attach source and sink
     runtime->setSource(src);
     runtime->setSink(sink);
 
-    V4DPlan::run<VideoEditingPlan>(0);
+    V4DPlan::run<VideoEditingPlan>(2);
 }
 ```
+
+Both arguments are optional: `demo_video_input()` falls back to the bundled
+`videos/bunny.mp4` and the output defaults to `video_editing_out.mkv`, so
+`./bin/example_v4d_video_editing` on its own plays and records the bundled clip.
+`Source::makeDefault` and `Sink::makeDefault` resolve the input side for the
+platform (on Android that means the live camera rather than FFmpeg).
 
 ## Code Breakdown
 
 ### Setting up the Pipeline
 
-- **`Source::make(…)`**: Creates a `Source` object from an input video file. V4D handles video decoding.
-- **`Sink::make(…)`**: Creates a `Sink` object for the output file, with FPS from the source and the viewport size. V4D handles video encoding.
+- **`Source::makeDefault(…)`**: Creates a `Source` object from an input video file. V4D handles video decoding.
+- **`Sink::makeDefault(…)`**: Creates a `Sink` object for the output file, with FPS from the source and the viewport size. V4D handles video encoding.
 - **`runtime->setSource(src)`** and **`runtime->setSink(sink)`**: Attaches them to the runtime.
 
 ### The `infer()` Method
 
 The source frame is automatically loaded into the framebuffer by the runtime
-before the plan runs. The plan renders text on top of the video frame:
+before the plan runs — resized to the viewport with the aspect ratio preserved,
+flipped into OpenGL's coordinate system and converted to BGRA. The plan renders
+text on top of the video frame:
 
 1. **`nvg(…)`**: Renders text *on top of* the video frame.
 
 After the plan runs, the framebuffer content is automatically written to the sink.
+
+### The plan has no `capture()` or `write()`
+
+This is the whole tutorial, really. Both ends of the pipeline are handled by
+`Plan::run`, which emits two nodes of its own around `infer()`:
+
+```cpp
+plan->capture();   // Source → framebuffer
+plan->infer();
+plan->write();     // framebuffer → Sink
+plan->makeGraph();
+```
+
+So the plan body above contains exactly one context call. It does not fetch the
+frame, and it does not save the frame. `V4DPlan` does inherit `capture()` and
+`write()` — they are what the runtime calls — but **calling them from a plan is
+a bug**: it records a second copy of a read or write the runtime is already
+performing, so the frame is processed twice and the two copies race. Read the
+frame with `fb(UMAT_COPY_TO_, RW(member))` if you need its pixels (see
+[Tutorial 02](#tutorial-02--displaying-an-image-via-framebuffer)) and render into
+the framebuffer with `fb<1>(cv::cvtColor, …)`.
 
 ## Summary
 
 - **`Source`** and **`Sink`** objects handle video decoding and encoding.
 - The source frame is automatically loaded into the framebuffer before the plan runs.
 - The framebuffer content is automatically written to the sink after the plan runs.
+- Neither is written by the plan: `capture()` and `write()` are runtime-internal.
 - By sequencing rendering contexts, you can create elegant video processing pipelines.
 
 ---
@@ -1521,7 +1566,7 @@ This tutorial builds a self-contained image gallery application: it loads images
 
 ## The Code
 
-You can find the complete source in [`image_carousel.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/image_carousel.cpp). Run it with one or more image files or directories. Controls: arrow keys for prev/next, Space to toggle auto-play, mouse scroll/clicks, Home/End.
+You can find the complete source in [`image_carousel-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/image_carousel-demo.cpp). Run it with one or more image files or directories. Controls: arrow keys for prev/next, Space to toggle auto-play, mouse scroll/clicks, Home/End.
 
 ```cpp
 class ImageCarousel : public V4DPlan {

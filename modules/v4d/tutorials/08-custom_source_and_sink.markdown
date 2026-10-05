@@ -6,7 +6,7 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 ## Reading and writing to V4D using custom sources and sinks
 In the previous tutorial we used a default video source and a video sink to stream a video through V4D which can be manipulated using OpenGL, NanoVG or OpenCV. In this example we are creating a custom source that generates rainbow frames. For each time the source is invoked the frame is colored a slightly different color. Additionally the custom sink saves individual images instead of a video (only in native builds).

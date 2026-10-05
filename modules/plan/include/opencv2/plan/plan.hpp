@@ -165,6 +165,19 @@ public:
    * (release per-thread IO resources here).
    */
   virtual void releaseIo() {}
+
+  /*!
+   * Emitted by Plan::run around infer(), so that a runtime which owns input or
+   * output pulls its input in before the per-frame graph runs and pushes the
+   * result out after it, without the plan having to ask for it.
+   *
+   * V4D implements these by recording its own capture()/write() nodes on
+   * @p plan. The default is a no-op, so Plan::run also works for a Plan that
+   * is driven by a runtime without I/O - and the plan module, which cannot
+   * depend on V4D, stays free of any mention of frames.
+   */
+  virtual void captureInput(const cv::Ptr<Plan> &plan) { CV_UNUSED(plan); }
+  virtual void writeOutput(const cv::Ptr<Plan> &plan) { CV_UNUSED(plan); }
 };
 
 class CV_EXPORTS Plan {
@@ -1299,9 +1312,14 @@ public:
         CV_LOG_DEBUG(nullptr,
                      "Main inference on worker: " << LocalState::get<size_t>(
                          LocalState::Keys::WORKER_INDEX));
-        plan->capture();
+        // The runtime, not the plan, owns input and output. It gets to emit its
+        // own capture/write nodes around infer(), which is where a source
+        // frame is copied into the framebuffer and the framebuffer is handed
+        // to the sink. A plan therefore reads the frame with fb(...) and must
+        // not emit capture() or write() itself.
+        plan->runtime()->captureInput(plan);
         plan->infer();
-	plan->write();
+        plan->runtime()->writeOutput(plan);
         plan->makeGraph();
       } catch (std::exception &ex) {
         CV_Error_(cv::Error::StsError,

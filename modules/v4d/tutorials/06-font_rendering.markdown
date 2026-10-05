@@ -6,7 +6,7 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 ## Render Hello World
 Draws "Hello World" to the screen using NanoVG. Demos some basic font options.

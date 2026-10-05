@@ -4,7 +4,7 @@ A hands-on, step-by-step guide to writing video, image, GPU and GUI applications
 
 **Audience.** You are comfortable with modern C++ (C++20) and OpenCV's `cv::Mat`/`cv::UMat`, and you know the basic shape of a video pipeline (source → process → display/sink). You do not need to know OpenGL, NanoVG or ImGui — this tutorial teaches the parts you need.
 
-**Companion documents.** This tutorial is the guided path through the material in the Plan-DSL Programming Guide and the Plan-DSL Reference (the ISA-style contract). Where this tutorial and the plan-dsl documents disagree, the plan-dsl documents win. The samples in `modules/v4d/samples/` are the ultimate source of truth for V4D-layer behavior.
+**Companion documents.** This tutorial is the guided path through the material in the [Plan-DSL Programming Guide](../../plan/doc/plan-dsl-programming-guide.markdown) and the [Plan-DSL Reference](../../plan/doc/plan-dsl-reference.markdown) (the ISA-style contract). Where this tutorial and the plan-dsl documents disagree, the plan-dsl documents win. The samples in [`modules/v4d/samples/`](../samples/) are the ultimate source of truth for V4D-layer behavior, and the per-sample [walkthroughs](samples/README.md) take each one apart line by line.
 
 **Table of Contents**
 
@@ -373,15 +373,44 @@ Answers: (1) it records a node; the frame is pulled during replay. (2) It prints
 A Source produces frames; a Sink consumes them. The factories understand filenames and use `cv::VideoCapture` / `cv::VideoWriter` under the hood:
 
 ```cpp
-auto src  = Source::make(runtime, "input.mp4");       // anything VideoCapture handles
-auto sink = Sink::make(runtime, "out.mkv", src->fps(), viewport.size());
+auto src  = Source::makeDefault(runtime, "input.mp4");   // anything VideoCapture handles
+auto sink = Sink::makeDefault(runtime, "out.mkv", src->fps(), viewport.size());
 runtime->setSource(src);
 runtime->setSink(sink);
 ```
 
+`makeDefault` resolves the input side for the platform, so the same line picks
+the live camera on Android where FFmpeg is not built. `Source::make` and
+`Sink::make` are the underlying filename factories, and `Sink::make` takes an
+optional FourCC after the frame size. A `Sink::makeDefault` takes the fps
+explicitly — usually `src->fps()`, so the output keeps the input's timing.
+
 ### 6.2 Automatic Source and Sink Integration
 
 V4D handles source and sink I/O automatically. When a source is configured, frames are loaded into the framebuffer before `infer()` runs. When a sink is configured, the framebuffer content is written to the sink after `infer()` completes. You never need explicit `capture()` or `write()` calls — just use `fb(...)` to read or write the framebuffer directly.
+
+Concretely, `Plan::run` builds the graph as
+
+```cpp
+plan->capture();   // Source  → framebuffer
+plan->infer();     // your plan's per-frame graph
+plan->write();     // framebuffer → Sink
+plan->makeGraph();
+```
+
+so the runtime's two I/O nodes bracket yours. The runtime also does the awkward
+part of getting a video frame onto a GL surface: it resizes to the viewport
+(preserving aspect ratio), flips vertically into OpenGL's coordinate system, and
+converts RGB/BGR to BGRA.
+
+**A plan must not call `capture()` or `write()` itself.** `V4DPlan` inherits both
+— they are how the runtime emits the two nodes above — but calling them from
+`infer()` records a *second* copy of the read or write. The frame is then
+fetched (or saved) twice per frame and the two copies race each other. They are
+marked runtime-internal on `V4DPlan` for exactly this reason, and no sample in
+this tree calls them. To read the frame's pixels use
+`fb(UMAT_COPY_TO_, RW(member))`; to render into the framebuffer use
+`fb<pos>(cv::cvtColor, ...)`.
 
 ### 6.3 Exercise program: video → grayscale → video
 
@@ -401,19 +430,20 @@ int main(int argc, char** argv) {
     cv::Rect viewport(0, 0, 1280, 720);
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Grayscale",
                                      AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    auto src  = Source::make(runtime, argv[1]);
-    auto sink = Sink::make(runtime, argv[2], src->fps(), viewport.size());
+    auto src  = Source::makeDefault(runtime, argc > 1 ? argv[1] : "input.mp4");
+    auto sink = Sink::makeDefault(runtime, argc > 2 ? argv[2] : "out.mkv",
+                                  src->fps(), viewport.size());
     runtime->setSource(src);
     runtime->setSink(sink);
     V4DPlan::run<GrayscalePlan>(0);
 }
 ```
 
-Run it as `./grayscale in.mp4 out.mkv`. Notice how `fb(lambda, edges...)` binds edges to lambda parameters positionally — the same mechanism as `nvg(...)`.
+Run it as `./grayscale in.mp4 out.mkv`. Notice how `fb(lambda, edges...)` binds edges to lambda parameters positionally — the same mechanism as `nvg(...)`. The plan body is a single `fb` node: it neither reads the source nor writes the file.
 
 **Exercise 4.1.** Rewrite the pipeline using a single `fb(...)` call with an inline color conversion, eliminating the `gray_` buffer.
 
-**Exercise 4.2.** Make the output half resolution. Hint: `cv::resize` in the `fb` node; pass the sink the new size in `Sink::make`.
+**Exercise 4.2.** Make the output half resolution. Hint: `cv::resize` in the `fb` node; pass the sink the new size in `Sink::makeDefault`.
 
 ---
 
@@ -501,15 +531,14 @@ At replay time this calls `cv::cvtColor(result_, framebuffer, ...)` — i.e. it 
 
 Because the framebuffer is a genuine `cv::UMat` backed by shared memory, you can run OpenCV (and thus OpenCL) directly on framebuffer data without copies.
 
-**Copying the framebuffer out.** Snapshot the framebuffer into a `UMat` with `copyTo`. Samples expose `copyTo` as a pre-made edge — `beauty-demo.cpp` / `optflow-demo.cpp` define `UMAT_COPY_TO_` with the `_OLMC_` macro in `util.hpp`, and `font-demo.cpp` defines a `UMAT_COPY_` of its own:
+**Copying the framebuffer out.** Snapshot the framebuffer into a `UMat` with `copyTo`. Several samples define `UMAT_COPY_TO_` as a local constant with the `_OLMC_` macro — `beauty-demo.cpp`, `optflow-demo.cpp` and `nanovg-demo.cpp` do, and `font-demo.cpp` defines a `UMAT_COPY_` of its own:
 
 ```cpp
-nvg(&StarsRenderer::draw, RWS(stars_), size_);
-fb(UMAT_COPY_, RWS(stars_.rendering_));      // framebuffer → UMat
-
-constexpr static auto UMAT_COPY_ =
+constexpr static auto UMAT_COPY_TO_ =
     _OLMC_(void, cv::UMat, &cv::UMat::copyTo, cv::OutputArray);
 ```
+
+`beauty-demo.cpp` uses it as `fb(UMAT_COPY_TO_, RW(frames_.orig_))` to pull the automatic source frame out of the framebuffer; `font-demo.cpp` uses `fb(UMAT_COPY_, RWS(stars_.rendering_))` to snapshot a rendered texture.
 
 Read the macro as “static-cast a member-function pointer to a concrete signature so the DSL can deduce types.” It is zero-cost.
 
@@ -891,6 +920,7 @@ int main(int argc, char** argv) {
 | 9 | Data race between GUI and workers | Mutate shared state from `gui()` only through `RWS(...)`; read it in `infer()` with `CS(...)`. |
 | 10 | “Tearing”/display desync in `imshow`-style apps | Use `ConfigFlags::DISPLAY_MODE`. |
 | 11 | Toggle fires on the wrong arm | Re-read §10.2: `IF`'s first operand is the *condition*; the true arm is selected when it holds. |
+| 12 | The frame is fetched/saved twice, or nodes race | You called `capture()` or `write()` in your plan. They are runtime-internal; `Plan::run` already emits them. Use `fb(...)` instead. |
 
 ---
 
@@ -913,10 +943,18 @@ Study the samples (`modules/v4d/samples/`), roughly in this order:
 | `font_with_gui.cpp` | GUI feeding NanoVG |
 | `custom_source_and_sink.cpp` | Rolling your own I/O + conditional logic in a branch |
 | `cube-demo.cpp` / `many_cubes-demo.cpp` | Pure GL; multiple parallel GL contexts |
+| `two-windows-demo.cpp` | Two runtimes and two plans in one process |
 | `pedestrian-demo.cpp` | HOG/NMS detection, multi-pedestrian KCF tracking, and interactive tuning |
 | `optflow-demo.cpp` | Non-trivial detection + tracking pipelines |
+| `skeletal-tracker-demo.cpp` | DNN person detection → per-person rotated RoI → pose net → multi-person tracking |
+| `image_carousel-demo.cpp` | `_shared` state, runtime image upload, event lists, perspective layout |
 | `imshow_reimplementation.cpp` | A full GUI image viewer |
 | `beauty-demo.cpp` | The kitchen sink: shared state, sub-plans, `IF` toggling, events, GUI |
+| `pipeline-demo.cpp` / `montage-demo.cpp` | Composing other samples as sub-plans, and tiling them in one window |
+| `shadertoy-editor.cpp` | An offline Shadertoy workbench: JSON projects, per-pass code, a GLSL editor |
+
+`bgfx-demo.cpp` and `bgfx-demo2.cpp` cover the bgfx context and need
+`OPENCV_V4D_ENABLE_BGFX=ON`.
 
 ---
 
@@ -947,7 +985,10 @@ public:
 // ── Source / sink (automatic) ──────────────────────────────────────────────
 // Source frames are automatically loaded into the framebuffer before infer().
 // Framebuffer content is automatically written to the sink after infer().
-// Use fb() to read/write the framebuffer:
+// Use fb() to read/write the framebuffer — and do NOT call capture()/write():
+auto src  = Source::makeDefault(rt, "in.mp4");
+auto sink = Sink::makeDefault(rt, "out.mkv", src->fps(), viewport.size());
+rt->setSource(src);  rt->setSink(sink);
 
 // ── Edges ───────────────────────────────────────────────────────────────────
 V(x)  R(x)  RW(x)  RS(x)  RWS(x)  CS(x)  P<T>(key)  E<T>(type)  F(fn, ...)  _(...)

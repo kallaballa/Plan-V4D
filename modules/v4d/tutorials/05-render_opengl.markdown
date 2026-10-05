@@ -6,7 +6,7 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 ## Render a blue screen using OpenGL
 This example simply paints the screen blue using OpenGL without shaders for brevity. One important detail of this example is that states are being preserved between invocations of a context type (in this case the ```gl``` context).

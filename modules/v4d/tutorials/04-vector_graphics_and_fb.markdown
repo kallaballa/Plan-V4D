@@ -6,7 +6,7 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 ## Vector graphics and framebuffer manipulation
 The framebuffer can be accessed directly to manipulate data created in other contexts. In this case vector graphics is rendered to the framebuffer through NanoVG and then blurred using an ```fb`` context.

@@ -6,7 +6,7 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 Renders a Star Wars like text crawl using nanovg (OpenGL) and uses OpenCV for a pseudo 3D effect.
 

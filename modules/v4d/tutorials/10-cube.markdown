@@ -1,12 +1,12 @@
 # Cube-Demo {#v4d_cube}
 
-@prev_tutorial{v4d}
+@prev_tutorial{v4d_font_with_gui}
 @next_tutorial{v4d_many_cubes}
 
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 Renders a rainbow cube on blueish background using OpenGL and applies a glow effect using OpenCV.
 

@@ -6,7 +6,7 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 ## Using NanoVG to display images
 Instead of feeding to the video pipeline or doing a direct framebuffer access we can use NanoVG to display an image. It is not as convinient as the other methods but it is very fast and flexible.

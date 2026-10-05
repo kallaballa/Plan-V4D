@@ -6,7 +6,7 @@
 |    |    |
 | -: | :- |
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
-| Compatibility | OpenCV >= 4.7 |
+| Compatibility | OpenCV >= 5.0 |
 
 Multi-pedestrian detection and tracking on a video. The demo uses OpenCV's HOG people detector with non-maximum suppression (NMS), maintains one KCF tracker per pedestrian, and renders smoothed tracking boxes with NanoVG. Dear ImGui controls are available for tuning detection frequency, track limits, tracker refresh, and smoothing.
 

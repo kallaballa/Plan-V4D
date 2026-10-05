@@ -386,8 +386,10 @@ public:
     // emits a node setting the states for "fullscreen" during execution of the
     // graph reading values from the shared data by copying it.
     set(V_::FULLSCREEN, CS(params_.fullscreen_));
-    // create a node the will capture video
-    capture(RW(frames_.orig_));
+    // The runtime copies the source frame into the framebuffer before the plan
+    // runs, so the frame is read back out of it. An explicit capture() here
+    // would both duplicate that node and race the automatic one.
+    fb(UMAT_COPY_TO_, RW(frames_.orig_));
     plain(prepare_frames, R(downSize_), RW(frames_));
 
     // a branch is basically a graph node that decides what graph node to run
@@ -423,7 +425,9 @@ public:
     fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0),
           V(cv::ALGO_HINT_DEFAULT));
 
-    write(R(frames_.result_));
+    // No write() here: the sink, if there is one, receives the framebuffer at
+    // the end of the graph run, and the node above is what put the result in
+    // it.
   }
 };
 

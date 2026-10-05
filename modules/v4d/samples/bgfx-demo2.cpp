@@ -144,7 +144,6 @@ public:
   }
 
   void infer() override {
-    capture();
     bgfx(
         [](const Params &params, const int64_t timeOffset) {
           float time = (float)((bx::getHPCounter() - timeOffset) /
@@ -218,7 +217,6 @@ public:
           bgfx::frame();
         },
         R(params_), CS(time_offset_));
-    write();
   }
 };
 

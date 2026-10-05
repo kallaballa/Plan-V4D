@@ -988,7 +988,7 @@ Runtimes such as V4D add additional contexts.
 | `imgui(fn, args...)` | ImGui | Install UI transaction |
 | `set(key, edge)` | CPU | Property write node (`V4D::Keys` or `GlobalState::Keys`) |
 
-Sources and sinks are handled automatically by the runtime. When a source is set, its frame is loaded into the framebuffer before the plan runs; when a sink is set, the framebuffer content is written to it after the plan runs. Plans access the frame using `fb(...)` — there is no need for explicit `capture()` or `write()` calls.
+Sources and sinks are handled automatically by the runtime. When a source is set, its frame is loaded into the framebuffer before the plan runs; when a sink is set, the framebuffer content is written to it after the plan runs. Plans access the frame using `fb(...)` — there is no need for explicit `capture()` or `write()` calls, and a plan must not make them: `Plan::run` already emits both nodes around `infer()`, so calling them from a plan records a second copy of work the runtime is doing.
 
 Most context calls return `cv::Ptr<V4DPlan>` and can be chained. `imgui` is the exception: it returns `void` and installs a transaction for the ImGui frame instead.
 
@@ -1145,20 +1145,18 @@ The `main()` function initializes the V4D runtime, attaches a source and sink, a
 int main(int argc, char** argv) {
     cv::v4d::add_asset_search_paths();
 
-    std::string inputVideo = (argc > 1) ? argv[1]
-                              : cv::samples::findFile("videos/bunny.mp4");
+    std::string inputVideo = demo_video_input("videos/bunny.mp4", argc, argv);
     std::string outputVideo = (argc > 2) ? argv[2] : "video_editing_out.mkv";
 
     cv::Rect viewport(0, 0, 960, 960);
     cv::Ptr<V4D> runtime = V4D::init(
         viewport,
         "Video Editing",
-        AllocateFlags::NANOVG | AllocateFlags::IMGUI,
-        ConfigFlags::DISPLAY_MODE
+        AllocateFlags::NANOVG | AllocateFlags::IMGUI
     );
 
-    auto src = Source::make(runtime, inputVideo);
-    auto sink = Sink::make(runtime, outputVideo, src->fps(), viewport.size());
+    auto src = Source::makeDefault(runtime, inputVideo);
+    auto sink = Sink::makeDefault(runtime, outputVideo, src->fps(), viewport.size());
 
     runtime->setSource(src);
     runtime->setSink(sink);
@@ -1167,7 +1165,7 @@ int main(int argc, char** argv) {
 }
 ```
 
-Because `2` is passed to `run`, the runtime uses three compute workers plus a display thread (the main thread). For V4D the main thread handles the display and input-event loop, while each compute worker executes its own copy of the plan graph.
+Because `2` is passed to `run`, the runtime uses two worker threads plus a display thread (the main thread). For V4D the main thread handles the display and input-event loop, while each worker executes its own copy of the plan graph.
 
 ---
 
