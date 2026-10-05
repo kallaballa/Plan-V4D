@@ -19,6 +19,7 @@ set -euo pipefail
 #   ./regenerate.sh --no-rebuild user         # regenerate+commit but skip 'osc rebuild'
 #   ./regenerate.sh --build user              # also run a local opencv build first
 #   VERSION=... REVISION=2 ./regenerate.sh    # override version/revision
+#   FORCE_REBUILD=1 ./regenerate.sh           # rebuild even if no source changed
 #
 # Prerequisites:
 #   - osc installed and configured
@@ -119,6 +120,7 @@ echo "OpenCV dir: $OPENCV_DIR (branch $OPENCV_CUR_BRANCH)"
 echo "Plan-V4D:   $PROJECT_DIR (branch $PLANV4D_CUR_BRANCH)"
 echo "Rebuild:    $([ "$NO_REBUILD" = true ] && echo skip || echo yes)"
 echo "Local build: $([ "$BUILD_LOCAL" = true ] && echo yes || echo skip)"
+echo "Force rebuild: ${FORCE_REBUILD:-0}"
 echo ""
 
 # ====================================================================
@@ -161,7 +163,11 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
 echo "--- Building opencv source tarball (plain, for RPM targets) ---"
-(cd "$OPENCV_DIR" && tar czf "$STAGE/opencv-${VERSION}.tar.gz" \
+# `gzip -n` (via GZIP=-n) omits the timestamp and the original file name from
+# the gzip header, so an unchanged checkout yields a byte-identical archive.
+# Without it every run produced a different blob for identical sources and
+# `osc commit` re-uploaded all 2 GB per RPM target for nothing.
+(cd "$OPENCV_DIR" && GZIP=-n tar czf "$STAGE/opencv-${VERSION}.tar.gz" \
     --transform "s,^.,opencv-${VERSION}," \
     --exclude=./.git \
     --exclude=./build \
@@ -176,7 +182,7 @@ echo "  -> $(du -h "$STAGE/opencv-${VERSION}.tar.gz" | cut -f1)"
 echo "--- Building plan-v4d source tarball (for RPM targets) ---"
 # modules/v4d/third is a symlink in git to a local bgfx/imgui/nanovg tree;
 # -h dereferences it so the real sources are packaged.
-(cd "$PROJECT_DIR" && tar czf "$STAGE/plan-v4d-${VERSION}.tar.gz" -h \
+(cd "$PROJECT_DIR" && GZIP=-n tar czf "$STAGE/plan-v4d-${VERSION}.tar.gz" -h \
     --transform "s,^.,plan-v4d-${VERSION}," \
     --exclude=./.git \
     --exclude=./.git-rewrite \
@@ -202,7 +208,7 @@ tar -xzf "$STAGE/opencv-${VERSION}.tar.gz" -C "$STAGE/deb"
 tar -xzf "$STAGE/plan-v4d-${VERSION}.tar.gz" -C "$STAGE/deb"
 mv "$STAGE/deb/plan-v4d-${VERSION}/modules" "$STAGE/deb/opencv-${VERSION}/extra_modules"
 rm -rf "$STAGE/deb/plan-v4d-${VERSION}"
-(cd "$STAGE/deb" && tar czf "$STAGE/opencv-deb-${VERSION}.tar.gz" "opencv-${VERSION}")
+(cd "$STAGE/deb" && GZIP=-n tar czf "$STAGE/opencv-deb-${VERSION}.tar.gz" "opencv-${VERSION}")
 echo "  -> $(du -h "$STAGE/opencv-deb-${VERSION}.tar.gz" | cut -f1)"
 
 # Sanity: the merged deb tarball must contain extra_modules with plan + v4d
@@ -217,6 +223,16 @@ echo ""
 # ====================================================================
 # Generate deb packaging files from tracked sources
 # ====================================================================
+
+# Print the Build-Depends: paragraph of a debian.control file: the field itself
+# plus every continuation line (RFC822-style folded field).
+extract_build_depends() {
+    awk '
+        /^[^ \t#]/ { inblock = ($0 ~ /^Build-Depends:/) }
+        inblock    { print }
+    ' "$1"
+}
+
 generate_deb_files() {
     local target="$1"   # ubuntu or raspbian
     local outdir="$2"
@@ -252,9 +268,38 @@ generate_deb_files() {
     (cd "$overlay" && tar czf "$outdir/debian.tar.gz" debian)
     rm -rf "$overlay"
 
-    # Generate plan-v4d.dsc
+    # Generate plan-v4d.dsc. OBS installs the build dependencies from the .dsc's
+    # Build-Depends: field, but dpkg-checkbuilddeps then verifies them against
+    # debian/control, which debtransform patches in from debian.control. Keep a
+    # single source of truth by deriving the field from debian.control rather
+    # than repeating it in plan-v4d.dsc.in — a stale duplicate used to leave
+    # OBS provisioning the old list and the build aborting with
+    # "Unmet build dependencies".
+    local depsfile="$outdir/.build-deps"
+    extract_build_depends "$srcdir/debian.control" > "$depsfile"
+    if [[ ! -s "$depsfile" ]]; then
+        echo "ERROR: no Build-Depends: field in $srcdir/debian.control" >&2
+        return 1
+    fi
     sed -e "s/@VERSION@/$VERSION/g" -e "s/@REVISION@/$REVISION/g" \
-        "$srcdir/plan-v4d.dsc.in" > "$outdir/plan-v4d.dsc"
+        "$srcdir/plan-v4d.dsc.in" \
+    | awk -v depsfile="$depsfile" '
+        $0 == "@BUILD_DEPENDS@" {
+            while ((getline line < depsfile) > 0) print line
+            close(depsfile)
+            next
+        }
+        { print }
+    ' > "$outdir/plan-v4d.dsc"
+    rm -f "$depsfile"
+
+    # Sanity: both files must agree, otherwise OBS provisions one set of
+    # dependencies and the build demands another.
+    if ! diff <(extract_build_depends "$srcdir/debian.control") \
+              <(extract_build_depends "$outdir/plan-v4d.dsc") >/dev/null; then
+        echo "ERROR: Build-Depends in $outdir/plan-v4d.dsc differ from $srcdir/debian.control" >&2
+        return 1
+    fi
 }
 
 echo "--- Generating Ubuntu_24.04 deb packaging ---"
@@ -423,6 +468,27 @@ for target in "${TARGETS[@]}"; do
             FILES=("opencv-${VERSION}.tar.gz" "debian.changelog" "debian.control" "debian.rules" "debian.tar.gz" "plan-v4d.dsc")
             ;;
     esac
+
+    # Nothing to do? `osc status` compares the freshly staged files against the
+    # last committed revision, so an empty result means every source is already
+    # in OBS. Skip the commit and the rebuild trigger rather than pushing
+    # gigabytes of identical content; FORCE_REBUILD=1 overrides this.
+    PENDING=$(osc -A "$OBS_API" status 2>/dev/null | grep -E '^[A-Z?]' || true)
+
+    if [[ -z "$PENDING" && "${FORCE_REBUILD:-0}" != "1" ]]; then
+        echo "  sources already up to date in OBS, nothing to commit"
+        if [[ "$NO_REBUILD" != "true" ]]; then
+            echo "  skipping rebuild (set FORCE_REBUILD=1 to rebuild anyway)"
+        fi
+        popd >/dev/null
+        echo ""
+        continue
+    fi
+
+    if [[ -n "$PENDING" ]]; then
+        echo "  changed files:"
+        sed 's/^/    /' <<< "$PENDING"
+    fi
 
     echo "  committing ${FILES[*]}"
     osc -A "$OBS_API" commit -m "Regenerate sources: Plan-V4D ${VERSION}-${REVISION} (${target})" --noservice

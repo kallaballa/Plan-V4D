@@ -23,6 +23,7 @@ BuildRequires:  pkgconfig(libva)
 BuildRequires:  libXinerama-devel
 BuildRequires:  libXcursor-devel
 BuildRequires:  libXi-devel
+BuildRequires:  libXrandr-devel
 
 # opencv_v4d unconditionally does find_package(Freetype REQUIRED) and links
 # Freetype::Freetype into the module and the samples, so the freetype headers
@@ -31,6 +32,25 @@ BuildRequires:  libXi-devel
 # GLFW is NOT a BuildRequires: it is vendored in modules/v4d/third/glfw and built
 # as part of the module, and the resulting libglfw.so.3 (same soname as the
 # distribution's) is installed by plan-v4d-libs itself.
+#
+# The vendored GLFW (>= 3.5) defaults GLFW_BUILD_WAYLAND to ON on Unix, and
+# modules/v4d/CMakeLists.txt only turns it off when OpenCV's WITH_WAYLAND is
+# off. This package configures with -DWITH_WAYLAND=ON, so the Wayland backend
+# is built and hard-requires the Wayland development files plus
+# wayland-scanner, which generates the protocol headers it compiles in:
+#
+#   BuildRequires: wayland-devel               # wayland-scanner + wayland-*.pc
+#   BuildRequires: wayland-protocols-devel     # wayland-protocols.pc
+#   BuildRequires: libxkbcommon-devel          # xkbcommon.pc
+#
+# Without them the CMake configure step aborts with "Failed to find
+# wayland-scanner" or "The following required packages were not found:
+# - xkbcommon>=0.5.0".
+#
+# The X11 backend (always built, GLFW_BUILD_X11 defaults to ON) hard-requires
+# the RandR headers, which GLFW 3.3 only needed as a library:
+# "RandR headers not found; install libxrandr development package". Hence the
+# libXrandr-devel/libxrandr-dev entries next to the other X11 BuildRequires.
 %if 0%{?suse_version}
 BuildRequires:  Mesa-libGL-devel
 BuildRequires:  glu-devel
@@ -38,6 +58,9 @@ BuildRequires:  glew-devel
 BuildRequires:  libqt5-qtbase-devel
 BuildRequires:  ocl-icd-devel
 BuildRequires:  freetype2-devel
+BuildRequires:  wayland-devel
+BuildRequires:  wayland-protocols-devel
+BuildRequires:  libxkbcommon-devel
 BuildRequires:  fdupes
 %endif
 
@@ -48,6 +71,9 @@ BuildRequires:  glew-devel
 BuildRequires:  qt5-qtbase-devel
 BuildRequires:  ocl-icd-devel
 BuildRequires:  freetype-devel
+BuildRequires:  wayland-devel
+BuildRequires:  wayland-protocols-devel
+BuildRequires:  libxkbcommon-devel
 %endif
 
 # ====================================================================

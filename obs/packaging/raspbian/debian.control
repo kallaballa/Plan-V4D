@@ -2,6 +2,13 @@ Source: plan-v4d
 Section: libs
 Priority: optional
 Maintainer: elchaschab <elchaschab@users.noreply.github.com>
+# libwayland-dev/libwayland-bin/libxkbcommon-dev are needed by the vendored
+# GLFW (modules/v4d/third/glfw, >= 3.5): it defaults GLFW_BUILD_WAYLAND to ON
+# and modules/v4d/CMakeLists.txt only disables it when OpenCV's WITH_WAYLAND is
+# off. debian.rules configures with -DWITH_WAYLAND=ON, so the Wayland backend
+# is built and hard-requires these: libwayland-bin provides wayland-scanner
+# (used to generate the protocol headers it compiles in) and libxkbcommon-dev
+# the xkbcommon.pc file its pkg-config check demands.
 Build-Depends: debhelper-compat (= 13),
                cmake (>= 3.20),
                g++,
@@ -12,6 +19,7 @@ Build-Depends: debhelper-compat (= 13),
                zlib1g-dev,
                libpng-dev,
                libjpeg-dev,
+               libxrandr-dev,
                libxinerama-dev,
                libxcursor-dev,
                libxi-dev,
@@ -21,7 +29,10 @@ Build-Depends: debhelper-compat (= 13),
                libglfw3-dev,
                qtbase5-dev,
                ocl-icd-opencl-dev,
-               libfreetype-dev
+               libfreetype-dev,
+               libwayland-dev,
+               libwayland-bin,
+               libxkbcommon-dev
 Standards-Version: 4.6.2
 Homepage: https://github.com/kallaballa/Plan-V4D
 
