@@ -227,16 +227,34 @@ below, or add them to an existing OpenCV build via `OPENCV_EXTRA_MODULES_PATH`
 (pass `-DBUILD_EXAMPLES=ON` to also build the programs in
 `modules/v4d/samples/`).
 
+[`./build.sh`](build.sh) takes a command, then options:
+
+| Command                   | What it does                                          |
+|---------------------------|-------------------------------------------------------|
+| `plan`                    | Configure, build and run the plan tests (the default) |
+| `plan+v4d`                | Configure, build and install the plan+v4d stack       |
+| `android`                 | Cross-compile the V4D demos for Android               |
+| `configure`               | Configure the build directory, nothing else           |
+| `build`                   | Compile an already-configured build directory         |
+| `test`                    | Run the plan test and perf binaries                   |
+| `install`                 | Install a built tree (`sudo make install`)            |
+| `clean`                   | Remove the build directory                            |
+
+`./build.sh --help` lists the options (`-b/--build-type`, `-j/--jobs`,
+`-d/--dnn-backend`, `-r/--rebuild`, `-t/--target`, and the `--abi`,
+`--api-level`, `--demo`, `--apk` and `--configure-only` of the `android`
+command).
+
 ### Plan-DSL
 
 ```bash
-./build.sh -t plan -b debug
+./build.sh plan -b debug
 ```
 
 ### Plan-V4D
 
 ```bash
-./build.sh -t plan+v4d -b debug
+./build.sh plan+v4d -b debug
 ```
 
 | CMake option                    | Effect                                       |

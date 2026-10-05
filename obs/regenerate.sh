@@ -130,7 +130,7 @@ echo ""
 # opencv checkout relative to the current directory (../opencv).
 if [[ "$BUILD_LOCAL" == true ]]; then
     echo "--- Running local build (build.sh) ---"
-    (cd "$PROJECT_DIR" && ./build.sh -t plan+v4d -b release -r)
+    (cd "$PROJECT_DIR" && ./build.sh plan+v4d -b release -r)
 else
     echo "(skipping local build; use --build to run build.sh)"
 fi

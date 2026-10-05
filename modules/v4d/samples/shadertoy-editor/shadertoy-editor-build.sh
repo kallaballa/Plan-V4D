@@ -33,7 +33,7 @@ if [ ! -f "$build/CMakeCache.txt" ]; then
   cat >&2 <<EOF
 $build is not a configured build tree. Configure one first:
 
-  ./build.sh -t plan+v4d -b release
+  ./build.sh plan+v4d -b release
 EOF
   exit 1
 fi

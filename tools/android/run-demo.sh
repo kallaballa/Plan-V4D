@@ -39,7 +39,7 @@ command -v adb >/dev/null || {
 }
 [ -f "$APK" ] || {
   echo "run-demo: $APK not found." >&2
-  echo "  Build it first: ./build.sh -t android --apk --demo $DEMO" >&2
+  echo "  Build it first: ./build.sh android --apk --demo $DEMO" >&2
   exit 1
 }
 

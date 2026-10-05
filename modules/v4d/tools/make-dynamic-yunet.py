@@ -123,7 +123,7 @@ def dynamic_dims(model):
 def main():
     parser = argparse.ArgumentParser(
         description="Give the YuNet face detector a dynamic input shape.",
-        epilog="Afterwards re-run ./build.sh -t plan+v4d so opencv/build/ picks up the new asset.",
+        epilog="Afterwards re-run ./build.sh plan+v4d so opencv/build/ picks up the new asset.",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--check", action="store_true", help="verify only, write nothing")

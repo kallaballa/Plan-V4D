@@ -37,7 +37,7 @@ command -v adb >/dev/null || {
 }
 [ -f "$APK" ] || {
   echo "debug-device: $APK not found; build it with" >&2
-  echo "  ./build.sh -t android --apk --demo $DEMO" >&2
+  echo "  ./build.sh android --apk --demo $DEMO" >&2
   exit 1
 }
 

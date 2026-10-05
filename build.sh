@@ -7,6 +7,7 @@ BUILD_DIR="$OPENCV_DIR/build"
 BUILD_MARKER="$BUILD_DIR/.build-type"
 JOBS=4
 TARGET=plan
+TARGET_SET=0
 BUILD_TYPE=debug
 REBUILD=
 TEST_ARGS=
@@ -19,15 +20,29 @@ ANDROID_DEMO=all
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [options] [-- <test args>]
+Usage: $(basename "$0") <command> [options] [-- <test args>]
 
 Build the OpenCV plan / plan+v4d stack, or the V4D demos for Android.
 
+Commands:
+  plan            Configure, build and run the plan tests (the default when no
+                  command is given)
+  plan+v4d        Configure, build and install the plan+v4d stack
+                  ('v4d' is accepted as a shorthand)
+  android         Cross-compile the V4D demos for Android
+  configure       Configure the build directory, nothing else
+  build           Compile an already-configured build directory
+  test            Run the plan test and perf binaries
+  install         Install a built tree with 'sudo make install'
+  clean           Remove the build directory
+
 Options:
-  -t, --target TARGET    What to build: 'plan', 'plan+v4d' or 'android'
-                         (default: plan)
+  -t, --target TARGET  Module set for configure/build/test/install/clean:
+                       'plan' or 'plan+v4d' (default: plan). The 'plan' and
+                       'plan+v4d' commands name the module set themselves and
+                       reject this option.
   -b, --build-type TYPE  Build configuration: release, debug, asan, ubsan, tsan
-                         (default: debug)
+                          (default: debug)
   -j, --jobs N           Parallel build jobs (default: 4)
   -d, --dnn-backend NAME DNN inference backend: 'openvino' or 'opencv'
                          (default: openvino). 'openvino' compiles the OpenVINO
@@ -39,8 +54,8 @@ Options:
                          build directory contents
   -h, --help             Show this help
 
-Android options (only meaningful with --target android; everything below is
-handed to tools/android-build.sh, which owns the NDK settings):
+Android options (only meaningful with the 'android' command; everything below
+is handed to tools/android-build.sh, which owns the NDK settings):
 
       --abi ABI          Android ABI: arm64-v8a, armeabi-v7a or x86_64
                          (default: arm64-v8a)
@@ -54,7 +69,7 @@ handed to tools/android-build.sh, which owns the NDK settings):
                          tools/android/package-apk.sh
 
 Any arguments after '--' are passed through to the test binaries (only relevant
-when target is 'plan', which builds and runs the plan tests).
+for the 'plan' and 'test' commands, which build and run the plan tests).
 
 Environment:
   OpenVINO_DIR   OpenVINO devel tree to build against, e.g.
@@ -65,59 +80,17 @@ Environment:
   ANDROID_API_LEVEL / ANDROID_ABI  Defaults for the Android options above
 
 Examples:
-  $(basename "$0")
-  $(basename "$0") -t plan+v4d
-  $(basename "$0") -t plan -b asan -j 8 -- --gtest_filter=Plan.*
-  $(basename "$0") -r -d openvino
-  $(basename "$0") -t android --apk --demo font_rendering
-  $(basename "$0") -t android --abi x86_64 --configure-only
+  $(basename "$0") plan
+  $(basename "$0") plan+v4d -b release
+  $(basename "$0") plan -b asan -j 8 -- --gtest_filter=Plan.*
+  $(basename "$0") configure -t plan+v4d -b release -d openvino
+  $(basename "$0") build && $(basename "$0") test
+  $(basename "$0") android --apk --demo font_rendering
+  $(basename "$0") android --abi x86_64 --configure-only
+  $(basename "$0") clean
 EOF
   exit 0
 }
-
-while [ $# -gt 0 ] && [ "$1" != "--" ]; do
-  case "$1" in
-    -t|--target)
-      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
-      TARGET="$2"; shift 2 ;;
-    -b|--build-type)
-      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
-      BUILD_TYPE="$2"; shift 2 ;;
-    -j|--jobs)
-      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
-      JOBS="$2"; shift 2 ;;
-    -d|--dnn-backend)
-      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
-      DNN_BACKEND="$2"; shift 2 ;;
-    --abi)
-      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
-      ANDROID_ABI="$2"; shift 2 ;;
-    --api-level)
-      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
-      ANDROID_API_LEVEL="$2"; shift 2 ;;
-    --demo)
-      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
-      ANDROID_DEMO="$2"; shift 2 ;;
-    --apk)
-      ANDROID_PACKAGE=1; shift ;;
-    --configure-only)
-      ANDROID_CONFIGURE_ONLY=1; shift ;;
-    -r|--rebuild)
-      REBUILD=1; shift ;;
-    -h|--help)
-      usage ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage ;;
-  esac
-done
-[ $# -gt 0 ] && [ "$1" = "--" ] && shift
-TEST_ARGS="$*"
-
-case "$TARGET" in
-  plan|plan+v4d|android) ;;
-  *) echo "Invalid target '$TARGET' (expected 'plan', 'plan+v4d' or 'android')" >&2; exit 1 ;;
-esac
 
 # --- Android -----------------------------------------------------------------
 # Delegated wholesale to tools/android-build.sh rather than reimplemented here.
@@ -125,7 +98,7 @@ esac
 # VAAPI and `sudo make install` into /usr/local -- none of which exists on a
 # device, and every one of which would fight the NDK toolchain if it were tried.
 # The two share nothing but this argument parsing.
-if [ "$TARGET" = android ]; then
+android_build() {
   # 'all' is expanded here rather than in the sub-scripts so that the same list
   # drives the build (one cmake option) and the packaging loop (one APK each).
   if [ "$ANDROID_DEMO" = all ]; then
@@ -158,8 +131,91 @@ if [ "$TARGET" = android ]; then
         --api-level "$ANDROID_API_LEVEL"
     done
   fi
+}
+
+# The command is the first positional argument; a leading '-' is not a command,
+# so it falls through to the option loop and gets its error message there.
+COMMAND=plan
+if [ $# -gt 0 ] && [ "$1" != "--" ] && [ "${1#-}" = "$1" ]; then
+  COMMAND="$1"
+  shift
+fi
+
+while [ $# -gt 0 ] && [ "$1" != "--" ]; do
+  case "$1" in
+    -t|--target)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      TARGET="$2"; TARGET_SET=1; shift 2 ;;
+    -b|--build-type)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      BUILD_TYPE="$2"; shift 2 ;;
+    -j|--jobs)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      JOBS="$2"; shift 2 ;;
+    -d|--dnn-backend)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      DNN_BACKEND="$2"; shift 2 ;;
+    --abi)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      ANDROID_ABI="$2"; shift 2 ;;
+    --api-level)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      ANDROID_API_LEVEL="$2"; shift 2 ;;
+    --demo)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      ANDROID_DEMO="$2"; shift 2 ;;
+    --apk)
+      ANDROID_PACKAGE=1; shift ;;
+    --configure-only)
+      ANDROID_CONFIGURE_ONLY=1; shift ;;
+    -r|--rebuild)
+      REBUILD=1; shift ;;
+    -h|--help)
+      usage ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      echo "Try '$(basename "$0") --help' for the commands and options." >&2
+      exit 1 ;;
+  esac
+done
+[ $# -gt 0 ] && [ "$1" = "--" ] && shift
+TEST_ARGS="$*"
+
+case "$COMMAND" in
+  v4d) COMMAND=plan+v4d ;;
+esac
+
+# 'plan' and 'plan+v4d' are the module sets themselves, so they set the target
+# rather than defaulting it: without this './build.sh plan+v4d' would configure
+# the plan-only cmake arguments and build neither v4d nor its tests.
+if [ "$COMMAND" = plan ] || [ "$COMMAND" = plan+v4d ]; then
+  if [ "$TARGET_SET" = 1 ]; then
+    echo "'$COMMAND' already names the module set; drop -t/--target." >&2
+    exit 1
+  fi
+  TARGET="$COMMAND"
+fi
+
+case "$COMMAND" in
+  plan|plan+v4d|android|configure|build|test|install|clean) ;;
+  *)
+    echo "Invalid command '$COMMAND'" >&2
+    echo "Try '$(basename "$0") --help' for the list of commands." >&2
+    exit 1 ;;
+esac
+
+if [ "$COMMAND" = android ]; then
+  android_build
   exit 0
 fi
+
+case "$TARGET" in
+  plan|plan+v4d) ;;
+  *)
+    echo "Invalid target '$TARGET' (expected 'plan' or 'plan+v4d';" >&2
+    echo "'android' is a command, not a target)" >&2
+    exit 1 ;;
+esac
 
 case "$DNN_BACKEND" in
   openvino|opencv) ;;
@@ -173,7 +229,7 @@ EXE_LINKER_FLAGS=
 SHARED_LINKER_FLAGS=
 
 # Optional: point cmake at a specific OpenVINO devel tree, e.g.
-#   OpenVINO_DIR=/opt/intel/openvino_2026/runtime/lib/cmake/ov ./build.sh -r
+#   OpenVINO_DIR=/opt/intel/openvino_2026/runtime/lib/cmake/ov ./build.sh plan -r
 # Left empty, OpenCV's find_package(OpenVINO) picks up whatever is installed.
 OPENVINO_DIR_OVERRIDE="${OpenVINO_DIR:-}"
 
@@ -197,20 +253,6 @@ if [ -n "${SAN:-}" ]; then
   CXX_FLAGS="$CXX_FLAGS $SAN -fno-omit-frame-pointer"
   EXE_LINKER_FLAGS="$SAN"
   SHARED_LINKER_FLAGS="$SAN"
-fi
-
-if [ ! -d "$OPENCV_DIR" ]; then
-  $(cd $SCRIPT_DIR; git clone git@github.com:kallaballa/opencv.git)
-fi
-
-if [ -f "$BUILD_MARKER" ] && [ "$(cat "$BUILD_MARKER")" != "$BUILD_TYPE" ]; then
-  echo "Build dir was configured as '$(cat "$BUILD_MARKER")', reconfiguring for '$BUILD_TYPE'"
-  REBUILD=1
-fi
-
-if [ "$REBUILD" = 1 ] || [ ! -d "$BUILD_DIR" ]; then
-  rm -rf "$BUILD_DIR"
-  mkdir -p "$BUILD_DIR"
 fi
 
 CMAKE_ARGS=(
@@ -389,29 +431,109 @@ if [ -n "$SHARED_LINKER_FLAGS" ]; then
 fi
 CMAKE_ARGS+=(-DCMAKE_CXX_FLAGS="$CXX_FLAGS")
 
-echo "==> Building target '${TARGET}' (build type: ${BUILD_TYPE} in ${BUILD_DIR}"
-cd "$BUILD_DIR"
+# --- host build steps --------------------------------------------------------
 
-if [ "$REBUILD" = 1 ]; then
-  cmake --fresh "${CMAKE_ARGS[@]}" "$OPENCV_DIR"
-else
-  cmake "${CMAKE_ARGS[@]}" "$OPENCV_DIR"
-fi
-
-echo "$BUILD_TYPE" > "$BUILD_MARKER"
-
-if [ "$TARGET" = plan+v4d ]; then
-  make -j"$JOBS" && sudo make install
-else
-  make -j"$JOBS" opencv_test_plan opencv_perf_plan
-  if [ -x ./bin/opencv_test_plan ]; then
-    ./bin/opencv_test_plan $TEST_ARGS
-  else
-    ./opencv_test_plan $TEST_ARGS
+# Make sure there is a build directory to configure into, discarding a stale one
+# when the build type changed or --rebuild was asked for.
+prepare_build_dir() {
+  if [ ! -d "$OPENCV_DIR" ]; then
+    (cd "$SCRIPT_DIR"; git clone git@github.com:kallaballa/opencv.git)
   fi
-  if [ -x ./bin/opencv_perf_plan ]; then
-    ./bin/opencv_perf_plan $TEST_ARGS
-  else
-    ./opencv_perf_plan $TEST_ARGS
+
+  if [ -f "$BUILD_MARKER" ] && [ "$(cat "$BUILD_MARKER")" != "$BUILD_TYPE" ]; then
+    echo "Build dir was configured as '$(cat "$BUILD_MARKER")', reconfiguring for '$BUILD_TYPE'"
+    REBUILD=1
   fi
-fi
+
+  if [ "$REBUILD" = 1 ] || [ ! -d "$BUILD_DIR" ]; then
+    rm -rf "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR"
+  fi
+}
+
+# For the commands that take an already-configured tree as given. Without this a
+# stale tree left over from a different module set would be compiled against and
+# the mismatch would only show up as a missing target halfway through the build.
+require_configured_build_dir() {
+  if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
+    echo "$BUILD_DIR is not a configured build tree." >&2
+    echo "  Run: $(basename "$0") configure -t $TARGET -b $BUILD_TYPE" >&2
+    exit 1
+  fi
+}
+
+do_configure() {
+  prepare_build_dir
+  echo "==> Configuring target '${TARGET}' (build type: ${BUILD_TYPE} in ${BUILD_DIR}"
+  cd "$BUILD_DIR"
+  if [ "$REBUILD" = 1 ]; then
+    cmake --fresh "${CMAKE_ARGS[@]}" "$OPENCV_DIR"
+  else
+    cmake "${CMAKE_ARGS[@]}" "$OPENCV_DIR"
+  fi
+  echo "$BUILD_TYPE" > "$BUILD_MARKER"
+}
+
+# The plan module set builds only its test binaries; plan+v4d builds everything.
+do_build() {
+  cd "$BUILD_DIR"
+  echo "==> Building target '${TARGET}' with ${JOBS} job(s)"
+  if [ "$TARGET" = plan+v4d ]; then
+    make -j"$JOBS"
+  else
+    make -j"$JOBS" opencv_test_plan opencv_perf_plan
+  fi
+}
+
+do_test() {
+  cd "$BUILD_DIR"
+  local binary
+  for binary in opencv_test_plan opencv_perf_plan; do
+    if [ -x "./bin/$binary" ]; then
+      "./bin/$binary" $TEST_ARGS
+    elif [ -x "./$binary" ]; then
+      "./$binary" $TEST_ARGS
+    else
+      echo "$binary not found in $BUILD_DIR; build it first:" >&2
+      echo "  Run: $(basename "$0") build -t $TARGET" >&2
+      exit 1
+    fi
+  done
+}
+
+do_make_install() {
+  cd "$BUILD_DIR"
+  sudo make install
+}
+
+# 'install' stands on its own: the tree may be configured but not yet built, and
+# a bare `make install` would then fail on a missing target rather than build it.
+do_install() {
+  do_build
+  do_make_install
+}
+
+case "$COMMAND" in
+  plan)
+    do_configure
+    do_build
+    do_test ;;
+  plan+v4d)
+    do_configure
+    do_build
+    do_make_install ;;
+  configure)
+    do_configure ;;
+  build)
+    require_configured_build_dir
+    do_build ;;
+  test)
+    require_configured_build_dir
+    do_test ;;
+  install)
+    require_configured_build_dir
+    do_install ;;
+  clean)
+    echo "==> Removing $BUILD_DIR"
+    rm -rf "$BUILD_DIR" ;;
+esac

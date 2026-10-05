@@ -119,7 +119,7 @@ DEMO_LIB="v4ddemo_$DEMO"
 SRC_SO="$STAGE_ROOT/jniLibs/$ABI/$DEMO_SO"
 [ -f "$SRC_SO" ] || {
   echo "package-apk: $SRC_SO not found." >&2
-  echo "  Build it first: ./build.sh -t android --demo $DEMO" >&2
+  echo "  Build it first: ./build.sh android --demo $DEMO" >&2
   exit 1
 }
 

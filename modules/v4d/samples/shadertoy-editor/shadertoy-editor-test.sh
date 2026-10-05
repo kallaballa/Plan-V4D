@@ -32,7 +32,7 @@ status=0
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 
-[ -x "$binary" ] || die "$binary not built - run ./build.sh -t plan+v4d"
+[ -x "$binary" ] || die "$binary not built - run ./build.sh plan+v4d"
 command -v python3 >/dev/null || die "python3 is missing"
 
 rm -rf "$outdir"

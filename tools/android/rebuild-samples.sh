@@ -5,7 +5,7 @@
 #   tools/android/rebuild-samples.sh font_rendering nanovg-demo font-demo
 #   tools/android/rebuild-samples.sh            # every sample in OPENCV_V4D_SAMPLES
 #
-# Iterating on a sample through ./build.sh -t android is slow: the driver
+# Iterating on a sample through './build.sh android' is slow: the driver
 # reconfigures and relinks the whole OpenCV build, and a failing ninja line is
 # 2 KB of compiler flags. This goes straight at ninja and prints the
 # diagnostics alone (see log-errors.sh).
