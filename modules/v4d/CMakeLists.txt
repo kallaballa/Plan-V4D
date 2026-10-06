@@ -277,7 +277,7 @@ function(v4d_fetch_font name url sha)
     return()
   endif()
   file(RENAME "${dst}.tmp" "${dst}")
-  if("${dst}" "\\.zip$")
+  if("${dst}" MATCHES "\\.zip$")
     file(ARCHIVE_EXTRACT 
       INPUT "${dst}" 
       DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/"

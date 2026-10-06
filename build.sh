@@ -521,7 +521,6 @@ case "$COMMAND" in
   plan+v4d)
     do_configure
     do_build
-    do_make_install ;;
   configure)
     do_configure ;;
   build)
