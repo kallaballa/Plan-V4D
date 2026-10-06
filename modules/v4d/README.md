@@ -426,9 +426,42 @@ modules/v4d/
 │   ├── cubescene.hpp                the shared OpenGL cube
 │   ├── data/                        lena.png
 │   ├── fonts/                       Roboto, JetBrainsMono, entypo
-│   ├── skeletal-tracker-anchors.hpp the detector's compile-time anchor table
-│   ├── skeletal-tracker-pipeline.hpp the tracker's pipeline and shared state
 │   └── shadertoy-editor/            the Shadertoy editor's headers and scripts
+│   ├── font_rendering.cpp         minimum NanoVG program
+│   ├── render_opengl.cpp          minimum OpenGL program
+│   ├── display_image_fb.cpp       imshow-style, direct fb access
+│   ├── display_image_nvg.cpp      imshow-style, via NanoVG
+│   ├── video_editing.cpp          source → nvg → sink (read this first)
+│   ├── video-demo.cpp             capture → gl → write
+│   ├── cube-demo.cpp              pure GL rendering
+│   ├── many_cubes-demo.cpp        multiple GL contexts in parallel
+│   ├── font-demo.cpp              warping + GUI + multiple sub-plans
+│   ├── font_with_gui.cpp          GUI feeding NanoVG
+│   ├── nanovg-demo.cpp            NanoVG showcase
+│   ├── shader-demo.cpp            GLSL fragment shader on a quad
+│   ├── custom_source_and_sink.cpp custom I/O + conditional writing
+│   ├── montage-demo.cpp           many windows in one process
+│   ├── pedestrian-demo.cpp        HOG/NMS detection + KCF tracking + ImGui controls
+│   ├── skeletal-tracker-demo.cpp  MediaPipe pose: detection, per-person RoI,
+│   │                              pose net, multi-person tracking, 1 Euro smoothing
+│   ├── skeletal-tracker-pipeline.hpp  its pipeline, tracker and shared state
+│   ├── skeletal-tracker-anchors.hpp   the detector's anchors, computed
+│   ├── optflow-demo.cpp           Farneback optical flow
+│   ├── beauty-demo.cpp            the kitchen sink (read this second)
+│   ├── imshow_reimplementation.cpp   full GUI image viewer
+│   ├── image_carousel.cpp         animated glossy image carousel
+│   ├── tetralis-demo.cpp          Tetralis 3D: an orthographic shaft rendered
+│   │                              with NanoVG, input via keys and gamepad
+│   ├── tetralis-rules.hpp         its rules engine, dependency-free C++17
+│   ├── tetralis-selftest.cpp      the engine's checks, no window and no OpenCV
+│   ├── tetralis-selftest.sh       compiles and runs them headlessly
+│   ├── shadertoy-editor.cpp       offline Shadertoy editor: JSON projects,
+│   │                              per-pass code, recompile as you type
+│   ├── shadertoy_renderer.hpp     the Shadertoy render model, as plain OpenGL
+│   ├── shadertoy_model.hpp        passes, channel inputs, the shader
+│   ├── shadertoy_project.hpp      project files and local texture loading
+│   ├── shadertoy_json.hpp         the minimal JSON reader behind that
+│   └── shadertoy-editor-test.sh   compile / export / screenshot smoke test
 ├── src/
 │   ├── v4d.cpp                     V4D runtime lifecycle
 │   ├── nvg.cpp                     NanoVG wrapper
