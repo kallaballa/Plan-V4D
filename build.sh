@@ -520,7 +520,7 @@ case "$COMMAND" in
     do_test ;;
   plan+v4d)
     do_configure
-    do_build
+    do_build ;;
   configure)
     do_configure ;;
   build)
