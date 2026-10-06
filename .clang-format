@@ -1,0 +1,20 @@
+---
+Language:        Cpp
+Standard:        c++20
+BasedOnStyle:    LLVM
+# Formatting Rules
+IndentWidth:     2
+ColumnLimit:     120
+BreakBeforeBraces: Attach  # "attached braces"
+PointerAlignment:  Left     # Type* name
+ReferenceAlignment: Left    # Type& name
+SortIncludes:    CaseSensitive
+IncludeBlocks:   Regroup    # Groups related, standard, and third-party
+IncludeCategories:
+  - Regex:    '^".*"'       # Related/Local headers
+    Priority: 1
+  - Regex:    '^<(c|cstdint|cstdlib|cstring|cassert|cctype|cfloat|climits|cmath|csetjmp|csignal|cstdarg|cstddef|cstdio|iostream|vector|string|map|set|algorithm|memory|utility|functional|thread|mutex|condition_variable|future|chrono|ratio|system_error|stdexcept|exception|typeinfo|typeindex|type_traits|initializer_list|tuple|array|forward_list|unordered_map|unordered_set|queue|stack|deque|list|bitset|complex|valarray|random|numeric|iterator|istream|ostream|sstream|streambuf|ios|iosfwd|iomanip|locale|codecvt|regex|atomic|thread|mutex).*>'
+    Priority: 2             # Standard headers
+  - Regex:    '^<.*>'       # Third-party headers
+    Priority: 3
+...

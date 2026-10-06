@@ -1,0 +1,29 @@
+---
+Checks: >
+  -*,
+  readability-identifier-naming,
+  google-build-using-namespace,
+  misc-include-cleaner
+CheckOptions:
+  # Types: CamelCase
+  - { key: readability-identifier-naming.ClassCase,             value: CamelCase }
+  - { key: readability-identifier-naming.StructCase,            value: CamelCase }
+  # variables: lowerCamelCase
+  - { key: readability-identifier-naming.VariableCase,          value: lowerCamelCase }
+  # members: memberName_
+  - { key: readability-identifier-naming.ClassMemberCase,       value: lowerCamelCase }
+  - { key: readability-identifier-naming.ClassMemberSuffix,     value: "_" }
+  # static members: member_name_
+  - { key: readability-identifier-naming.StaticDataMemberCase,  value: lower_case }
+  - { key: readability-identifier-naming.StaticDataMemberSuffix, value: "_" }
+  # free functions: snake_case
+  - { key: readability-identifier-naming.FunctionCase,          value: lower_case }
+  # constants: _lowerCamelCase
+  - { key: readability-identifier-naming.ConstantCase,          value: lowerCamelCase }
+  - { key: readability-identifier-naming.ConstantPrefix,        value: "_" }
+  # enums: enum class CamelCase { UPPER_SNAKE_CASE };
+  - { key: readability-identifier-naming.EnumCase,              value: CamelCase }
+  - { key: readability-identifier-naming.EnumConstantCase,      value: UPPER_CASE }
+  # Namespaces (bonus standard practice)
+  - { key: readability-identifier-naming.NamespaceCase,         value: lower_case }
+...
