@@ -163,11 +163,16 @@ public:
                IF(F(&Keyboard::List::empty, space_), CS(shared_.enabled_),
                   !CS(shared_.enabled_)));
     {
-      RWS(shared_.frameDt_) = V(1000.0) / fps_;
+      // frameDt_ is seconds per frame; GlobalState::Keys::FPS is frames per
+      // second, so the interval is its reciprocal. (The pipeline clamps the
+      // result to [1/240, 1] s, which needs seconds, not milliseconds.)
+      RWS(shared_.frameDt_) = V(1.0) / fps_;
       fb(
           [](const cv::UMat &fb, cv::UMat &frameBGR) {
-            // fb is BGRA
-            cvtColor(fb, frameBGR, cv::COLOR_RGBA2RGB);
+            // fb is BGRA; dropping the alpha channel yields BGR. (Spelled
+            // BGRA2BGR because that is what it is -- COLOR_RGBA2RGB produced
+            // the same bytes but claimed otherwise.)
+            cvtColor(fb, frameBGR, cv::COLOR_BGRA2BGR);
           },
           RW(frameBGR_))
           ->plain(runPipeline, RWS(shared_), R(frameBGR_))
@@ -266,7 +271,9 @@ private:
         for (size_t i = 1; i < n; ++i) {
           globalAlpha(static_cast<float>(i) / static_cast<float>(n) * alpha /
                       255.f);
-          strokeColor(cv::Scalar(color[0], color[1], color[2], 1));
+          // NanoVG's Scalar alpha is 0..255; the per-segment fade is done
+          // with globalAlpha below, so the base colour carries full alpha.
+          strokeColor(cv::Scalar(color[0], color[1], color[2], 255));
           strokeWidth(boneW * 0.8f);
           beginPath();
           moveTo(person.trail[i - 1].x, person.trail[i - 1].y);
@@ -335,15 +342,28 @@ private:
       }
 
       // --- Track id above the head, so identity stability is visible.
-      const int head =
-          kpts[kJointNose][3] >= kpConf ? kJointNose : kJointLeftHip;
+      // Prefer the nose; when the nose is not confident, fall back to the
+      // top centre of the skeleton box -- a hip's filtered position can be
+      // several frames stale, the box cannot.
+      float tx, ty;
+      if (kpts[kJointNose][3] >= kpConf) {
+        tx = kpts[kJointNose][0];
+        ty = kpts[kJointNose][1] - jointR * 3.0f;
+      } else {
+        const cv::Rect2f sbox = skeletonBox(kpts, kpConf);
+        if (sbox.area() > 0.f) {
+          tx = sbox.x + 0.5f * sbox.width;
+          ty = sbox.y - 6.0f * scale;
+        } else {
+          tx = kpts[kJointLeftHip][0];
+          ty = kpts[kJointLeftHip][1] - jointR * 3.0f;
+        }
+      }
       std::snprintf(buf, sizeof(buf), "#%d", person.id);
       const float labelSize = 18.0f * scale;
       fontSize(labelSize);
       fontFace("sans-bold");
       textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_BOTTOM);
-      const float tx = kpts[head][0];
-      const float ty = kpts[head][1] - jointR * 3.0f;
       // Legibility: a filled pill behind the text, in the track colour.
       float bounds[4];
       textBounds(tx, ty, buf, buf + std::strlen(buf), bounds);

@@ -372,9 +372,6 @@ public:
     // top-N by confidence every frame makes identities swap whenever two
     // people cross, and makes tracks vanish on a single missed detection.
     const int numDet = static_cast<int>(boxes.size());
-    for (cv::Rect2f &b : boxes) {
-      b.width * 0.75;
-    }
     std::vector<int> trackOfDet(numDet, -1);
     std::vector<int> detOfTrack(tracks_.size(), -1);
     {
@@ -410,9 +407,25 @@ public:
           if (pass == 0) {
             if (pair.iou < kMatchIou)
               continue;
-          } else if (cv::norm(tracks_[pair.track].hip_ - hips[pair.det]) >
-                     kHipGateFactor * spans[pair.det]) {
-            continue;
+          } else {
+            // Same-person test on the mid-hips. A track whose detector has
+            // been dropping it for a while (detMissed_ > 0) gets a wider
+            // gate: its hip is stale by a detector-shaped gap, and refusing
+            // to re-link just mints a new id for the same person. The
+            // tolerance also uses the larger of the two body spans -- the
+            // track's span being its own, measured on its own person, rather
+            // than the detection's alone.
+            const Track &tr = tracks_[pair.track];
+            const float trackSpan =
+                tr.torso_ > kMinTorso ? tr.torso_ * kLandmarkHalf
+                                      : spans[pair.det];
+            const float coastScale =
+                1.f + static_cast<float>(std::min(tr.detMissed_, 2));
+            if (cv::norm(tr.hip_ - hips[pair.det]) >
+                kHipGateFactor * std::max(spans[pair.det], trackSpan) *
+                    coastScale) {
+              continue;
+            }
           }
           detOfTrack[pair.track] = pair.det;
           trackOfDet[pair.det] = pair.track;
@@ -459,12 +472,16 @@ public:
                               ? fromSkeleton
                               : acquisitionCrop(reg, rows[d], lb, p);
         measured = measure(frameBGR, tr, crop, dt, p, poseRuns);
-      } else if (p.landmarkRoi_ && tr.missed_ == 0 && poseRuns < coastBudget) {
-        // No detection, but the track was measured last frame, so its
-        // crop is one frame stale rather than arbitrary: this frame can
+      } else if (p.landmarkRoi_ && tr.missed_ < kMaxCoastMeasure &&
+                 poseRuns < coastBudget) {
+        // No detection, but the track was measured recently, so its
+        // crop is a few frames stale rather than arbitrary: this frame can
         // still be a measurement instead of a guess. That is what keeps a
         // skeleton on screen -- and the same id, colour and trail -- while
-        // the detector is losing somebody.
+        // the detector is losing somebody. The budget is what stops one
+        // rejected coast frame from stranding the track: a single strict
+        // disagreement (any fast or unusual motion) must not permanently
+        // forbid self-measurement until a detector re-acquisition.
         measured = measure(frameBGR, tr, coastCrop(tr, p), dt, p, poseRuns,
                            /*gate=*/true);
       }
@@ -645,6 +662,10 @@ private:
   // a skeleton that is about to be retired with it.
   static constexpr float kVelDamp = 0.75f;
   static constexpr float kVelMax = 0.4f;
+  // How many consecutive frames a track may still try to measure itself from
+  // its own crop while the detector stays away. One rejected frame must not
+  // end self-measurement (see the coast branch in #run).
+  static constexpr int kMaxCoastMeasure = 3;
   // A torso shorter than this in pixels says nothing about how large the crop
   // should be, so such a track falls back to the detector's own crop.
   static constexpr float kMinTorso = 4.f;
@@ -679,6 +700,15 @@ private:
     // drawn skeleton instead would couple it to the display smoothing, so
     // turning *that* off would make the crop jitter -- exactly backwards.
     OneEuro hipFx, hipFy, shoulderFx, shoulderFy, torsoF;
+    // How this crop has been widened to keep joints inside it, see #measure.
+    // Starts at 0 and grows when joints keep landing near the crop edge
+    // (a person striking a wide pose -- arms up, a leap), decaying back
+    // once they fit again.
+    float roiGrow_ = 0.f;
+    // The value of p.smooth_ the keypoint filters last ran with. Toggling
+    // smoothing off and on must re-seed the filters, or they replay their
+    // stale history onto the new measurements.
+    bool smoothApplied_ = true;
     // How long the torso is, and which way is up: what the next crop is built
     // from. An unset upValid_, or a torso below kMinTorso, means "no skeleton
     // worth building a crop from", and the track falls back to the detector's
@@ -900,17 +930,22 @@ private:
       centre = measuredHip;
       reanchored = true;
     }
-    return {centre, p.roiEnlarge_ * kLandmarkHalf * tr.torso_,
+    return {centre, p.roiEnlarge_ * kLandmarkHalf * tr.torso_ *
+                        (1.f + tr.roiGrow_),
             upOf(tr, centre)};
   }
 
   // The same crop for a track the detector dropped: there is no measurement to
-  // re-centre on, so the track's own prediction is all there is.
+  // re-centre on, so the track's own prediction is all there is. The crop
+  // grows a little for every frame it has been carried, so a re-measurement
+  // still finds the person after a few frames of fast or unusual motion.
   static Crop coastCrop(const Track &tr, const Params &p) {
     if (!tr.upValid_)
       return {};
     const cv::Point2f centre = tr.hip_ + tr.velocity * kPredictFrames;
-    return {centre, p.roiEnlarge_ * kLandmarkHalf * tr.torso_,
+    return {centre, p.roiEnlarge_ * kLandmarkHalf * tr.torso_ *
+                        (1.f + tr.roiGrow_) *
+                        (1.f + 0.25f * static_cast<float>(tr.missed_)),
             upOf(tr, centre)};
   }
 
@@ -929,20 +964,50 @@ private:
       return false;
     ++poseRuns;
     const cv::Point2f predicted = crop.centre;
+    if (p.smooth_ != tr.smoothApplied_) {
+      // The 1 Euro filters keep history; after a smoothing toggle that
+      // history belongs to the old regime. Re-seed them: the next samples
+      // restart filtering from the current skeleton rather than dragging
+      // it back towards where it was before the toggle.
+      for (int i = 0; i < kNumKeypoints; ++i) {
+        tr.fx[i].configure(kSmoothMinCutoff, kSmoothBeta, 1.f);
+        tr.fy[i].configure(kSmoothMinCutoff, kSmoothBeta, 1.f);
+      }
+      tr.smoothApplied_ = p.smooth_;
+    }
     std::vector<cv::Vec4f> fresh = estimatePose(frameBGR, crop, p);
     if (fresh.empty())
       return false;
     if (gate && tr.torso_ > 0.f &&
         cv::norm(hipOf(fresh) - predicted) >
-            kAgree * tr.torso_ + static_cast<float>(cv::norm(tr.velocity))) {
+            kAgree * (1.f + static_cast<float>(tr.missed_)) * tr.torso_ +
+                static_cast<float>(cv::norm(tr.velocity))) {
       // Whoever is standing where this track was is not the person it was
       // following. Not this frame's business to say so: the track coasts,
-      // and coasts out.
+      // and coasts out. The slack grows with the number of consecutive
+      // missed frames, so a genuine sudden move (the track's own person
+      // doing something unexpected) gets admitted on a retry instead of
+      // rejecting -- and with it the track -- forever after.
       return false;
     }
     adoptSkeleton(tr, fresh, p, dt);
     tr.keypoints_ = p.smooth_ ? smoothKeypoints(tr, fresh, dt, p) : fresh;
     tr.missed_ = 0;
+    // Keep the next crop big enough for whatever the person is doing.
+    // Measured against the crop that produced this skeleton: a joint
+    // landing at the very edge (extended arms, a leap, a hands-up
+    // sideways sit) means the crop is too small, and next frame's crop
+    // starts one step bigger. When everything fits again, the growth
+    // decays back, so the pose input does not slowly lose resolution.
+    float extent = 0.f;
+    for (const auto &k : tr.keypoints_) {
+      extent = std::max(extent,
+                        std::max(std::fabs(k[0] - crop.centre.x),
+                                 std::fabs(k[1] - crop.centre.y)));
+    }
+    const float rel = extent / std::max(1.f, crop.half);
+    tr.roiGrow_ = rel > 0.8f ? std::min(0.5f, tr.roiGrow_ + 0.1f)
+                             : std::max(0.f, tr.roiGrow_ - 0.05f);
     return true;
   }
 
@@ -1162,7 +1227,7 @@ skeletonBox(const std::vector<cv::Vec4f> &kpts,
   // product to double, and a double cannot be narrowed into the braced
   // initializer of a cv::Rect2f (ill-formed since C++11, and a hard error on
   // clang). All three factors are exactly representable in float.
-  return {(cx - half) * 1.25f, cy - half, 1.5f * half, 2.0f * half};
+  return {cx - half, cy - half, 1.5f * half, 2.0f * half};
 }
 
 // ---------------------------------------------------------------------------
@@ -1179,11 +1244,11 @@ struct SharedPoseState {
   // The tunables below are the single source of truth for the pipeline: the
   // panel edits them and #params is rebuilt from them on every frame, so
   // nothing else can quietly disagree about what the demo is running.
-  float detConf_ = 0.65f;
-  float poseConf_ = 0.4f;
-  float roiEnlarge_ = 1.1f;
+  float detConf_ = 0.7f;
+  float poseConf_ = 0.35f;
+  float roiEnlarge_ = 1.025f;
   int maxPersons_ = 2;
-  int maxMissed_ = 5;
+  int maxMissed_ = 10;
   bool smooth_ = true;
   // Track an already-tracked person with their own skeleton instead of with the
   // detector's keypoints. On: a still skeleton, and a dropped detection costs a
