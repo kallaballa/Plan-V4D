@@ -401,7 +401,7 @@ install -m 0644 %{_builddir}/extra_modules/v4d/samples/*.cpp \
     %{_builddir}/extra_modules/v4d/samples/*.hpp \
     %{buildroot}%{_datadir}/%{name}/v4d/samples/
 install -d %{buildroot}%{_datadir}/%{name}/v4d/samples/fonts
-install -m 0644 %{_builddir}/extra_modules/v4d/samples/fonts/*.ttf \
+install -m 0644 %{_builddir}/extra_modules/v4d/assets/fonts/*.ttf \
     %{buildroot}%{_datadir}/%{name}/v4d/samples/fonts/
 
 %if 0%{?suse_version}

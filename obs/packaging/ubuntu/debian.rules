@@ -187,7 +187,7 @@ override_dh_auto_install:
 	    $(CURDIR)/extra_modules/v4d/samples/*.hpp \
 	    debian/tmp/usr/share/plan-v4d/v4d/samples/
 	install -d debian/tmp/usr/share/plan-v4d/v4d/samples/fonts
-	install -m 0644 $(CURDIR)/extra_modules/v4d/samples/fonts/*.ttf \
+	install -m 0644 $(CURDIR)/extra_modules/v4d/assets/fonts/*.ttf \
 	    debian/tmp/usr/share/plan-v4d/v4d/samples/fonts/
 
 override_dh_auto_clean:
