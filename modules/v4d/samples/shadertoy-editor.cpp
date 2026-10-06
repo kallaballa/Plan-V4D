@@ -33,6 +33,7 @@
 #include <opencv2/v4d/v4d.hpp>
 
 #include "shadertoy-editor/shadertoy_code.hpp"
+#include "shadertoy-editor/shadertoy_filedialog.hpp"
 #include "shadertoy-editor/shadertoy_project.hpp"
 #include "shadertoy-editor/shadertoy_renderer.hpp"
 #include "shadertoy-editor/shadertoy_theme.hpp"
@@ -259,6 +260,12 @@ private:
     bool showHud_ = true;
     bool fullscreen_ = false;
     bool inputActive_ = true;
+    /// ImGui's keyboard capture flag, mirrored from the display thread: the
+    /// ImGui context only exists there, so the worker's shortcut node cannot
+    /// ask ImGui itself. True while a widget (the code pane, a path field)
+    /// owns the keyboard - which is exactly when single-key shortcuts must
+    /// not fire.
+    bool guiWantsKeyboard_ = false;
     bool wrapText_ = true;
     /// The code pane's own switches, kept beside wrapText_ so that one header
     /// lists everything that changes what the code looks like instead of
@@ -298,6 +305,10 @@ private:
     bool compile_ = false;
     int generation_ = 0;        // edits_ the snapshot was taken at
     bool haveDocument_ = false; // a new document was read from disk
+    /// The snapshot came from a new document or a structural change, so a
+    /// successful compile restarts iTime. An edit recompile keeps it running,
+    /// the way shadertoy.com does.
+    bool freshShader_ = false;
     std::string status_;
   } pending_;
 
@@ -401,7 +412,47 @@ public:
             shared.scheme_ = 0;
           fonts_ = shadertoy::loadFonts(1.0f);
           shadertoy::applyPalette(schemes[size_t(shared.scheme_)], fonts_);
+
+          // Mirror ImGui's capture flags for the worker: the context only
+          // exists on this thread, so the shortcut node in infer() cannot ask
+          // ImGui itself and would otherwise fire r/f/space/... while the user
+          // is typing into the code pane.
+          const ImGuiIO &io = ImGui::GetIO();
+          shared.guiWantsKeyboard_ = io.WantCaptureKeyboard;
+
+          // Ctrl shortcuts. They are not text input, so they are safe even
+          // while a field owns the keyboard.
+          if (io.KeyCtrl && !io.KeyShift &&
+              ImGui::IsKeyPressed(ImGuiKey_O, false))
+            openProjectDialog(shared);
+          if (io.KeyCtrl && !io.KeyShift &&
+              ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+            if (shared.path_.empty())
+              openSaveDialog(shared);
+            else
+              shared.save_ = true;
+          }
+          if (io.KeyCtrl && io.KeyShift &&
+              ImGui::IsKeyPressed(ImGuiKey_S, false))
+            openSaveDialog(shared);
+
           drawPanel(shared);
+
+          // Temporary popup diagnostics: which ImGui event closes the dialog?
+          if (std::getenv("SHADERTOY_DEBUG_POPUP") != nullptr) {
+            static int calls = 0;
+            ImGuiContext *ctx = ImGui::GetCurrentContext();
+            std::cerr << "gui-call " << ++calls
+                      << " frame=" << ctx->FrameCount
+                      << " popups=" << ctx->OpenPopupStack.Size << std::endl;
+            ctx->DebugLogFlags |= ImGuiDebugLogFlags_EventPopup |
+                                  ImGuiDebugLogFlags_EventFocus |
+                                  ImGuiDebugLogFlags_EventActiveId;
+            if (ctx->DebugLogBuf.size() > 0) {
+              std::cerr << ctx->DebugLogBuf.begin() << std::flush;
+              ctx->DebugLogBuf.clear();
+            }
+          }
         },
         RWS(shared_));
   }
@@ -414,6 +465,10 @@ public:
     if (mode_ == Mode::Interactive) {
       set(GlobalState::Keys::SHOW_GUI, V(true));
       set(K::FULLSCREEN, CS(shared_.fullscreen_));
+      // The V4D frame-time overlays are a debugging view of the runtime, not
+      // part of the editor: they open on top of the panel otherwise.
+      set(GlobalState::Keys::SHOW_FRAME_TIME, V(false));
+      set(GlobalState::Keys::TIME_TRACKER, V(false));
     }
     gl(
         [](ShadertoyRenderer &renderer) {
@@ -439,12 +494,14 @@ public:
     }
 
     // (1) Shortcuts. Single key shortcuts stay out of the way while ImGui owns
-    //     the keyboard.
+    //     the keyboard - which the GUI thread reports through the shared
+    //     state, because this node runs on a worker where no ImGui context
+    //     exists.
     plain(
         [this](const Keyboard::List &presses, Shared &shared) {
           if (mode_ != Mode::Interactive)
             return;
-          if (imguiWantsKeyboard())
+          if (shared.guiWantsKeyboard_)
             return;
           for (const auto &key : presses) {
             if (key->is(Keyboard::SPACE))
@@ -495,6 +552,7 @@ public:
           shared.compile_ = false;
           shared.compiling_ = true;
           snapshot(shared, pending);
+          pending.freshShader_ = structural;
           snapshottedSerial_ = shared.serial_;
         },
         RWS(shared_), RW(pending_));
@@ -508,6 +566,8 @@ public:
           if (!pending.compile_)
             return;
           pending.compile_ = false;
+          const bool freshShader = pending.freshShader_;
+          pending.freshShader_ = false;
 
           std::vector<CompileError> errors;
           std::string error;
@@ -525,10 +585,14 @@ public:
                 "compiled " + std::to_string(pending.shader_.passes.size()) +
                 " pass(es) in " +
                 std::to_string(int(shared.compileSeconds_ * 1000.0)) + " ms";
-            // A fresh shader starts from t = 0, like the site does.
-            anim.time_ = 0.0;
-            anim.frame_ = 0;
-            anim.mouseKnown_ = false;
+            // A fresh shader starts from t = 0, like the site does; a
+            // recompile of the same document keeps the clock, also like the
+            // site does.
+            if (freshShader) {
+              anim.time_ = 0.0;
+              anim.frame_ = 0;
+              anim.mouseKnown_ = false;
+            }
           } else {
             shared.compiling_ = false;
             shared.status_ = "compile failed - " + error;
@@ -630,15 +694,18 @@ public:
               shared.hasShader_ ? targetOf(canvas, shared, mode_) : cv::Size();
 
           // -- keyboard texture -------------------------------------------
+          // The pressed row is a one frame pulse: clear last frame's before
+          // applying this frame's events, or the shader never sees it - the
+          // upload in node (6) happens after this node runs.
+          anim.keyboard_(
+                  cv::Rect(0, keyboardRowPressed, keyboardTextureWidth, 1))
+              .setTo(cv::Scalar::all(0));
           if (shared.inputActive_) {
             for (const auto &key : keyPresses)
               keyPress(anim.keyboard_, key->key());
             for (const auto &key : keyReleases)
               keyRelease(anim.keyboard_, key->key());
           }
-          anim.keyboard_(
-                  cv::Rect(0, keyboardRowPressed, keyboardTextureWidth, 1))
-              .setTo(cv::Scalar::all(0));
         },
         move_, hoverEnter_, hoverExit_, press_, release_, keyPress_,
         keyRelease_, size_, windowSize_, RWS(shared_), RW(anim_));
@@ -733,11 +800,6 @@ private:
                     std::max(int(canvas.height * scale), 16));
   }
 
-  static bool imguiWantsKeyboard() {
-    ImGuiContext *ctx = ImGui::GetCurrentContext();
-    return ctx != nullptr && ImGui::GetIO().WantCaptureKeyboard;
-  }
-
   // ---- files --------------------------------------------------------------
 
   /// Ends an unattended run with a verdict. --verify and --shot cannot leave
@@ -789,6 +851,9 @@ private:
           pending.shader_ = std::move(shader);
           pending.decoded_.clear();
           pending.haveDocument_ = true;
+          // The document's path is what Save writes back to and Reload reads
+          // again: a file that was opened from disk has one.
+          shared.path_ = path;
           shared.status_ = "loaded " + path;
         }
       }
@@ -898,6 +963,8 @@ private:
       shared.displayPass_ = 0;
       shared.errors_.clear();
       pending.shader_ = Shader{};
+      // A document read from disk compiles as a fresh shader: iTime restarts.
+      pending.freshShader_ = true;
     }
 
     // Decoded textures belong to the document, and snapshot() reads them from
@@ -906,6 +973,10 @@ private:
       for (auto &kv : pending.decoded_)
         shared.textures_[kv.first] = kv.second;
       pending.decoded_.clear();
+      // A texture added to a document that stayed the same is an edit, not a
+      // fresh shader: the clock keeps running across the recompile.
+      if (!pending.haveDocument_)
+        pending.freshShader_ = false;
       snapshot(shared, pending);
     }
     if (pending.haveDocument_) {
@@ -1005,58 +1076,111 @@ private:
       TextDisabled("compiling...");
     else
       TextWrapped("%s", shared.status_.c_str());
+
+    // The dialogs are modal popups PARENTED TO THIS WINDOW: OpenPopup called
+    // from the node's top level would parent them to ImGui's implicit
+    // fallback window, and the fallback window's cleanup (it unfocuses itself
+    // when nothing was written to it) then closes the popup on the next input
+    // event - which is exactly the "dialog closes as soon as I type" bug.
+    drawDialogs(shared);
     End();
+  }
+
+  /// The directory the open/save dialogs were last left in, so reopening one
+  /// does not start from the top again. GUI thread only.
+  std::string lastProjectDir_;
+  std::string lastTextureDir_;
+  shadertoy::FileDialog openDialog_;
+  shadertoy::FileDialog saveDialog_;
+  shadertoy::FileDialog textureDialog_;
+  /// The pass/channel the texture dialog was opened for; the dialog itself
+  /// does not know what a channel is.
+  int textureDialogPass_ = -1;
+  int textureDialogChannel_ = -1;
+
+  static std::string directoryOf(const std::string &path) {
+    if (path.empty())
+      return std::string();
+    const size_t slash = path.find_last_of('/');
+    return slash == std::string::npos ? std::string() : path.substr(0, slash);
+  }
+
+  void openProjectDialog(Shared &shared) {
+    std::string dir = lastProjectDir_;
+    if (dir.empty())
+      dir = directoryOf(shared.path_);
+    openDialog_.open(shadertoy::FileDialog::Mode::Open, "Open shader", dir,
+                     {".json"});
+  }
+
+  void openSaveDialog(Shared &shared) {
+    if (std::getenv("SHADERTOY_DEBUG_POPUP") != nullptr)
+      std::cerr << "openSaveDialog called, frame="
+                    << ImGui::GetCurrentContext()->FrameCount << std::endl;
+    std::string dir = lastProjectDir_;
+    if (dir.empty())
+      dir = directoryOf(shared.path_);
+    std::string name = "shader.json";
+    if (!shared.path_.empty()) {
+      const size_t slash = shared.path_.find_last_of('/');
+      name = slash == std::string::npos ? shared.path_
+                                        : shared.path_.substr(slash + 1);
+    }
+    saveDialog_.open(shadertoy::FileDialog::Mode::Save, "Save shader as", dir,
+                     {".json"}, name);
+  }
+
+  void drawDialogs(Shared &shared) {
+    shadertoy::FileDialog::Result result;
+    if (openDialog_.draw(result)) {
+      if (result.chosen) {
+        lastProjectDir_ = openDialog_.currentDir();
+        shared.pathToOpen_ = result.path;
+        shared.load_ = true;
+      }
+    }
+    if (saveDialog_.draw(result)) {
+      if (result.chosen) {
+        lastProjectDir_ = saveDialog_.currentDir();
+        shared.pathToSave_ = result.path;
+        shared.save_ = true;
+      }
+    }
+    if (textureDialog_.draw(result)) {
+      if (result.chosen && textureDialogPass_ >= 0) {
+        lastTextureDir_ = textureDialog_.currentDir();
+        shared.texturePass_ = textureDialogPass_;
+        shared.textureChannel_ = textureDialogChannel_;
+        shared.texturePath_ = result.path;
+        textureDialogPass_ = -1;
+      }
+    }
   }
 
   void drawFileRow(Shared &shared) {
     using namespace ImGui;
 
-    PushItemWidth(160.0f);
-    if (Button("Open"))
-      OpenPopup("Open file");
-    if (BeginPopupModal("Open file", nullptr,
-                        ImGuiWindowFlags_AlwaysAutoResize)) {
-      char path[512] = "";
-      InputTextWithHint("##open", "path/to/shader.json", path, sizeof(path));
-      if (Button("Open", ImVec2(120, 0))) {
-        shared.pathToOpen_ = path;
-        shared.load_ = true;
-        CloseCurrentPopup();
-      }
-      SameLine();
-      if (Button("Cancel", ImVec2(120, 0)))
-        CloseCurrentPopup();
-      EndPopup();
-    }
+    if (Button("Open##open", ImVec2(54.0f, 0.0f)))
+      openProjectDialog(shared);
+    if (IsItemHovered(ImGuiHoveredFlags_DelayShort))
+      SetTooltip("Open a Shadertoy JSON project (Ctrl+O)");
     SameLine();
     // Save goes back to the file it came from; without one there is nowhere to
     // write, so ask for a name first.
-    if (Button("Save")) {
+    if (Button("Save", ImVec2(54.0f, 0.0f))) {
       if (shared.path_.empty())
-        OpenPopup("Save as");
+        openSaveDialog(shared);
       else
         shared.save_ = true;
     }
-    if (BeginPopupModal("Save as", nullptr,
-                        ImGuiWindowFlags_AlwaysAutoResize)) {
-      char path[512] = "";
-      if (!shared.path_.empty())
-        std::snprintf(path, sizeof(path), "%s", shared.path_.c_str());
-      InputTextWithHint("##save", "path/to/shader.json", path, sizeof(path));
-      if (Button("Save", ImVec2(120, 0))) {
-        shared.pathToSave_ = path;
-        shared.save_ = true;
-        CloseCurrentPopup();
-      }
-      SameLine();
-      if (Button("Cancel", ImVec2(120, 0)))
-        CloseCurrentPopup();
-      EndPopup();
-    }
+    if (IsItemHovered(ImGuiHoveredFlags_DelayShort))
+      SetTooltip("Save (Ctrl+S); Ctrl+Shift+S saves under a new name");
     SameLine();
-    const bool saved = !shared.path_.empty();
-    BeginDisabled(!saved);
-    if (Button("Reload"))
+    if (Button("Save as", ImVec2(64.0f, 0.0f)))
+      openSaveDialog(shared);
+    SameLine();
+    BeginDisabled(shared.path_.empty());
+    if (Button("Reload", ImVec2(60.0f, 0.0f)))
       shared.reload_ = true;
     EndDisabled();
 
@@ -1068,6 +1192,7 @@ private:
     int chosen = shared.builtIn_;
     if (chosen >= int(samples.size()))
       chosen = 0;
+    PushItemWidth(-1.0f);
     if (Combo("##builtin", &chosen, names.data(), int(names.size()))) {
       shared.shader_ = samples[size_t(chosen)].shader;
       shared.path_.clear();
@@ -1105,14 +1230,12 @@ private:
         EndTabItem();
       }
     }
-    if (BeginTabItem("+"))
+    // A TabItemButton is a button in tab's clothing: it never becomes the
+    // selected tab, so it cannot keep adding a pass per frame the way a
+    // selected "+" tab would - and it has no BeginTabItem/EndTabItem pair to
+    // get wrong.
+    if (TabItemButton("+", ImGuiTabItemFlags_Trailing))
       addBufferPass(shared);
-    SameLine();
-    // Removing a pass is destructive, so it gets its own control next to the
-    // tabs instead of a close button that is one stray click away.
-    if (Button("Remove") && shared.selected_ >= 0 &&
-        shared.selected_ < int(shared.shader_.passes.size()))
-      removePass(shared, shared.selected_);
     EndTabBar();
   }
 
@@ -1326,7 +1449,12 @@ private:
     const size_t line = size_t(std::max(caret_.line - 1, 0));
     const size_t column = size_t(std::max(caret_.column - 1, 0));
     editor.SetCursor(TextEditor::DocPos(line, column));
-    editor.ScrollToLine(line, TextEditor::Scroll::alignTop);
+    // Centered, not aligned to the top: an error near the end of the file
+    // would otherwise leave the pane showing mostly empty space.
+    editor.ScrollToLine(line, TextEditor::Scroll::alignMiddle);
+    // The click was in the error list, which is not the pane: hand the pane
+    // the keyboard, so the fix can be typed without a second click.
+    editor.SetFocus();
     shared.status_ = "line " + std::to_string(line + 1) + ", column " +
                      std::to_string(column + 1);
   }
@@ -1352,6 +1480,14 @@ private:
     SameLine();
     if (Button("Reset time"))
       shared.resetTime_ = true;
+    SameLine();
+    // Removing a pass is destructive, so it is a labelled button here rather
+    // than a close cross on the tab that is one stray click away.
+    BeginDisabled(shared.shader_.passes.empty());
+    if (Button("Remove pass") && shared.selected_ >= 0 &&
+        shared.selected_ < int(shared.shader_.passes.size()))
+      removePass(shared, shared.selected_);
+    EndDisabled();
 
     if (Button("Code"))
       OpenPopup("Code pane");
@@ -1484,6 +1620,8 @@ private:
         // Clicking the message switches to its pass and asks that pass's pane
         // for the caret. Every pass keeps its own widget, so nothing is
         // reloaded and what was typed into the other tabs survives the jump.
+        // The position goes under the message: a long message and the position
+        // on one line would clip at the panel's edge.
         if (Selectable(error.message.c_str(), false)) {
           shared.selected_ = error.pass;
           caret_.pass = error.pass;
@@ -1491,10 +1629,12 @@ private:
           caret_.column = error.column;
           wantCaret_ = true;
         }
-        SameLine(0.0f, 8.0f);
-        TextDisabled("pass %d, line %d", error.pass, error.line);
+        Indent();
+        TextDisabled("pass %d, line %d, column %d", error.pass, error.line,
+                     error.column);
+        Unindent();
       } else {
-        TextUnformatted(error.message.c_str());
+        TextWrapped("%s", error.message.c_str());
       }
       PopID();
     }
@@ -1515,7 +1655,22 @@ private:
       return;
     }
     Pass &pass = shared.shader_.passes[size_t(shared.selected_)];
-    TextDisabled("%s pass \"%s\"", pass.type.c_str(), pass.name.c_str());
+    TextDisabled("%s pass", pass.type.c_str());
+    SameLine();
+    // The name is how other passes refer to a buffer ("Name.0"), so it is an
+    // editable part of the document, not just the tab's label.
+    {
+      char name[128];
+      std::snprintf(name, sizeof(name), "%s", pass.name.c_str());
+      PushItemWidth(160.0f);
+      if (InputText("##passname", name, sizeof(name))) {
+        pass.name = name;
+        ++shared.edits_;
+        shared.lastEdit_ = seconds();
+        shared.dirty_ = true;
+      }
+      PopItemWidth();
+    }
 
     static const char *kTypes[] = {"none", "texture", "buffer", "keyboard"};
     for (int channel = 0; channel < 4; ++channel) {
@@ -1552,10 +1707,11 @@ private:
             input = &pass.inputs.back();
           }
           input->ctype = kTypes[type];
-          if (type == 1 && input->src.empty())
-            input->src = "";
-          if (type == 2 && input->src.empty())
-            input->src = bufferNameList(shared.shader_);
+          if (type == 2 && input->src.empty()) {
+            const auto buffers = bufferNameList(shared.shader_);
+            if (!buffers.empty())
+              input->src = buffers.front();
+          }
         }
       }
       SameLine();
@@ -1568,19 +1724,57 @@ private:
       if (input->ctype == "texture") {
         char src[512];
         std::snprintf(src, sizeof(src), "%s", input->src.c_str());
-        PushItemWidth(-1.0f);
+        PushItemWidth(-70.0f);
         if (InputText("##src", src, sizeof(src))) {
           input->src = src;
           changed = true;
         }
         PopItemWidth();
-        TextDisabled("not decoded yet - use Load");
+        SameLine();
+        if (Button("Browse##browse", ImVec2(64.0f, 0.0f))) {
+          textureDialogPass_ = shared.selected_;
+          textureDialogChannel_ = channel;
+          std::string dir = lastTextureDir_;
+          if (dir.empty())
+            dir = directoryOf(shared.path_);
+          textureDialog_.open(shadertoy::FileDialog::Mode::Open,
+                              "Pick a texture", dir,
+                              {".png", ".jpg", ".jpeg", ".bmp", ".tga",
+                               ".webp", ".gif", ".hdr", ".exr"});
+        }
+        if (shared.textures_.count(input->src) == 0) {
+          TextDisabled(input->src.empty() ? "browse or type a path, then Load"
+                                          : "not decoded yet - press Load");
+        } else {
+          const cv::Mat &tex = shared.textures_[input->src];
+          TextDisabled("decoded %dx%d", tex.cols, tex.rows);
+        }
       } else if (input->ctype == "buffer") {
-        char src[128];
-        std::snprintf(src, sizeof(src), "%s", input->src.c_str());
-        if (InputText("##src", src, sizeof(src))) {
-          input->src = src;
-          changed = true;
+        // The src names a buffer pass the way the site spells it: "Name.0".
+        // Offer the ones that exist rather than making the user guess them.
+        const std::vector<std::string> buffers = bufferNameList(shared.shader_);
+        if (buffers.empty()) {
+          TextDisabled("no buffer pass in this shader");
+        } else {
+          int current = -1;
+          std::vector<const char *> names;
+          names.reserve(buffers.size());
+          for (size_t i = 0; i < buffers.size(); ++i) {
+            names.push_back(buffers[i].c_str());
+            if (buffers[i] == input->src)
+              current = int(i);
+          }
+          PushItemWidth(-1.0f);
+          if (BeginCombo("##src", input->src.c_str())) {
+            for (size_t i = 0; i < buffers.size(); ++i) {
+              if (Selectable(buffers[i].c_str(), current == int(i))) {
+                input->src = buffers[i];
+                changed = true;
+              }
+            }
+            EndCombo();
+          }
+          PopItemWidth();
         }
       } else {
         TextDisabled("iChannelKeyboard");
@@ -1611,14 +1805,16 @@ private:
           changed = true;
         SameLine();
         if (Button("Load##load")) {
-          shared.texturePass_ = shared.selected_;
-          shared.textureChannel_ = channel;
-          shared.texturePath_ = input->src;
-          if (shared.texturePath_.empty()) {
-            shared.status_ = "set a file name first";
-            changed = false;
+          if (input->src.empty()) {
+            shared.status_ = "set a file name first (or Browse)";
+          } else {
+            shared.texturePass_ = shared.selected_;
+            shared.textureChannel_ = channel;
+            shared.texturePath_ = input->src;
           }
         }
+        if (IsItemHovered(ImGuiHoveredFlags_DelayShort))
+          SetTooltip("Decode the file named on the left and upload it to this channel");
       }
       if (changed) {
         ++shared.edits_;
@@ -1630,11 +1826,12 @@ private:
   }
 
   /// The buffer names a pass may read, in the "Name.0" form Shadertoy uses.
-  static std::string bufferNameList(const Shader &shader) {
+  static std::vector<std::string> bufferNameList(const Shader &shader) {
+    std::vector<std::string> names;
     for (const auto &pass : shader.passes)
       if (pass.type == "buffer" && !pass.name.empty())
-        return pass.name + ".0";
-    return std::string();
+        names.push_back(pass.name + ".0");
+    return names;
   }
 
   void drawPlayback(Shared &shared) {
@@ -1709,11 +1906,15 @@ private:
             : ("   showing: " + shared.passNames_[size_t(std::clamp(
                                     shared.displayPass_, 0,
                                     int(shared.passNames_.size()) - 1))]);
+    // "saved" would be a lie for a document that never had a file.
+    const char *saveState = shared.path_.empty()
+                                ? "unsaved"
+                                : (shared.dirty_ ? "*edited*" : "saved");
     std::snprintf(line, sizeof(line),
-                  "%s   t %.2fs   frame %d   %.0f fps   %dx%d%s",
-                  shared.dirty_ ? "*edited*" : "saved", shared.time_,
-                  shared.frame_, double(shared.fps_), shared.resolution_.width,
-                  shared.resolution_.height, pass.c_str());
+                  "%s   t %.2fs   frame %d   %.0f fps   %dx%d%s", saveState,
+                  shared.time_, shared.frame_, double(shared.fps_),
+                  shared.resolution_.width, shared.resolution_.height,
+                  pass.c_str());
     cv::v4d::nvg::text(float(canvas.x) + 14.0f, float(canvas.y) + 30.0f, line,
                        line + std::strlen(line));
 
@@ -1754,7 +1955,8 @@ void usage(const char *self) {
       << "  --shot <file>    render a few frames, write a PNG and exit\n"
       << "  --frames <n>     frames to wait before the shot (default 12)\n"
       << "  --export <file>  write the project back out as Shadertoy JSON\n"
-      << "  --size <WxH>     window size (default 1600x900)\n"
+      << "  --size <WxH>     window size (default 1600x900); in --shot mode\n"
+      << "                   this is the size of the image that is written\n"
       << "  --fullscreen     start fullscreen: the render fills the window\n"
       << "                   instead of being inset by the panel\n"
       << "\n"
@@ -1795,9 +1997,9 @@ int builtInByName(const std::string &name) {
     if (name == samples[i].name ||
         (i < sizeof(kShort) / sizeof(kShort[0]) && name == kShort[i]))
       return int(i);
-  std::cerr << "no built-in sample called \"" << name << "\"";
+  std::cerr << "no built-in sample called \"" << name << "\" - choices are:";
   for (const auto &sample : samples)
-    std::cerr << "  " << sample.name;
+    std::cerr << "\n  " << sample.name;
   std::cerr << std::endl;
   return -1;
 }
@@ -1869,8 +2071,8 @@ V4D_DEMO_MAIN(int argc, char **argv) {
   auto configFlags =
       interactive ? ConfigFlags::DEFAULT : ConfigFlags::OFFSCREEN;
 
-  V4D::init(cv::Rect(0, 0, 1920, 1080), "Shadertoy Editor", allocFlags,
-            configFlags);
+  V4D::init(cv::Rect(0, 0, window.width, window.height), "Shadertoy Editor",
+            allocFlags, configFlags);
 
   const auto mode = verify              ? ShadertoyEditorPlan::Mode::Verify
                     : !exportTo.empty() ? ShadertoyEditorPlan::Mode::Export

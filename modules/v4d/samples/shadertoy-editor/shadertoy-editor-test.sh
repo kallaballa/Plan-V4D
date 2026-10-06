@@ -266,7 +266,9 @@ except ValueError:
 
 def walk(node):
     yield node
-    for child in node.get("nodes", ()):
+    # A V4D window is a floating X11/Wayland window under sway, and sway files
+    # floating windows under floating_nodes - not nodes.
+    for child in node.get("nodes", ()) + node.get("floating_nodes", ()):
         for sub in walk(child):
             yield sub
 

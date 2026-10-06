@@ -170,10 +170,13 @@ PassSource buildPassSource(const std::vector<Pass> &passes, int passIndex) {
   // spelled the old way.
   appendPlain("#define texture2D texture\n");
   appendPlain("#define textureCube texture\n");
+  // The uniforms come before the common blocks: GLSL wants a declaration before
+  // the first use, and a common block that mentions iTime or iResolution (many
+  // do) would otherwise fail to compile with "undeclared identifier".
+  appendPlain(kPassUniforms);
   for (size_t i = 0; i < passes.size(); ++i)
     if (passes[i].type == "common")
       append(passes[i].code, int(i), 1);
-  appendPlain(kPassUniforms);
   appendPlain("out vec4 outColor;\n");
   append(passes[size_t(passIndex)].code, passIndex, 1);
   // Shadertoy only looks at fragColor.rgb, the alpha is always opaque.
@@ -436,7 +439,11 @@ GLuint createTexture(const cv::Mat &rgba8, const std::string &filter,
                GL_UNSIGNED_BYTE, src.data);
   const GLint minFilter = minFilterOf(filter);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minFilter);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, minFilter);
+  // GL_LINEAR_MIPMAP_LINEAR is not a legal MAG filter: magnification never
+  // blends mip levels. Mapping every non-nearest choice to GL_LINEAR keeps a
+  // "mipmap" preset from raising GL_INVALID_ENUM and leaving stale state.
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                  minFilter == GL_NEAREST ? GL_NEAREST : GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapModeOf(wrap));
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapModeOf(wrap));
   if (minFilter == GL_LINEAR_MIPMAP_LINEAR)
@@ -732,8 +739,9 @@ public:
 
   bool hasShader() const { return !passes_.empty(); }
 
-  /// Names of the passes that can be put on screen, in shader order. The image
-  /// pass comes first when the shader has one.
+  /// Names of the passes that can be put on screen: image passes first, then
+  /// the buffers, each in shader order. The index in this list is what
+  /// render() and grab() take as `displayIndex`.
   const std::vector<std::string> &displayablePasses() const {
     return displayNames_;
   }
@@ -752,7 +760,6 @@ public:
     // Compile into scratch objects first: nothing is committed until every
     // pass built.
     std::vector<GpuPass> compiled;
-    std::vector<std::string> displayNames;
     // iChannel0..3 of every pass, by pass index. Buffer inputs name their
     // producer pass ("Buffer A", ...); pass names are not unique in general -
     // the image pass is usually unnamed - so the map is only used for buffer
@@ -795,12 +802,25 @@ public:
       }
       fetchUniforms(gpu);
       compiled.push_back(gpu);
-      displayNames.push_back(gpu.name_ + (gpu.isBuffer_ ? " (buffer)" : ""));
     }
     if (compiled.empty()) {
       error = "the shader has no renderable pass";
       return false;
     }
+
+    // The display list is image passes first, buffers after, each in shader
+    // order: the image pass is what the window is expected to show by default,
+    // while passes_ itself stays in shader order so the buffers render before
+    // the image that reads them. render() and grab() index through the map.
+    std::vector<std::string> displayNames;
+    std::vector<int> displayToPass;
+    for (int wantBuffer = 0; wantBuffer <= 1; ++wantBuffer)
+      for (size_t i = 0; i < compiled.size(); ++i)
+        if ((compiled[i].isBuffer_ ? 1 : 0) == wantBuffer) {
+          displayNames.push_back(
+              compiled[i].name_ + (compiled[i].isBuffer_ ? " (buffer)" : ""));
+          displayToPass.push_back(int(i));
+        }
 
     // Upload the texture inputs. One that is missing or could not be decoded
     // becomes a black texture; the shader still runs, it just misses that
@@ -824,6 +844,7 @@ public:
     unload();
     passes_ = std::move(compiled);
     displayNames_ = std::move(displayNames);
+    displayToPass_ = std::move(displayToPass);
     bufferByName_ = std::move(bufferByName);
     shaderPasses_ = shader.passes;
     textureIds_ = std::move(textureIds);
@@ -840,6 +861,7 @@ public:
         glDeleteProgram(pass.program_);
     passes_.clear();
     displayNames_.clear();
+    displayToPass_.clear();
     bufferByName_.clear();
     shaderPasses_.clear();
     for (auto &buffer : buffers_) {
@@ -872,9 +894,9 @@ public:
   /// a BGRA8 Mat, so a still of the shader can be written to disk. Must be
   /// called on the GL context, after the frame was rendered.
   bool grab(int displayIndex, cv::Mat &out) {
-    if (displayIndex < 0 || size_t(displayIndex) >= passes_.size())
+    if (displayIndex < 0 || size_t(displayIndex) >= displayToPass_.size())
       return false;
-    const GpuPass &pass = passes_[size_t(displayIndex)];
+    const GpuPass &pass = passes_[size_t(displayToPass_[size_t(displayIndex)])];
     if (pass.isBuffer_ && buffers_.empty())
       return false;
     const GLuint fbo =
@@ -985,9 +1007,11 @@ public:
       return;
     }
     const bool showSomething =
-        displayIndex >= 0 && displayIndex < int(passes_.size());
+        displayIndex >= 0 && displayIndex < int(displayToPass_.size());
     const GpuPass *shown =
-        showSomething ? &passes_[size_t(displayIndex)] : nullptr;
+        showSomething
+            ? &passes_[size_t(displayToPass_[size_t(displayIndex)])]
+            : nullptr;
 
     // The render targets must exist before a channel can be resolved, because
     // resolving a buffer input yields one of them.
@@ -1228,6 +1252,8 @@ private:
   // The shader
   std::vector<GpuPass> passes_;
   std::vector<std::string> displayNames_;
+  /// display list index -> index into passes_ (image passes come first).
+  std::vector<int> displayToPass_;
   std::vector<shadertoy::Pass> shaderPasses_; // CPU side, for input lookup
   std::map<std::string, size_t> bufferByName_;
   std::map<std::string, GLuint> textureIds_;
