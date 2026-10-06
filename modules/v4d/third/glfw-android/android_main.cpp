@@ -157,7 +157,7 @@ bool copyAssets(ANativeActivity *activity, AAssetManager *assets,
 /// GL context and a window.
 ///
 /// The APK flattens the three source directories package-apk.sh stages
-/// (samples/data, samples/fonts, modules/v4d/assets) into one asset root, and the
+/// (samples/data, modules/v4d/assets) into one asset root, and the
 /// samples look their files up by those flattened names, so the extracted tree is
 /// placed under V4D_ASSET_PATH exactly as the manifest spells it.
 void installAssets(ANativeActivity *activity, AAssetManager *assets) {

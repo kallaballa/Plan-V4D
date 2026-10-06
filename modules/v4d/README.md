@@ -218,9 +218,8 @@ std::string video = cv::samples::findFile("videos/bunny.mp4");
 ```
 
 The search path is a list of directories, not a single directory. It contains
-the build tree (`<build>/modules/v4d/assets`, `<build>/modules/v4d/samples/data`,
-`<build>/modules/v4d/samples/fonts`), the source tree (`modules/v4d/assets`,
-`modules/v4d/samples/data`, `modules/v4d/samples/fonts`) and the install
+the build tree (`<build>/modules/v4d/assets`, `<build>/modules/v4d/samples/data`),
+ the source tree (`modules/v4d/assets`,`modules/v4d/samples/data`, and the install
 directory (`share/opencv4`), in that order of priority — so the samples
 find their assets with or without `make install`. Only existing directories are
 searched. Directories that do not exist at build time but appear later are still
@@ -245,7 +244,7 @@ What ships in the tree:
 | YuNet face detector | `assets/models/face_detection_yunet_2023mar.onnx` (used by `beauty-demo`) |
 | LBF facemark | `assets/models/lbfmodel.yaml` (used by `beauty-demo`) |
 | MediaPipe pose models | `assets/models/pose/` — `person_detection_mediapipe_2023mar.onnx`, `pose_estimation_mediapipe_2023mar.onnx` (used by `skeletal-tracker-demo`) |
-| Fonts | `samples/fonts/` — Roboto, JetBrainsMono, entypo (all OFL) |
+| Fonts | `assets/fonts/` — Roboto, JetBrainsMono, entypo (all OFL) |
 
 `skeletal-tracker-demo` hard-fails with a message naming the OpenCV Zoo when
 the two pose models are absent; they are checked into the tree, so a normal

@@ -623,7 +623,7 @@ int main() {
 
 ### Loading Custom Fonts
 
-You can load your own TrueType (`.ttf`) fonts by calling `createFont` in your `setup()` phase. The TTF files in [`modules/v4d/samples/fonts/`](https://github.com/kallaballa/Plan-V4D/tree/beta-5.x/modules/v4d/samples/fonts/) are copied into the build directory at `assets/fonts/` by the `v4d` CMake module.
+You can load your own TrueType (`.ttf`) fonts by calling `createFont` in your `setup()` phase. The TTF files in [`modules/v4d/assets/fonts/`](https://github.com/kallaballa/Plan-V4D/tree/beta-5.x/modules/v4d/assets/fonts/) are copied into the build directory at `assets/fonts/` by the `v4d` CMake module.
 
 ```cpp
 int my_font_;

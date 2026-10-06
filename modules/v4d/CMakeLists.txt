@@ -181,10 +181,9 @@ set(V4D_MODULES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../")
 set(V4D_ASSET_PATH_DIRS
   "${CMAKE_CURRENT_BINARY_DIR}/assets"
   "${CMAKE_CURRENT_BINARY_DIR}/samples/data"
-  "${CMAKE_CURRENT_BINARY_DIR}/samples/fonts"
   "${CMAKE_CURRENT_SOURCE_DIR}/assets"
   "${CMAKE_CURRENT_SOURCE_DIR}/samples/data"
-  "${CMAKE_CURRENT_SOURCE_DIR}/samples/fonts"
+  "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
   "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATAROOTDIR}/opencv4"
   "/usr/local/share/opencv4")
 list(REMOVE_DUPLICATES V4D_ASSET_PATH_DIRS)
@@ -264,7 +263,7 @@ endfunction()
 # them; when they are already there the build costs nothing.
 #   v4d_fetch_font(<name> <url> <sha256>)
 function(v4d_fetch_font name url sha)
-  set(dst "${CMAKE_CURRENT_SOURCE_DIR}/samples/fonts/${name}")
+  set(dst "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/${name}")
   if(EXISTS "${dst}")
     return()
   endif()
@@ -583,11 +582,6 @@ if(NOT (TARGET ${the_module}))
     "${CMAKE_CURRENT_SOURCE_DIR}/samples/data"
     "${CMAKE_CURRENT_BINARY_DIR}/samples/data")
 
-  add_custom_command(TARGET ${the_module} PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-    "${CMAKE_CURRENT_SOURCE_DIR}/samples/fonts/*.ttf"
-    "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts/")
-
   # Single model files are copied through OUTPUT/DEPENDS rules rather than
   # PRE_BUILD commands. A PRE_BUILD command only runs when the module is
   # actually recompiled, so editing an asset in place (regenerating a model,
@@ -628,11 +622,6 @@ if(NOT (TARGET ${the_module}))
     add_binary_sample(example_v4d_video_editing samples/video_editing.cpp)
     add_binary_sample(example_v4d_cube-demo samples/cube-demo.cpp)
     add_binary_sample(example_v4d_many_cubes-demo samples/many_cubes-demo.cpp)
-    # Tetralis: the rules in samples/tetralis-rules.hpp, the window in
-    # samples/tetralis-demo.cpp. The header is not a target of its own -- only
-    # this sample includes it -- and samples/tetralis-selftest.sh compiles it
-    # headlessly against no OpenCV at all.
-    add_binary_sample(example_v4d_tetralis-demo samples/tetralis-demo.cpp)
     add_binary_sample(example_v4d_two-windows-demo samples/two-windows-demo.cpp)
     add_binary_sample(example_v4d_video-demo samples/video-demo.cpp)
     add_binary_sample(example_v4d_nanovg-demo samples/nanovg-demo.cpp)
@@ -651,7 +640,7 @@ if(NOT (TARGET ${the_module}))
     add_binary_sample(example_v4d_image_carousel-demo samples/image_carousel-demo.cpp)
     # The offline Shadertoy editor.
     #   v4d_fetch_font(<file> <url> <sha256>)
-    # JetBrains Mono 2.304 (SIL OFL 1.1, see samples/fonts/OFL.txt), fetched
+    # JetBrains Mono 2.304 (SIL OFL 1.1, see assets/fonts/OFL.txt), fetched
     # from the tag's raw tree so the hash below is the hash of the file itself.
     v4d_fetch_font(JetBrainsMono-Regular.ttf
       "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Regular.ttf"
