@@ -630,7 +630,7 @@ int my_font_;
 
 void setup() override {
     nvg([&]() {
-        my_font_ = createFont("my-cool-font", "assets/fonts/Roboto-Regular.ttf");
+        my_font_ = createFont("my-cool-font", "assets/fonts/DejaVuSans.ttf");
         CV_Assert(my_font_ >= 0);
     });
 }

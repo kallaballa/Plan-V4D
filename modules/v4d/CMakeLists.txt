@@ -277,6 +277,12 @@ function(v4d_fetch_font name url sha)
     return()
   endif()
   file(RENAME "${dst}.tmp" "${dst}")
+  if("${dst}" "\\.zip$")
+    file(ARCHIVE_EXTRACT 
+      INPUT "${dst}" 
+      DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/"
+    )
+  endif()
   message(STATUS "V4D: fetched ${name}")
 endfunction()
 
@@ -643,14 +649,13 @@ if(NOT (TARGET ${the_module}))
     # JetBrains Mono 2.304 (SIL OFL 1.1, see assets/fonts/OFL.txt), fetched
     # from the tag's raw tree so the hash below is the hash of the file itself.
     v4d_fetch_font(JetBrainsMono-Regular.ttf
-      "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Regular.ttf"
-      "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f")
+      "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Regular.ttf" "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f")
     v4d_fetch_font(JetBrainsMono-Bold.ttf
-      "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Bold.ttf"
-      "5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb")
+      "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Bold.ttf" "5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb")
     v4d_fetch_font(JetBrainsMono-Italic.ttf
-      "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Italic.ttf"
-      "9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4")
+      "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/ttf/JetBrainsMono-Italic.ttf" "9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4")
+    v4d_fetch_font(entypo.ttf "https://raw.githubusercontent.com/danielbruce/entypo/refs/heads/master/font/entypo.ttf" "acbbaca1cefb1673d31a0378909a0f4d3ec197190cdda3e68381b5d6b6c22353")
+    v4d_fetch_font(dejavu-fonts-ttf-2.37.zip "http://sourceforge.net/projects/dejavu/files/dejavu/2.37/dejavu-fonts-ttf-2.37.zip" "7576310b219e04159d35ff61dd4a4ec4cdba4f35c00e002a136f00e96a908b0a")
     add_binary_sample(example_v4d_shadertoy-editor samples/shadertoy-editor.cpp)
     # The code pane is a vendored ImGui widget (ImGuiColorTextEdit, MIT) rather
     # than part of libv4d: only this sample edits code, and TextEditor.cpp is a

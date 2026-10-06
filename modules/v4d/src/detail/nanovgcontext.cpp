@@ -71,26 +71,26 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext)
              "V4D::init(), and check that fonts are present.");
 
   if (registerFont(context_, "sans",
-                   {"fonts/Roboto-Regular.ttf", "Roboto-Regular.ttf",
-                    "modules/v4d/assets/fonts/Roboto-Regular.ttf",
+                   {"fonts/DejaVusans.ttf", "DejaVuSans.ttf",
+                    "modules/v4d/assets/fonts/DejaVuSans.ttf",
                     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
                     "/usr/share/fonts/TTF/DejaVuSans.ttf",
-                    "/usr/share/fonts/truetype/Roboto-Regular.ttf"}).empty())
+                    "/usr/share/fonts/truetype/DejaVuSans.ttf"}).empty())
     CV_Error(Error::StsError,
-             "Could not load the V4D font 'sans' (Roboto-Regular.ttf). "
+             "Could not load the V4D font 'sans' (DejaVuSans.ttf). "
              "Call cv::v4d::add_asset_search_paths() before "
              "V4D::init().");
 
   if (registerFont(context_, "sans-bold",
-                   {"fonts/Roboto-Bold.ttf", "Roboto-Bold.ttf",
-                    "modules/v4d/assets/fonts/Roboto-Bold.ttf",
+                   {"fonts/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf",
+                    "modules/v4d/assets/fonts/DejaVuSans-Bold.ttf",
                     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
                     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
                     "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-                    "/usr/share/fonts/truetype/Roboto-Bold.ttf"}).empty())
+                    "/usr/share/fonts/truetype/DejaVuSans-Bold.ttf"}).empty())
     CV_Error(Error::StsError,
-             "Could not load the V4D font 'sans-bold' (Roboto-Bold.ttf). "
+             "Could not load the V4D font 'sans-bold' (DejaVuSans-Bold.ttf). "
              "Call cv::v4d::add_asset_search_paths() before "
              "V4D::init().");
 }

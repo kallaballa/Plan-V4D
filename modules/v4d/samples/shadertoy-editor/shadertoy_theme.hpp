@@ -355,12 +355,12 @@ inline Fonts loadFonts(float uiScale = 1.0f) {
        "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
        "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf"});
   const std::string uiPath = firstExistingAsset(
-      {"fonts/Roboto-Regular.ttf", "Roboto-Regular.ttf",
+      {"fonts/DejaVuSans.ttf", "DejaVuSans.ttf",
        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
        "/usr/share/fonts/TTF/DejaVuSans.ttf"});
   const std::string uiBoldPath = firstExistingAsset(
-      {"fonts/Roboto-Bold.ttf", "Roboto-Bold.ttf",
+      {"fonts/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf",
        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"});

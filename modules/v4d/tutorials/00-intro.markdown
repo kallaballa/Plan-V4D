@@ -287,4 +287,3 @@ accept an output file as the second.
 * The author of the dance video is **GNI Dance Company** ([Original video](https://www.youtube.com/watch?v=yg6LZtNeO_8)).
 * The author of the video used in the beauty-demo video is **Kristen Leanne** ([Original video](https://www.youtube.com/watch?v=hUAT8Jm_dvw&t=11s)).
 * The author of cxxpool is **Copyright (c) 2022 Christian Blume**: ([LICENSE](https://github.com/bloomen/cxxpool/blob/master/LICENSE))
-* The author of the roboto font family is **Google Inc.** ([LICENSE](https://github.com/googlefonts/roboto/blob/main/LICENSE))

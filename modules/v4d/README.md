@@ -244,7 +244,7 @@ What ships in the tree:
 | YuNet face detector | `assets/models/face_detection_yunet_2023mar.onnx` (used by `beauty-demo`) |
 | LBF facemark | `assets/models/lbfmodel.yaml` (used by `beauty-demo`) |
 | MediaPipe pose models | `assets/models/pose/` — `person_detection_mediapipe_2023mar.onnx`, `pose_estimation_mediapipe_2023mar.onnx` (used by `skeletal-tracker-demo`) |
-| Fonts | `assets/fonts/` — Roboto, JetBrainsMono, entypo (all OFL) |
+| Fonts | `assets/fonts/` — DejaVuSans, JetBrainsMono, entypo (all OFL) |
 
 `skeletal-tracker-demo` hard-fails with a message naming the OpenCV Zoo when
 the two pose models are absent; they are checked into the tree, so a normal
@@ -424,7 +424,7 @@ modules/v4d/
 │   ├── samples.hpp                  V4D_DEMO_MAIN and the Android entry point
 │   ├── cubescene.hpp                the shared OpenGL cube
 │   ├── data/                        lena.png
-│   ├── fonts/                       Roboto, JetBrainsMono, entypo
+│   ├── fonts/                       DejaVuSans, JetBrainsMono, entypo
 │   └── shadertoy-editor/            the Shadertoy editor's headers and scripts
 │   ├── font_rendering.cpp         minimum NanoVG program
 │   ├── render_opengl.cpp          minimum OpenGL program
