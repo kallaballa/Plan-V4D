@@ -346,21 +346,25 @@ inline Fonts loadFonts(float uiScale = 1.0f) {
 
   const std::string monoPath = firstExistingAsset(
       {"fonts/JetBrainsMono-Regular.ttf", "JetBrainsMono-Regular.ttf",
+       "fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSansMono.ttf",
        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
        "/usr/share/fonts/TTF/DejaVuSansMono.ttf"});
   const std::string monoBoldPath = firstExistingAsset(
       {"fonts/JetBrainsMono-Bold.ttf", "JetBrainsMono-Bold.ttf",
+       "fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSansMono-Bold.ttf",
        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
        "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
        "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf"});
   const std::string uiPath = firstExistingAsset(
-      {"fonts/DejaVuSans.ttf", "DejaVuSans.ttf",
+      {"fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf",
+       "fonts/DejaVuSans.ttf", "DejaVuSans.ttf",
        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
        "/usr/share/fonts/TTF/DejaVuSans.ttf"});
   const std::string uiBoldPath = firstExistingAsset(
-      {"fonts/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf",
+      {"fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSans-Bold.ttf",
+       "fonts/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf",
        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"});

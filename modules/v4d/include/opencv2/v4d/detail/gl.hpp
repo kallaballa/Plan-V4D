@@ -15,8 +15,14 @@
 #include "GL/glcorearb.h"
 #endif
 #else
-#define OPENCV_V4D_GL_SHADER_VERSION "#version 320 es"
+#if !defined(__ANDROID__)
+#define OPENCV_V4D_GL_SHADER_VERSION "#version 300 es"
+#else
+#define OPENCV_V4D_GL_SHADER_VERSION "#version 300 es"
+#endif
+#if !defined(__ANDROID__)
 #include "GLES2/gl2ext.h"
+#endif
 #include "GLES3/gl3.h"
 #endif
 

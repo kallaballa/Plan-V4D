@@ -99,7 +99,11 @@ cat <<EOF
 -DWITH_1394=OFF
 -DWITH_IPP=OFF
 -DWITH_ITT=OFF
--DWITH_OPENCL=OFF
+# OpenCL is dlopen()ed at runtime from the device driver (libOpenCL.so, or the
+# Mali blob, PowerVR's libPVROCL.so, ...); nothing is linked or bundled. It
+# enables UMat kernels and V4D's CL-GL framebuffer sharing (zero-copy), with
+# an up-/download fallback when the device or driver does not cooperate.
+-DWITH_OPENCL=ON
 -DWITH_OPENCL_SVM=OFF
 -DWITH_OPENCLAMDFFT=OFF
 -DWITH_OPENCLAMDBLAS=OFF

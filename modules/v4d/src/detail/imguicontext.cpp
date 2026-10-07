@@ -112,7 +112,19 @@ ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext)
 //	ImGui_ImplGlfw_SetCallbacksChainForAllWindows(true);
 #endif
   ImGui_ImplOpenGL3_Init(
-      (std::string(OPENCV_V4D_GL_SHADER_VERSION) + "\n").c_str());
+#if defined(OPENCV_V4D_USE_ES3)
+      // The backend picks its shader variants by parsing the version number
+      // out of this string, and only "== 300" reaches the GLES ones.
+      // OPENCV_V4D_GL_SHADER_VERSION is "#version 320 es", which parses as
+      // 320, falls through to the desktop GLSL 130 shaders and fails to
+      // compile on a GLES context (the fragment stage has no default float
+      // precision) - leaving ShaderHandle 0 and every frame's draw dropped.
+      // The 300 es shaders compile fine on ES 3.x, 320 included.
+      "#version 300 es\n"
+#else
+      (std::string(OPENCV_V4D_GL_SHADER_VERSION) + "\n").c_str()
+#endif
+  );
   // Creating the context made it current; hand the current context back to
   // whoever had it, so that a second window does not steal it.
   ImGui::SetCurrentContext(prevCtx);

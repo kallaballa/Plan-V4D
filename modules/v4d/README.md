@@ -136,6 +136,12 @@ thread** every display refresh. Mutate shared state from inside
 `CLEAR_COLOR`, `NAMESPACE`, `FULLSCREEN`, `DISABLE_INPUT_EVENTS`, `VISIBLE`,
 `AUTO_SCALE`.
 
+`AUTO_SCALE=true` makes the runtime blit its framebuffer into the window
+scaled to fit, preserving the source's aspect ratio (centred letterbox /
+pillarbox) rather than stretching it to the window's size. It defaults to
+`true` on Android, where the surface is always the whole screen, and `false`
+on desktop.
+
 ## Sources and sinks
 
 Sources and sinks are handled automatically by the runtime. When a source is

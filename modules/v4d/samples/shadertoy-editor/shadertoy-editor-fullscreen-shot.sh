@@ -15,7 +15,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "$here/../../.." && pwd)"
+root="$(cd "$here/../../../.." && pwd)"
 
 out="${TMPDIR:-/tmp}/shadertoy-editor-fullscreen.png"
 # The samples are built as part of the OpenCV tree, so the binary lands in that

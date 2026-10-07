@@ -264,7 +264,17 @@ public:
     create<false>(Keys::DISABLE_INPUT_EVENTS, false);
     create<false, bool>(Keys::VISIBLE, fb->isVisible(),
                         [](const bool &v) { visibleFbCtx()->setVisible(v); });
+    // Android hands every window the whole screen as its drawable (see
+    // third/glfw-android: an ANativeWindow cannot be any other size), so a
+    // plan whose framebuffer is sized after its viewport has to be scaled to
+    // fit it - without this the blit lands in a corner at 1:1. Desktop
+    // windows are as big as their framebuffer, where scaling is a no-op, so
+    // the default stays off there.
+#ifdef __ANDROID__
+    create<false, bool>(Keys::AUTO_SCALE, true);
+#else
     create<false, bool>(Keys::AUTO_SCALE, false);
+#endif
   }
 
   template <bool Tread, typename Tval>

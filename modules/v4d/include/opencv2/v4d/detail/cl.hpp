@@ -11,10 +11,24 @@
 #ifndef CL_TARGET_OPENCL_VERSION
 #define CL_TARGET_OPENCL_VERSION 120
 #endif
+
+// OpenCV's runtime headers rename every CL entry point to a function pointer
+// resolved at call time from the driver OpenCV dlopen()s. Using them here
+// keeps this module free of undefined CL symbols - a requirement on Android,
+// where the APK's shared object is loaded wholesale before OpenCL is even
+// loaded, so a raw clCreateFromGLTexture reference would fail the dlopen.
+#include <opencv2/core/opencl/runtime/opencl_core.hpp>
+#include <opencv2/core/opencl/runtime/opencl_gl.hpp>
+
+#ifndef cl_khr_gl_sharing
+// Stock OpenCV provides the GL-sharing half only when built with HAVE_OPENGL.
+// Fall back to the raw declarations: resolved against a libOpenCL that is
+// linked in (desktop) or already loaded globally.
 #ifdef __APPLE__
 #include <OpenCL/cl_gl_ext.h>
 #else
 #include <CL/cl_gl.h>
+#endif
 #endif
 
 #endif

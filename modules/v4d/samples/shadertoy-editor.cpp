@@ -473,7 +473,12 @@ public:
     gl(
         [](ShadertoyRenderer &renderer) {
           std::string error;
-          if (!renderer.init(error))
+          const bool ok = renderer.init(error);
+          // std::cerr is silent on Android, so the log tag is what makes a
+          // failed blit-program link visible in logcat.
+          CV_LOG_INFO(&v4d_tag, "STDBG init ok=" << ok << " err='" << error
+                                                 << "'");
+          if (!ok)
             std::cerr << "shadertoy-editor: " << error << std::endl;
         },
         RW(renderer_));
@@ -575,6 +580,10 @@ public:
           const bool ok =
               renderer.load(pending.shader_, pending.textures_, errors, error);
           shared.compileSeconds_ = seconds() - started;
+          CV_LOG_INFO(&v4d_tag,
+                      "STDBG load ok=" << ok << " err='" << error
+                                       << "' displayable="
+                                       << renderer.displayablePasses().size());
 
           shared.errors_ = std::move(errors);
           if (ok) {
@@ -714,11 +723,27 @@ public:
     gl(
         [this](ShadertoyRenderer &renderer, Anim &anim, Shared &shared,
                const cv::Size &fbSize) {
+          static int stDbgNode6 = 0;
+          const bool dbg6 = stDbgNode6 < 4 || (stDbgNode6 % 120) == 0;
+          if (dbg6)
+            CV_LOG_INFO(&v4d_tag,
+                        "STDBG node6 #" << stDbgNode6 << " fbSize="
+                                        << fbSize.width << "x" << fbSize.height
+                                        << " hasShader="
+                                        << renderer.hasShader());
+          ++stDbgNode6;
           if (!renderer.hasShader())
             return;
           ShadertoyRenderer::Frame frame;
           const cv::Rect canvas =
               canvasOf(cv::Size(fbSize.width, fbSize.height), shared, mode_);
+          if (dbg6)
+            CV_LOG_INFO(&v4d_tag,
+                        "STDBG node6 canvas=(" << canvas.x << "," << canvas.y
+                                               << " " << canvas.width << "x"
+                                               << canvas.height
+                                               << ") displayPass="
+                                               << shared.displayPass_);
           frame.canvas = canvas;
           frame.target = targetOf(canvas, shared, mode_);
           frame.time = anim.time_;

@@ -20,7 +20,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo="$(cd "$here/../../.." && pwd)"
+repo="$(cd "$here/../../../.." && pwd)"
 build="${BUILD:-$repo/opencv/build}"
 target="${TARGET:-example_v4d_shadertoy-editor}"
 jobs="${JOBS:-$(nproc 2>/dev/null || echo 4)}"

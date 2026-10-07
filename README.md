@@ -325,6 +325,12 @@ fonts ship in [modules/v4d/assets/](modules/v4d/assets/) and
 
 ## Documentation
 
+* [OpenCV 5.x Overview](docs/OVERVIEW.md) — architecture, module map, build
+  system, backends, and provenance of the vendored `opencv/` tree.
+* [OpenCV Programmer's Reference](docs/programmers-reference.markdown) — the
+  structural, contract-level reference for the modules in `opencv/`.
+* [OpenCV Application Programmers Guide](docs/application-programmers-guide.markdown) —
+  the task-driven workflows (I/O, calibration, stereo, DNN, …).
 * [Plan-DSL Programming Guide](modules/plan/doc/plan-dsl-programming-guide.markdown) —
   a friendly tour through the language.
 * [Plan-DSL Reference](modules/plan/doc/plan-dsl-reference.markdown) —

@@ -489,15 +489,8 @@ bool is_clgl_sharing_supported() {
     try {
       if (!cv::ocl::useOpenCL())
         return false;
-      std::vector<cv::ocl::PlatformInfo> plt_info;
-      cv::ocl::getPlatfomsInfo(plt_info);
-      cv::ocl::Device current;
-      for (const auto &info : plt_info) {
-        for (int i = 0; i < info.deviceNumber(); ++i) {
-          info.getDevice(current, i);
-          return current.isExtensionSupported("cl_khr_gl_sharing");
-        }
-      }
+      return cv::ocl::Device::getDefault().isExtensionSupported(
+          "cl_khr_gl_sharing");
     } catch (std::exception &ex) {
       cerr << "CL-GL sharing query failed: " << ex.what() << endl;
     } catch (...) {

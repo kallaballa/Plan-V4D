@@ -468,9 +468,27 @@ GLFWwindow *V4D::getGLFWWindow() const {
 
 void V4D::printSystemInfo() {
   std::cerr << "OpenGL: " << get_gl_info() << std::endl;
+  CV_LOG_INFO(&v4d_tag, "OpenGL: " << get_gl_info());
 #ifdef HAVE_OPENCL
-  if (cv::ocl::useOpenCL())
+  if (cv::ocl::useOpenCL()) {
     std::cerr << "OpenCL Platforms: " << get_cl_info() << endl;
+    std::cerr << "CL-GL interop: "
+              << (mainFbContext_ && mainFbContext_->cl_gl_sharing()
+                      ? "enabled (zero-copy framebuffer)"
+                      : "disabled (download/upload fallback)")
+              << endl;
+    CV_LOG_INFO(&v4d_tag, "OpenCL Platforms: " << get_cl_info());
+    CV_LOG_INFO(&v4d_tag, "CL-GL interop: "
+                              << (mainFbContext_ && mainFbContext_->cl_gl_sharing()
+                                      ? "enabled (zero-copy framebuffer)"
+                                      : "disabled (download/upload fallback)"));
+  } else {
+    std::cerr << "OpenCL: not available on this device" << endl;
+    CV_LOG_INFO(&v4d_tag, "OpenCL: not available on this device");
+  }
+#else
+  std::cerr << "OpenCL: not built in (HAVE_OPENCL undefined)" << endl;
+  CV_LOG_INFO(&v4d_tag, "OpenCL: not built in (HAVE_OPENCL undefined)");
 #endif
 }
 

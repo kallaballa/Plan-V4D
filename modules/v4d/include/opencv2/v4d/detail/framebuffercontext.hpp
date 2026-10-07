@@ -134,9 +134,7 @@ public:
   class CV_EXPORTS FrameBufferScope {
     cv::Ptr<FrameBufferContext> ctx_;
     cv::UMat &m_;
-#ifdef HAVE_OPENCL
-    std::shared_ptr<CLExecContext_t> pExecCtx;
-#endif
+
   public:
     /*!
      * Aquires the framebuffer via cl-gl sharing.
@@ -144,40 +142,14 @@ public:
      * @param m The UMat to bind the OpenGL framebuffer to.
      */
     CV_EXPORTS FrameBufferScope(cv::Ptr<FrameBufferContext> ctx, cv::UMat &m)
-        : ctx_(ctx), m_(m)
-#ifdef HAVE_OPENCL
-          ,
-          pExecCtx(
-              std::static_pointer_cast<CLExecContext_t>(m.u->allocatorContext))
-#endif
-    {
+        : ctx_(ctx), m_(m) {
       CV_Assert(!m.empty());
-#ifdef HAVE_OPENCL
-      if (pExecCtx->empty()) {
-        CLExecScope_t execScope(*pExecCtx.get());
-        ctx_->acquireFromGL(m_);
-      } else {
-#endif
-        ctx_->acquireFromGL(m_);
-#ifdef HAVE_OPENCL
-      }
-#endif
+      ctx_->acquireFromGL(m_);
     }
     /*!
      * Releases the framebuffer via cl-gl sharing.
      */
-    CV_EXPORTS virtual ~FrameBufferScope() {
-#ifdef HAVE_OPENCL
-      if (pExecCtx->empty()) {
-        CLExecScope_t execScope(*pExecCtx.get());
-        ctx_->releaseToGL(m_);
-      } else {
-#endif
-        ctx_->releaseToGL(m_);
-#ifdef HAVE_OPENCL
-      }
-#endif
-    }
+    CV_EXPORTS virtual ~FrameBufferScope() { ctx_->releaseToGL(m_); }
   };
 
   /*!
@@ -240,6 +212,7 @@ public:
 
   GLuint getFramebufferID();
   GLuint getTextureID();
+  bool cl_gl_sharing() const { return clglSharing_; }
 
   /*!
    * Get the framebuffer size.
@@ -342,9 +315,9 @@ public:
    * @param srcViewport size of the region to blit. Without stretch, it also
    * determines the position of the region in the target framebuffer.
    * @param targetFbSize The size of the framebuffer to blit to.
-   * @param stretch if true the region is scaled to the full size of
-   * targetFbSize (aspect ratio not preserved), else it is copied 1:1 at
-   * srcViewport's position.
+   * @param stretch if true the region is scaled to fit targetFbSize while
+   * preserving its aspect ratio, centred in the target (letterbox/pillarbox),
+   * else it is copied 1:1 at srcViewport's position.
    * @param flipY if true the region is flipped vertically while blitting.
    */
   void blitFrameBufferToFrameBuffer(const cv::Rect &srcViewport,

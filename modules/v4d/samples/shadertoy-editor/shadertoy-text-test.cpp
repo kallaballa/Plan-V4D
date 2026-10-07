@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-#include "shadertoy-editor/shadertoy_syntax.hpp"
+#include "shadertoy_syntax.hpp"
 #include "shadertoy_text.hpp"
 #include "shadertoy_theme.hpp"
 

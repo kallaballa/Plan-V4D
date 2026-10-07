@@ -64,7 +64,17 @@ if(OPENCV_V4D_ENABLE_BGFX)
 endif()
 
 include(FetchContent)
-include(FindOpenCL)
+# OpenCV detects OpenCL itself (cmake/OpenCVDetectOpenCL.cmake): headers come
+# from the bundled 3rdparty/include/opencl/1.2 and there is nothing to link -
+# the runtime is dlopen()ed. CMake's FindOpenCL has neither under the NDK, so
+# only consult it on host platforms, where it can still provide a system
+# libOpenCL to link.
+if(OPENCL_INCLUDE_DIRS)
+  include_directories(${OPENCL_INCLUDE_DIRS})
+endif()
+if(WITH_OPENCL AND NOT ANDROID)
+  include(FindOpenCL)
+endif()
 
 if(OPENCV_V4D_ENABLE_MALI)
   find_package(PkgConfig REQUIRED)
@@ -340,7 +350,7 @@ macro(_v4d_add_host_sample sample source)
     if(ARGN)
       ocv_target_link_libraries(${sample} ${ARGN})
     endif()
-    if(WITH_OPENCL)
+    if(WITH_OPENCL AND OpenCL_LIBRARIES)
       ocv_target_link_libraries(${sample} "${OpenCL_LIBRARIES}")
     endif()
     if(OPENCV_V4D_ENABLE_ES3)
@@ -551,6 +561,7 @@ if(NOT (TARGET ${the_module}))
   ocv_module_include_directories(${_v4d_module_includes})
   ocv_create_module()
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
+  set_target_properties(${the_module} PROPERTIES CXX_STANDARD 20)
 
   # Populate assets
   set(LOCAL_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets" CACHE PATH "Local assets directory")
@@ -711,7 +722,7 @@ if(NOT (TARGET ${the_module}))
   if(OPENCV_V4D_ENABLE_BGFX)
     ocv_target_link_libraries(${the_module} bimg bx bgfx)
   endif()
-  if(WITH_OPENCL)
+  if(WITH_OPENCL AND OpenCL_LIBRARIES)
     ocv_target_link_libraries(${the_module} "${OpenCL_LIBRARIES}")
   endif()
 

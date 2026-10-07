@@ -24,7 +24,7 @@
 set -euo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-repo="$(cd -- "$here/../../.." && pwd)"
+repo="$(cd -- "$here/../../../.." && pwd)"
 dst="$repo/modules/v4d/third/imgui-color-text-edit"
 
 readonly repo_url="https://github.com/goossens/ImGuiColorTextEdit"

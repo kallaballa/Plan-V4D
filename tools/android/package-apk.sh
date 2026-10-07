@@ -221,6 +221,12 @@ cat > "$WORK/AndroidManifest.xml" <<EOF
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-feature android:name="android.hardware.camera.any" android:required="false" />
   <application android:label="V4D $DEMO" android:hasCode="true">
+  <!-- Android 12+ apps run in a linker namespace that may only dlopen libs
+       from their own /data dir unless declared here; without this the
+       vendor's OpenCL driver can never be dlopened by OpenCV ("not
+       accessible for the namespace"). required=false: still installs and
+       falls back to the CPU path on devices without OpenCL. -->
+  <uses-native-library android:name="libOpenCL.so" android:required="false" />
     <activity android:name="$ACTIVITY_CLASS"
         android:label="V4D $DEMO"
         android:exported="true"

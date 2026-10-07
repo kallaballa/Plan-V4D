@@ -71,7 +71,8 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext)
              "V4D::init(), and check that fonts are present.");
 
   if (registerFont(context_, "sans",
-                   {"fonts/DejaVusans.ttf", "DejaVuSans.ttf",
+                   {"fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf",
+                    "fonts/DejaVuSans.ttf", "DejaVuSans.ttf",
                     "modules/v4d/assets/fonts/DejaVuSans.ttf",
                     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
@@ -83,7 +84,8 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext)
              "V4D::init().");
 
   if (registerFont(context_, "sans-bold",
-                   {"fonts/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf",
+                   {"fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSans-Bold.ttf",
+                    "fonts/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf",
                     "modules/v4d/assets/fonts/DejaVuSans-Bold.ttf",
                     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
                     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",

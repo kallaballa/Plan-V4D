@@ -74,6 +74,9 @@ void main()
 )";
 
 const string kBlitFrag = std::string(OPENCV_V4D_GL_SHADER_VERSION) + R"(
+// GLSL ES fragment shaders have no default float precision; strict drivers
+// (Mali) refuse to compile without one even though desktop GL accepts it.
+precision highp float;
 in vec2 vUV;
 uniform sampler2D uTex;
 uniform vec2 uMin;
@@ -96,6 +99,9 @@ void main()
 // uniforms to the pass and hides them from its source, so they have to be
 // declared here instead.
 const string kPassUniforms = R"(
+precision lowp sampler2D;
+precision lowp float;
+precision lowp int;
 uniform vec3  iResolution;
 uniform float iTime;
 uniform float iTimeDelta;
@@ -1048,6 +1054,31 @@ public:
     GLint previousViewport[4] = {0, 0, 0, 0};
     glGetIntegerv(GL_VIEWPORT, previousViewport);
 
+    // Diagnostics: std::cerr never reaches logcat on Android, so the first
+    // frames and then every 120th go through the OpenCV logger instead. The
+    // entry drain also shows whether earlier nodes left GL errors behind.
+    static int stDbgRender = 0;
+    const bool stDbg = stDbgRender < 4 || (stDbgRender % 120) == 0;
+    ++stDbgRender;
+    const GLenum stErrIn = glGetError();
+    if (stDbg)
+      CV_LOG_INFO(&cv::v4d::v4d_tag,
+                  "STDBG render #" << stDbgRender << " shown="
+                                   << (shown ? shown->name_ : std::string("-"))
+                                   << " target=" << target.width << "x"
+                                   << target.height << " canvas=("
+                                   << frame.canvas.x << "," << frame.canvas.y
+                                   << " " << frame.canvas.width << "x"
+                                   << frame.canvas.height << ") prevFbo="
+                                   << previousFramebuffer << " prevVp=["
+                                   << previousViewport[0] << ","
+                                   << previousViewport[1] << ","
+                                   << previousViewport[2] << ","
+                                   << previousViewport[3]
+                                   << "] blitProg=" << blitProgram_
+                                   << " errIn=0x" << std::hex << stErrIn
+                                   << std::dec);
+
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_BLEND);
     glDisable(GL_DEPTH_TEST);
@@ -1124,6 +1155,34 @@ public:
       glDrawArrays(GL_TRIANGLES, 0, 6);
       glBindVertexArray(0);
       glBindTexture(GL_TEXTURE_2D, 0);
+      if (stDbg) {
+        // Did the blit actually write into the framebuffer the display thread
+        // presents? Probe three points: inside the ImGui panel zone, below the
+        // panel outside the canvas (expects uBackground ~18,18,20) and the
+        // canvas sliver on the right (expects shader pixels). Screen-style
+        // coordinates (top-left origin) are converted to GL's bottom-left.
+        const GLenum stErrDraw = glGetError();
+        const int vh = std::max(previousViewport[3], 1);
+        auto probe = [&](int sx, int sy) {
+          unsigned char px[4] = {0, 0, 0, 0};
+          glReadPixels(std::max(sx, 0), vh - sy, 1, 1, GL_RGBA,
+                       GL_UNSIGNED_BYTE, px);
+          return std::string("(") + std::to_string(int(px[0])) + "," +
+                 std::to_string(int(px[1])) + "," +
+                 std::to_string(int(px[2])) + ")";
+        };
+        const std::string stPanelPx = probe(100, 300);
+        const std::string stBelowPx = probe(100, 1000);
+        const std::string stCanvasPx = probe(640, 1000);
+        const GLenum stErrRead = glGetError();
+        CV_LOG_INFO(&cv::v4d::v4d_tag,
+                    "STDBG blit drawErr=0x" << std::hex << stErrDraw
+                                            << " panelPx=" << stPanelPx
+                                            << " belowPx=" << stBelowPx
+                                            << " canvasPx=" << stCanvasPx
+                                            << " readErr=0x" << stErrRead
+                                            << std::dec);
+      }
     }
 
     glUseProgram(0);

@@ -10,7 +10,7 @@
 set -euo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-repo="$(cd -- "$here/../../.." && pwd)"
+repo="$(cd -- "$here/../../../.." && pwd)"
 build="${1:-$here/.text-test}"
 
 include=(
@@ -36,12 +36,12 @@ fi
 mkdir -p "$build"
 bin="$build/shadertoy-text-test"
 
-echo "compiling $here/shadertoy-editor/shadertoy-text-test.cpp"
+echo "compiling $here/shadertoy-text-test.cpp"
 # C++20 because imgui.h reaches the Plan headers through imconfig.h, and those
 # use std::barrier. The editor itself is built with the same standard.
 g++ -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
   "${include[@]}" "${libs[@]}" \
-  -o "$bin" "$here/shadertoy-editor/shadertoy-text-test.cpp"
+  -o "$bin" "$here/shadertoy-text-test.cpp"
 
 echo "running $bin"
 "$bin" "$@"
