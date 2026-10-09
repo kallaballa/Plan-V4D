@@ -8,9 +8,6 @@
 #include "../include/opencv2/v4d/detail/gl.hpp"
 #include "../include/opencv2/v4d/v4d.hpp"
 #include <algorithm>
-#include <cmath>
-#include <cstdlib>
-#include <cstring>
 #include <exception>
 #include <iostream>
 #include <mutex>
@@ -26,9 +23,6 @@
 #endif
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
-#ifdef __ANDROID__
-#include <EGL/egl.h>
-#endif
 
 using std::cerr;
 using std::cout;
@@ -53,78 +47,6 @@ static void glfw_error_callback(int error, const char *description) {
  * serialized process-wide. The rest of the frame (rendering, event dispatch) is
  * not affected: it stays parallel.
  */
-#ifdef __ANDROID__
-// cv::ogl::ocl::initializeContextFromGL() cannot run on a device: OpenCV
-// compiles it to a throwing stub unless it was built WITH_OPENGL (Android
-// builds keep it off; V4D carries its own EGL window), and its Android
-// context properties are GLX. The window's GL context here is EGL, so create
-// the cl_khr_gl_sharing context from the current EGL context/display and hand
-// it to OpenCV as the default execution context. Any failure throws here and
-// init() catches it, disabling sharing; the framebuffer then goes through the
-// up-/download fallback path.
-static void initializeContextFromEGL() {
-  using namespace cv::ocl;
-
-  const EGLContext eglContext = eglGetCurrentContext();
-  const EGLDisplay eglDisplay = eglGetCurrentDisplay();
-  if (eglContext == EGL_NO_CONTEXT || eglDisplay == EGL_NO_DISPLAY)
-    throw std::runtime_error("CL-GL sharing: no current EGL context");
-
-  cl_uint platformCount = 0;
-  cl_int status = clGetPlatformIDs(0, nullptr, &platformCount);
-  if (status != CL_SUCCESS || platformCount == 0)
-    throw std::runtime_error("OpenCL: no platform available");
-  std::vector<cl_platform_id> platforms(platformCount);
-  status = clGetPlatformIDs(platformCount, platforms.data(), nullptr);
-  if (status != CL_SUCCESS)
-    throw std::runtime_error("OpenCL: clGetPlatformIDs failed: " +
-                             std::to_string(status));
-
-  for (cl_platform_id platform : platforms) {
-    cl_uint deviceCount = 0;
-    if (clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, nullptr,
-                       &deviceCount) != CL_SUCCESS ||
-        deviceCount == 0)
-      continue;
-    std::vector<cl_device_id> devices(deviceCount);
-    if (clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, deviceCount,
-                       devices.data(), nullptr) != CL_SUCCESS)
-      continue;
-    for (cl_device_id device : devices) {
-      size_t extensionsSize = 0;
-      if (clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, 0, nullptr,
-                          &extensionsSize) != CL_SUCCESS ||
-          extensionsSize == 0)
-        continue;
-      std::string extensions(extensionsSize, '\0');
-      if (clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, extensionsSize,
-                          extensions.data(), nullptr) != CL_SUCCESS)
-        continue;
-      if (extensions.find("cl_khr_gl_sharing") == std::string::npos)
-        continue;
-
-      cl_context_properties properties[] = {
-          CL_CONTEXT_PLATFORM, (cl_context_properties)platform,
-          CL_GL_CONTEXT_KHR, (cl_context_properties)eglContext,
-          CL_EGL_DISPLAY_KHR, (cl_context_properties)eglDisplay, 0};
-      cl_context context =
-          clCreateContext(properties, 1, &device, nullptr, nullptr, &status);
-      if (status != CL_SUCCESS || context == nullptr)
-        continue;
-
-      OpenCLExecutionContext execContext = OpenCLExecutionContext::create(
-          PlatformInfo(&platform).name(), platform, context, device);
-      clReleaseContext(context);
-      clReleaseDevice(device);
-      execContext.bind();
-      return;
-    }
-  }
-  throw std::runtime_error(
-      "CL-GL sharing: no GPU device with a current EGL context");
-}
-#endif // __ANDROID__
-
 static std::mutex &glfw_init_mtx() {
   static std::mutex mtx;
   return mtx;
@@ -328,48 +250,18 @@ void FrameBufferContext::init() {
     (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
   static std::once_flag platformOnce;
   std::call_once(platformOnce, []() {
-    // glfwPlatformSupported() answers "was this compiled in", not "is there a
-    // compositor": on X11 - an Xvfb for a screenshot, or a session without a
-    // Wayland desktop - forcing the Wayland platform makes glfwInit() fail with
-    // "Wayland: Failed to connect to display" and takes the whole program down
-    // with it. Only ask for Wayland where one is actually reachable; the
-    // fallback in glfwInit() below covers the rest.
-    const char *display = std::getenv("WAYLAND_DISPLAY");
-    const char *session = std::getenv("XDG_SESSION_TYPE");
-    const bool waylandReachable =
-        (display != nullptr && *display != '\0') ||
-        (session != nullptr && std::strcmp(session, "wayland") == 0);
-    if (waylandReachable && glfwPlatformSupported(GLFW_PLATFORM_WAYLAND))
+    if (glfwPlatformSupported(GLFW_PLATFORM_WAYLAND))
       glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
   });
 #endif
 #endif
 
-  // The callback has to be in place *before* glfwInit(): that is where the
-  // failures that matter (no display, no compositor) are reported, and a
-  // callback set afterwards never sees them.
-  glfwSetErrorCallback(cv::v4d::detail::glfw_error_callback);
-
   if (!parent_ && glfwInit() != GLFW_TRUE) {
-#if !defined(OPENCV_V4D_USE_ES3) && !defined(__APPLE__) &&                    \
-    (GLFW_VERSION_MAJOR > 3 ||                                                \
-     (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4))
-    // Wayland was preferred above but may not be there after all; let GLFW
-    // pick whatever does work before giving up. glfwInit() may be retried
-    // after a failed attempt - the hint, unlike the successful-init case, is
-    // still free to change.
-    glfwInitHint(GLFW_PLATFORM, GLFW_ANY_PLATFORM);
-    if (glfwInit() != GLFW_TRUE) {
-#endif
-      cerr << "Can't init GLFW" << endl;
-      exit(1);
-#if !defined(OPENCV_V4D_USE_ES3) && !defined(__APPLE__) &&                    \
-    (GLFW_VERSION_MAJOR > 3 ||                                                \
-     (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4))
-    }
-#endif
+    cerr << "Can't init GLFW" << endl;
+    exit(1);
   }
 
+  glfwSetErrorCallback(cv::v4d::detail::glfw_error_callback);
   // glfwSetTime() is process-wide, so only the first window resets the clock.
   static std::once_flag timeOnce;
   std::call_once(timeOnce, []() { glfwSetTime(0); });
@@ -451,15 +343,10 @@ void FrameBufferContext::init() {
   }
 #endif
   try {
-    if (isRoot() && is_clgl_sharing_supported()) {
-#ifdef __ANDROID__
-      initializeContextFromEGL();
-#else
+    if (isRoot() && is_clgl_sharing_supported())
       cv::ogl::ocl::initializeContextFromGL();
-#endif
-    } else {
+    else
       clglSharing_ = false;
-    }
   } catch (std::exception &ex) {
     CV_LOG_WARNING(nullptr, "CL-GL sharing failed: %s" << ex.what());
     clglSharing_ = false;
@@ -591,7 +478,7 @@ void FrameBufferContext::setup() {
 
 void FrameBufferContext::teardown() {
   using namespace cv::ocl;
-#ifdef HAVE_OPENCL
+#if defined(HAVE_OPENCL) && !defined(__ANDROID__)
   if (cv::ocl::useOpenCL() && clImage_ != nullptr &&
       !getCLExecContext().empty()) {
     CLExecScope_t clExecScope(getCLExecContext());
@@ -667,7 +554,7 @@ void FrameBufferContext::unflip() {
                                size(), false, true);
 }
 
-#ifdef HAVE_OPENCL
+#if defined(HAVE_OPENCL) && !defined(__ANDROID__)
 void FrameBufferContext::toGLTexture2D(cv::UMat &u, const GLuint &texID) {
   CV_UNUSED(texID);
   CV_Assert(clImage_ != nullptr);
@@ -804,26 +691,12 @@ void FrameBufferContext::blitFrameBufferToFrameBuffer(
     return;
 
   // Destination: either the very same rect in the target framebuffer or, if
-  // stretching, the ROI scaled to *fit* the target framebuffer - keeping its
-  // aspect ratio and centred, so a square source lands letterboxed/pillarboxed
-  // on a screen that is not square instead of being stretched flat.
+  // stretching, the ROI scaled to the full extent of the target framebuffer.
   int dstWidth = srcWidth;
   int dstHeight = srcHeight;
-  GLint dstX0 = srcViewport.x;
-  GLint dstY0 = srcViewport.y;
   if (stretch) {
-    const double srcAspect = double(srcWidth) / double(srcHeight);
-    const double dstAspect =
-        double(targetFbSize.width) / double(targetFbSize.height);
-    if (srcAspect >= dstAspect) {
-      dstWidth = targetFbSize.width;
-      dstHeight = std::max(1, (int)std::lround(dstWidth / srcAspect));
-    } else {
-      dstHeight = targetFbSize.height;
-      dstWidth = std::max(1, (int)std::lround(dstHeight * srcAspect));
-    }
-    dstX0 = (targetFbSize.width - dstWidth) / 2;
-    dstY0 = (targetFbSize.height - dstHeight) / 2;
+    dstWidth = targetFbSize.width;
+    dstHeight = targetFbSize.height;
   }
   if (dstWidth <= 0 || dstHeight <= 0)
     return;
@@ -832,6 +705,8 @@ void FrameBufferContext::blitFrameBufferToFrameBuffer(
   const GLint srcY0 = 0;
   const GLint srcX1 = srcWidth;
   const GLint srcY1 = srcHeight;
+  GLint dstX0 = stretch ? 0 : srcViewport.x;
+  GLint dstY0 = stretch ? 0 : srcViewport.y;
   GLint dstX1 = dstX0 + dstWidth;
   GLint dstY1 = dstY0 + dstHeight;
   if (flipY)
@@ -906,7 +781,7 @@ void FrameBufferContext::upload(const cv::UMat &m) {
 }
 
 void FrameBufferContext::acquireFromGL(cv::UMat &m) {
-#ifdef HAVE_OPENCL
+#if defined(HAVE_OPENCL) && !defined(__ANDROID__)
   if (cv::ocl::useOpenCL() && clglSharing_) {
     try {
       flip();
@@ -931,7 +806,7 @@ void FrameBufferContext::acquireFromGL(cv::UMat &m) {
 
 void FrameBufferContext::releaseToGL(cv::UMat &m) {
 
-#ifdef HAVE_OPENCL
+#if defined(HAVE_OPENCL) && !defined(__ANDROID__)
   if (cv::ocl::useOpenCL() && clglSharing_) {
     try {
       GL_CHECK(toGLTexture2D(m, textureFlippedID_));
