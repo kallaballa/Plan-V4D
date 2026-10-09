@@ -63,6 +63,25 @@ using GlfwAndroidInputHandler = int32_t (*)(const AInputEvent *event);
 /// \returns the previous handler, so it can be restored.
 GlfwAndroidInputHandler glfw_android_set_input_handler(GlfwAndroidInputHandler handler);
 
+/// Shows or hides the on-screen keyboard for the activity.
+///
+/// The NDK's own ANativeActivity_showSoftInput() is not usable from a
+/// NativeActivity -- InputMethodManager rejects the NativeContentView as "not
+/// served" -- so the request is forwarded to the activity's Java helpers
+/// (showSoftInput()/hideSoftInput()) over JNI. Safe to call from any thread and
+/// a no-op when no activity is recorded yet. The Java methods are looked up by
+/// name, so this works with any NativeActivity subclass that provides them.
+void glfw_android_set_soft_input_visible(bool show);
+
+/// Pops one Unicode codepoint typed on the input method, or 0 when the queue
+/// is empty.
+///
+/// The NDK has no AKeyEvent_getUnicodeChar(), so characters are captured in the
+/// activity's Java layer (dispatchKeyEvent -> getUnicodeChar) and drained here.
+/// Call until it returns 0 to empty the queue for a frame. Safe to call from any
+/// thread; a no-op returning 0 when no activity is recorded.
+int32_t glfw_android_poll_unicode_char();
+
 #endif // OPENCV_V4D_ANDROID
 
 #endif // MODULES_V4D_THIRD_GLFW_ANDROID_GLFW_ANDROID_HPP_

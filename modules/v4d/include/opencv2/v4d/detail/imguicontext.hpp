@@ -36,6 +36,12 @@ class CV_EXPORTS ImGuiContextImpl : public cv::plan::detail::PlanContext {
   // the state of its filter field across frames.
   TimeTrackerWidget timeTrackerWidget_;
   bool firstFrame_ = true;
+#if defined(__ANDROID__)
+  // Whether the previous frame wanted text input. Drives the on-screen keyboard
+  // on focus changes and gates the Unicode poll, so neither costs a JNI round
+  // trip while no text field is active.
+  bool lastWantTextInput_ = false;
+#endif
 
 public:
   CV_EXPORTS ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext);

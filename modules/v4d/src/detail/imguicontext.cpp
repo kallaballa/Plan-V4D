@@ -244,10 +244,32 @@ int ImGuiContextImpl::execute(const cv::Rect &vp, std::function<void()> fn) {
     // backend is bound to.
     ensureAndroidBackendWindow();
     ImGui_ImplAndroid_NewFrame();
+    // The input method delivers characters through the activity's Java layer
+    // (the NDK has no AKeyEvent_getUnicodeChar()), so drain the queue that the
+    // shim polls into, before NewFrame() hands the characters to this frame's
+    // widgets. Gated on the previous frame wanting text input, so an idle GUI
+    // pays no JNI cost.
+    if (lastWantTextInput_) {
+      ImGuiIO &io = ImGui::GetIO();
+      for (int32_t c = glfw_android_poll_unicode_char(); c != 0;
+           c = glfw_android_poll_unicode_char())
+        io.AddInputCharacter(static_cast<unsigned int>(c));
+    }
 #else
     ImGui_ImplGlfw_NewFrame();
 #endif
     ImGui::NewFrame();
+#if defined(__ANDROID__)
+    // Mobile has no physical keyboard to fall back on: io.WantTextInput is the
+    // signal ImGui gives for "a text field is focused", so the on-screen
+    // keyboard follows it. NewFrame() refreshes the flag from the previous
+    // frame's widget state, hence the one-frame latency.
+    const bool wantTextInput = ImGui::GetIO().WantTextInput;
+    if (wantTextInput != lastWantTextInput_) {
+      glfw_android_set_soft_input_visible(wantTextInput);
+      lastWantTextInput_ = wantTextInput;
+    }
+#endif
 
     bool open_ptr[1] = {true};
     ImGuiWindowFlags window_flags = 0;

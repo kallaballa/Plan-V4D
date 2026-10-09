@@ -36,6 +36,7 @@
 #include <android/keycodes.h>
 #include <android/looper.h>
 #include <android/log.h>
+#include <jni.h>
 
 #include <algorithm>
 #include <chrono>
@@ -869,6 +870,107 @@ GlfwAndroidInputHandler glfw_android_set_input_handler(GlfwAndroidInputHandler h
   GlfwAndroidInputHandler previous = p.inputHandler;
   p.inputHandler = handler;
   return previous;
+}
+
+// ---------------------------------------------------------------------------
+// On-screen keyboard / Unicode input (called from V4D's ImGui layer)
+// ---------------------------------------------------------------------------
+//
+// The activity is a Java object, and the IME can only be driven from Java: the
+// NDK's ANativeActivity_showSoftInput() hands InputMethodManager a
+// NativeContentView that it refuses to serve, so it silently does nothing. The
+// activity therefore exposes showSoftInput()/hideSoftInput()/pollUnicodeChar()
+// (see V4DCameraActivity.java), and this is the JNI bridge to them. They are
+// looked up by name on whatever class the activity actually is, so V4D does not
+// have to name or include it.
+
+namespace {
+
+/// The process' activity, or nullptr before onCreate() has run.
+ANativeActivity *currentActivity() {
+  Platform &p = platform();
+  std::lock_guard<std::recursive_mutex> lock(p.mutex);
+  return p.activity;
+}
+
+/// Returns a JNIEnv for the calling thread, attaching it to the activity's VM
+/// if it is not attached already (the render thread is a plain std::thread, so
+/// it never is). \p attached reports whether the caller has to detach again.
+JNIEnv *attachActivityEnv(ANativeActivity *activity, bool &attached) {
+  attached = false;
+  if (!activity || !activity->vm)
+    return nullptr;
+  JNIEnv *env = nullptr;
+  const jint status =
+      activity->vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6);
+  if (status == JNI_OK)
+    return env;
+  if (status != JNI_EDETACHED)
+    return nullptr;
+  if (activity->vm->AttachCurrentThread(&env, nullptr) != JNI_OK)
+    return nullptr;
+  attached = true;
+  return env;
+}
+
+void detachActivityEnv(ANativeActivity *activity, bool attached) {
+  if (attached && activity && activity->vm)
+    activity->vm->DetachCurrentThread();
+}
+
+} // namespace
+
+void glfw_android_set_soft_input_visible(bool show) {
+  ANativeActivity *activity = currentActivity();
+  if (!activity)
+    return;
+  bool attached = false;
+  JNIEnv *env = attachActivityEnv(activity, attached);
+  if (!env)
+    return;
+
+  jclass clazz = env->GetObjectClass(activity->clazz);
+  if (clazz) {
+    const char *method = show ? "showSoftInput" : "hideSoftInput";
+    jmethodID id = env->GetMethodID(clazz, method, "()V");
+    if (id) {
+      env->CallVoidMethod(activity->clazz, id);
+    } else {
+      LOGW("activity has no %s(); the soft keyboard will not follow text focus",
+           method);
+    }
+    // A pending exception would poison every later JNI call on this thread, so
+    // it is cleared whether or not the method was found.
+    if (env->ExceptionCheck())
+      env->ExceptionClear();
+    env->DeleteLocalRef(clazz);
+  }
+  detachActivityEnv(activity, attached);
+}
+
+int32_t glfw_android_poll_unicode_char() {
+  ANativeActivity *activity = currentActivity();
+  if (!activity)
+    return 0;
+  bool attached = false;
+  JNIEnv *env = attachActivityEnv(activity, attached);
+  if (!env)
+    return 0;
+
+  int32_t codepoint = 0;
+  jclass clazz = env->GetObjectClass(activity->clazz);
+  if (clazz) {
+    jmethodID id = env->GetMethodID(clazz, "pollUnicodeChar", "()I");
+    if (id)
+      codepoint = static_cast<int32_t>(env->CallIntMethod(activity->clazz, id));
+    if (env->ExceptionCheck()) {
+      env->ExceptionClear();
+      codepoint = 0;
+    }
+    env->DeleteLocalRef(clazz);
+  }
+  detachActivityEnv(activity, attached);
+  return codepoint;
 }
 
 // ---------------------------------------------------------------------------
