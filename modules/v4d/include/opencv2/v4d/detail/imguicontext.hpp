@@ -57,6 +57,19 @@ public:
    */
   CV_EXPORTS void makeCurrent();
 
+  /*!
+   * The largest axis-aligned rectangle of a `fbSize` window (in framebuffer
+   * pixels, origin top-left) that no visible ImGui window covers, i.e. the
+   * space a framebuffer can be blitted into without hidden behind - or
+   * clipping - the GUI. The layout of the last completed ImGui frame is used,
+   * which is the frame the display thread is about to composite over, so the
+   * result can be computed before the new frame's NewFrame() call.
+   *
+   * Returns an empty rectangle when the whole window is covered. Falls back to
+   * the whole window while no ImGui frame has run yet.
+   */
+  CV_EXPORTS cv::Rect freeRect(const cv::Size &fbSize);
+
   // Current context of the calling thread. Used by ImGui itself (GImGui).
   CV_EXPORTS static ImGuiContext *getContext();
   CV_EXPORTS static void setContext(ImGuiContext *ctx);

@@ -4,6 +4,9 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <opencv2/v4d/detail/imguicontext.hpp>
 #include <opencv2/v4d/v4d.hpp>
 #include <vector>
@@ -14,6 +17,10 @@
 
 #define IMGUI_IMPL_OPENGL_LOADER_CUSTOM
 #include "imgui.h"
+// For the ImGuiContext window list and the dock-node fields: freeRect() reads
+// the layout of the last completed frame to find the space a framebuffer can
+// be blitted into without being covered by the GUI.
+#include "imgui_internal.h"
 #if defined(__ANDROID__)
 #include "imgui_impl_android.h"
 // third/glfw-android is already on the include path; spelling the directory out
@@ -102,6 +109,111 @@ void ensureAndroidBackendWindow() {
 } // namespace
 #endif
 
+namespace {
+
+/// The largest axis-aligned rectangle inside `bounds` that does not overlap
+/// any rectangle of `obstacles` (all in the same coordinate space).
+///
+/// A maximal empty rectangle can always be grown until each of its edges rests
+/// on a bound or on an obstacle edge, so it is enough to look at the grid
+/// formed by those coordinates. That grid has only two lines per obstacle, and
+/// the maximal rectangle in it is the classic per-row histogram problem, which
+/// a monotonic stack solves in linear time per row.
+cv::Rect largestEmptyRect(const cv::Rect &bounds,
+                          const std::vector<cv::Rect> &obstacles) {
+  if (bounds.width <= 0 || bounds.height <= 0)
+    return cv::Rect();
+
+  std::vector<cv::Rect> clipped;
+  clipped.reserve(obstacles.size());
+  for (const cv::Rect &o : obstacles) {
+    const cv::Rect c = o & bounds;
+    if (c.width > 0 && c.height > 0)
+      clipped.push_back(c);
+  }
+  if (clipped.empty())
+    return bounds;
+
+  std::vector<int> xs = {bounds.x, bounds.x + bounds.width};
+  std::vector<int> ys = {bounds.y, bounds.y + bounds.height};
+  for (const cv::Rect &o : clipped) {
+    xs.push_back(o.x);
+    xs.push_back(o.x + o.width);
+    ys.push_back(o.y);
+    ys.push_back(o.y + o.height);
+  }
+  std::sort(xs.begin(), xs.end());
+  xs.erase(std::unique(xs.begin(), xs.end()), xs.end());
+  std::sort(ys.begin(), ys.end());
+  ys.erase(std::unique(ys.begin(), ys.end()), ys.end());
+
+  const int nx = static_cast<int>(xs.size()) - 1; // grid cells per row
+  const int ny = static_cast<int>(ys.size()) - 1;
+  if (nx <= 0 || ny <= 0)
+    return cv::Rect();
+
+  // Mark every grid cell an obstacle covers. Its edges are grid lines, so
+  // lower_bound gives the exact half-open cell range.
+  std::vector<unsigned char> freeCell(static_cast<size_t>(nx) * ny, 1);
+  for (const cv::Rect &o : clipped) {
+    const int i0 = static_cast<int>(
+        std::lower_bound(xs.begin(), xs.end(), o.x) - xs.begin());
+    const int i1 = static_cast<int>(
+        std::lower_bound(xs.begin(), xs.end(), o.x + o.width) - xs.begin());
+    const int j0 = static_cast<int>(
+        std::lower_bound(ys.begin(), ys.end(), o.y) - ys.begin());
+    const int j1 = static_cast<int>(
+        std::lower_bound(ys.begin(), ys.end(), o.y + o.height) - ys.begin());
+    for (int j = j0; j < j1; ++j)
+      for (int i = i0; i < i1; ++i)
+        freeCell[static_cast<size_t>(i) + static_cast<size_t>(j) * nx] = 0;
+  }
+
+  // Sweep the rows bottom-up, carrying the height (in pixels) of the free run
+  // that ends at the current row for every column, and resolve each row's
+  // weighted histogram with a monotonic stack. The widths are real grid
+  // spacings, so the area is in pixels and the winning rectangle is exact.
+  cv::Rect best;
+  long long bestArea = 0;
+  std::vector<int> height(nx, 0);
+  struct Bar {
+    int start;  // first grid column of the run
+    int height; // run height in pixels
+  };
+  std::vector<Bar> stack;
+  stack.reserve(nx);
+  for (int j = 0; j < ny; ++j) {
+    for (int i = 0; i < nx; ++i) {
+      height[i] =
+          freeCell[static_cast<size_t>(i) + static_cast<size_t>(j) * nx]
+              ? height[i] + (ys[j + 1] - ys[j])
+              : 0;
+    }
+    stack.clear();
+    for (int i = 0; i <= nx; ++i) {
+      const int h = (i < nx) ? height[i] : 0; // 0 flushes the stack
+      int start = i;
+      while (!stack.empty() && stack.back().height > h) {
+        const Bar bar = stack.back();
+        stack.pop_back();
+        const int width = xs[i] - xs[bar.start];
+        const long long area = static_cast<long long>(bar.height) * width;
+        if (area > bestArea) {
+          bestArea = area;
+          best = cv::Rect(xs[bar.start], ys[j + 1] - bar.height, width,
+                          bar.height);
+        }
+        start = bar.start;
+      }
+      if (stack.empty() || stack.back().height < h)
+        stack.push_back({start, h});
+    }
+  }
+  return best;
+}
+
+} // namespace
+
 ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext)
     : mainFbContext_(fbContext) {
   IMGUI_CHECKVERSION();
@@ -183,6 +295,82 @@ void ImGuiContextImpl::setContext(ImGuiContext *ctx) { context_ = ctx; }
 void ImGuiContextImpl::makeCurrent() {
   if (ctx_ && ImGui::GetCurrentContext() != ctx_)
     ImGui::SetCurrentContext(ctx_);
+}
+
+cv::Rect ImGuiContextImpl::freeRect(const cv::Size &fbSize) {
+  const cv::Rect bounds(0, 0, std::max(fbSize.width, 0),
+                        std::max(fbSize.height, 0));
+  if (bounds.width <= 0 || bounds.height <= 0)
+    return cv::Rect();
+  // Before any frame has run there is no layout to ask about.
+  if (!ctx_)
+    return bounds;
+
+  makeCurrent();
+  ImGuiContext *context = ImGui::GetCurrentContext();
+  if (context == nullptr)
+    return bounds;
+
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  const ImVec2 origin = viewport ? viewport->Pos : ImVec2(0.0f, 0.0f);
+  const ImGuiIO &io = ImGui::GetIO();
+  const float scaleX =
+      io.DisplayFramebufferScale.x > 0.0f ? io.DisplayFramebufferScale.x : 1.0f;
+  const float scaleY =
+      io.DisplayFramebufferScale.y > 0.0f ? io.DisplayFramebufferScale.y : 1.0f;
+
+  std::vector<cv::Rect> obstacles;
+  const bool dbg = std::getenv("V4D_FREERECT_DEBUG") != nullptr;
+  for (ImGuiWindow *window : context->Windows) {
+    if (window == nullptr)
+      continue;
+    if (dbg)
+      std::fprintf(
+          stderr,
+          "[freerect] win='%s' pos=(%.0f,%.0f) size=(%.0f,%.0f) hidden=%d "
+          "active=%d was=%d fallback=%d child=%d dockhost=%d nobg=%d\n",
+          window->Name, window->Pos.x, window->Pos.y, window->Size.x,
+          window->Size.y, (int)window->Hidden, (int)window->Active,
+          (int)window->WasActive, (int)window->IsFallbackWindow,
+          (int)((window->Flags & ImGuiWindowFlags_ChildWindow) != 0),
+          (int)(window->DockNodeAsHost != nullptr),
+          (int)((window->Flags & ImGuiWindowFlags_NoBackground) != 0));
+    if (window->Hidden || window->IsFallbackWindow)
+      continue;
+    // Active is set during Begin() and cleared again at the end of the same
+    // ImGui frame (imgui.cpp EndFrame: "WasActive = Active; Active = false;").
+    // freeRect() runs between frames, before the next NewFrame, so it is
+    // WasActive - "was submitted in the frame we are looking at" - that says
+    // whether the window was really part of the layout; Active alone would
+    // discard every window and report the whole window as free.
+    if (!window->Active && !window->WasActive)
+      continue;
+    // A window with no background paints nothing over the framebuffer. A
+    // dockspace host is exactly that, and it spans the whole work area, so
+    // counting it would report the window as entirely covered and hide the
+    // very hole the layout leaves for content like the framebuffer. Docked
+    // panels do have a background and must be counted: they are child windows
+    // of the host, which is why child windows are not skipped wholesale here.
+    // The children *inside* a panel are covered by their parent, so counting
+    // them as well changes nothing.
+    if ((window->Flags & ImGuiWindowFlags_NoBackground) != 0)
+      continue;
+    if (window->Size.x < 1.0f || window->Size.y < 1.0f)
+      continue;
+    obstacles.emplace_back(
+        static_cast<int>(std::lround((window->Pos.x - origin.x) * scaleX)),
+        static_cast<int>(std::lround((window->Pos.y - origin.y) * scaleY)),
+        static_cast<int>(std::lround(window->Size.x * scaleX)),
+        static_cast<int>(std::lround(window->Size.y * scaleY)));
+  }
+  const cv::Rect free = largestEmptyRect(bounds, obstacles);
+  if (dbg)
+    std::fprintf(stderr,
+                 "[freerect] bounds=(%d,%d %dx%d) obstacles=%zu -> (%d,%d "
+                 "%dx%d)\n",
+                 bounds.x, bounds.y, bounds.width, bounds.height,
+                 obstacles.size(), free.x, free.y, free.width, free.height);
+  return free;
 }
 
 #if !defined(__ANDROID__)

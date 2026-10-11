@@ -8,6 +8,7 @@
 #include "../include/opencv2/v4d/detail/gl.hpp"
 #include "../include/opencv2/v4d/v4d.hpp"
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <iostream>
 #include <mutex>
@@ -679,34 +680,58 @@ CLExecContext_t &FrameBufferContext::getCLExecContext() { return context_; }
 void FrameBufferContext::blitFrameBufferToFrameBuffer(
     const cv::Rect &srcViewport, const cv::Size &targetFbSize, bool stretch,
     bool flipY) {
-  CV_Assert(framebufferSize_.width > 0 && framebufferSize_.height > 0);
   CV_Assert(targetFbSize.width > 0 && targetFbSize.height > 0);
+
+  if (stretch) {
+    // The ROI is scaled to fit the whole target framebuffer, its aspect ratio
+    // preserved and centred in it (letterbox/pillarbox).
+    blitFrameBufferToFrameBuffer(
+        srcViewport, cv::Rect(0, 0, targetFbSize.width, targetFbSize.height),
+        true, flipY);
+  } else {
+    // The ROI is copied 1:1 at its own position in the target framebuffer.
+    blitFrameBufferToFrameBuffer(srcViewport, srcViewport, false, flipY);
+  }
+}
+
+void FrameBufferContext::blitFrameBufferToFrameBuffer(
+    const cv::Rect &srcViewport, const cv::Rect &dstViewport,
+    bool preserveAspect, bool flipY) {
+  CV_Assert(framebufferSize_.width > 0 && framebufferSize_.height > 0);
+  if (dstViewport.width <= 0 || dstViewport.height <= 0)
+    return;
 
   // The source is the top-left corner of this context's framebuffer, sized
   // after the requested ROI. A ROI larger than the framebuffer is clipped,
   // otherwise the blit would read outside of the read framebuffer.
-  const int srcWidth = srcViewport.width;
-  const int srcHeight = srcViewport.height;
+  const int srcWidth = std::min(srcViewport.width, framebufferSize_.width);
+  const int srcHeight = std::min(srcViewport.height, framebufferSize_.height);
   if (srcWidth <= 0 || srcHeight <= 0)
     return;
 
-  // Destination: either the very same rect in the target framebuffer or, if
-  // stretching, the ROI scaled to the full extent of the target framebuffer.
-  int dstWidth = srcWidth;
-  int dstHeight = srcHeight;
-  if (stretch) {
-    dstWidth = targetFbSize.width;
-    dstHeight = targetFbSize.height;
+  int dstWidth = dstViewport.width;
+  int dstHeight = dstViewport.height;
+  int dstX = dstViewport.x;
+  int dstY = dstViewport.y;
+
+  if (preserveAspect) {
+    // Fit the source into the destination rectangle, keeping its aspect ratio.
+    // The letterbox/pillarbox is centred inside the rectangle.
+    const double scale = std::min(
+        static_cast<double>(dstViewport.width) / srcWidth,
+        static_cast<double>(dstViewport.height) / srcHeight);
+    dstWidth = std::max(1, static_cast<int>(std::lround(srcWidth * scale)));
+    dstHeight = std::max(1, static_cast<int>(std::lround(srcHeight * scale)));
+    dstX += (dstViewport.width - dstWidth) / 2;
+    dstY += (dstViewport.height - dstHeight) / 2;
   }
-  if (dstWidth <= 0 || dstHeight <= 0)
-    return;
 
   const GLint srcX0 = 0;
   const GLint srcY0 = 0;
   const GLint srcX1 = srcWidth;
   const GLint srcY1 = srcHeight;
-  GLint dstX0 = stretch ? 0 : srcViewport.x;
-  GLint dstY0 = stretch ? 0 : srcViewport.y;
+  GLint dstX0 = dstX;
+  GLint dstY0 = dstY;
   GLint dstX1 = dstX0 + dstWidth;
   GLint dstY1 = dstY0 + dstHeight;
   if (flipY)

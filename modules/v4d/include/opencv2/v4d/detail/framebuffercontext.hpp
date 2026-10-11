@@ -324,6 +324,23 @@ public:
                                     const cv::Size &targetFbSize,
                                     bool stretch = true, bool flipY = false);
 
+  /*!
+   * Same as above, but blits into an explicit destination rectangle of the
+   * target framebuffer instead of stretching over all of it. The destination
+   * coordinates are OpenGL framebuffer coordinates (origin at the bottom-left),
+   * i.e. the coordinate system of a glGetIntegerv(GL_VIEWPORT) rectangle.
+   * @param srcViewport size of the region to blit, read from the origin of this
+   * context's framebuffer (clipped to the framebuffer).
+   * @param dstViewport The rectangle of the target framebuffer to blit into.
+   * @param preserveAspect if true the region is scaled to fit dstViewport while
+   * preserving its aspect ratio and centred in it (letterbox/pillarbox), else
+   * it is scaled to fill dstViewport exactly.
+   * @param flipY if true the region is flipped vertically while blitting.
+   */
+  void blitFrameBufferToFrameBuffer(const cv::Rect &srcViewport,
+                                    const cv::Rect &dstViewport,
+                                    bool preserveAspect, bool flipY);
+
 protected:
   CLExecContext_t &getCLExecContext();
   int getIndex();

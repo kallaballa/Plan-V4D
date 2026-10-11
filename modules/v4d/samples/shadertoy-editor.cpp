@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <iostream>
@@ -31,6 +32,13 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/v4d/v4d.hpp>
+
+// Dear ImGui's docking is an "internal" API, but DockBuilderXXX and
+// DockSpaceOverViewport with a passthru central node are the canonical way to
+// lay a default layout out programmatically. V4D vendors the docking branch,
+// so both headers are available here (see dock-demo.cpp for the same idiom).
+#include "imgui.h"
+#include "imgui_internal.h"
 
 #include "shadertoy-editor/shadertoy_code.hpp"
 #include "shadertoy-editor/shadertoy_filedialog.hpp"
@@ -260,6 +268,14 @@ private:
     bool showHud_ = true;
     bool fullscreen_ = false;
     bool inputActive_ = true;
+    /// The free rectangle of the docking layout, in framebuffer pixels,
+    /// mirrored from the display thread (the central passthru node - see
+    /// drawWorkspace). The runtime blits the framebuffer fitted into this
+    /// rectangle (V4D::display), so presentedRect() maps the pointer through
+    /// it to stay aligned with what the user sees. Empty until the dockspace
+    /// has been laid out, and while the GUI is hidden; the pointer falls back
+    /// to the whole window then.
+    cv::Rect previewRect_;
     /// ImGui's keyboard capture flag, mirrored from the display thread: the
     /// ImGui context only exists there, so the worker's shortcut node cannot
     /// ask ImGui itself. True while a widget (the code pane, a path field)
@@ -436,7 +452,7 @@ public:
               ImGui::IsKeyPressed(ImGuiKey_S, false))
             openSaveDialog(shared);
 
-          drawPanel(shared);
+          drawWorkspace(shared);
 
           // Temporary popup diagnostics: which ImGui event closes the dialog?
           if (std::getenv("SHADERTOY_DEBUG_POPUP") != nullptr) {
@@ -637,8 +653,9 @@ public:
                const Mouse::List &releases, const Keyboard::List &keyPresses,
                const Keyboard::List &keyReleases, const cv::Size &fbSize,
                const cv::Size &winSize, Shared &shared, Anim &anim) {
-          const cv::Rect canvas =
-              canvasOf(cv::Size(fbSize.width, fbSize.height), shared, mode_);
+          const cv::Rect canvas = canvasOf(cv::Size(fbSize.width, fbSize.height));
+          const cv::Rect presented =
+              presentedRect(cv::Size(fbSize.width, fbSize.height), shared);
           const double now = seconds();
 
           float dt = 0.0f;
@@ -679,14 +696,19 @@ public:
           if (inside && cursor.x >= 0.0 && shared.inputActive_) {
             const int px = int(cursor.x * scaleX);
             const int py = int(cursor.y * scaleY);
-            const bool overCanvas = px >= canvas.x && py >= canvas.y &&
-                                    px < canvas.x + canvas.width &&
-                                    py < canvas.y + canvas.height;
+            // The shader fills the framebuffer, but what the user sees is the
+            // framebuffer fitted into the free rectangle of the last frame
+            // (see presentedRect) - the pointer has to map through that same
+            // rectangle to land on the pixel under the cursor.
+            const bool overCanvas = px >= presented.x && py >= presented.y &&
+                                    px < presented.x + presented.width &&
+                                    py < presented.y + presented.height;
             if (overCanvas) {
               const double u =
-                  double(px - canvas.x) / std::max(canvas.width, 1);
+                  double(px - presented.x) / std::max(presented.width, 1);
               const double v =
-                  (canvas.y + canvas.height - py) / std::max(canvas.height, 1);
+                  (presented.y + presented.height - py) /
+                  std::max(presented.height, 1);
               const cv::Size target = targetOf(canvas, shared, mode_);
               anim.mouse_[0] = float(u * target.width);
               anim.mouse_[1] = float(v * target.height);
@@ -736,7 +758,7 @@ public:
             return;
           ShadertoyRenderer::Frame frame;
           const cv::Rect canvas =
-              canvasOf(cv::Size(fbSize.width, fbSize.height), shared, mode_);
+              canvasOf(cv::Size(fbSize.width, fbSize.height));
           if (dbg6)
             CV_LOG_INFO(&v4d_tag,
                         "STDBG node6 canvas=(" << canvas.x << "," << canvas.y
@@ -802,18 +824,45 @@ private:
   bool exportDone_ = false;
 
   static constexpr double kDebounceSeconds = 0.4;
-  static constexpr int kPanelWidth = 560;
 
   // ---- layout -------------------------------------------------------------
 
-  static cv::Rect canvasOf(const cv::Size &fbSize, const Shared &shared,
-                           Mode mode) {
-    const int inset =
-        (mode == Mode::Interactive && shared.showPanel_ && !shared.fullscreen_)
-            ? std::min(kPanelWidth, fbSize.width / 2)
-            : 0;
-    return cv::Rect(inset, 0, std::max(fbSize.width - inset, 1),
+  /// The rectangle in the framebuffer the shader is drawn into.
+  ///
+  /// The shader always fills the framebuffer. The runtime (V4D::display)
+  /// presents that framebuffer in the largest rectangle the ImGui panels
+  /// leave free, preserving its aspect ratio and centring it there, so the
+  /// docking layout already positions the visible preview - positioning
+  /// content inside the framebuffer would only fight the runtime and shrink
+  /// the preview twice.
+  static cv::Rect canvasOf(const cv::Size &fbSize) {
+    return cv::Rect(0, 0, std::max(fbSize.width, 1),
                     std::max(fbSize.height, 1));
+  }
+
+  /// Where the runtime placed the framebuffer inside the window in the last
+  /// frame, in pixels of the framebuffer's own coordinate space (which has
+  /// the same origin and size as the window). Until the first mirror of the
+  /// display thread's layout lands - and while the GUI is hidden - there is
+  /// no free rectangle to ask about and the whole window is used. This
+  /// reproduces the fit V4D::display() applies: scaled to fit the mirrored
+  /// free rectangle, aspect ratio preserved, centred.
+  static cv::Rect presentedRect(const cv::Size &fbSize,
+                                const Shared &shared) {
+    const cv::Rect full(0, 0, std::max(fbSize.width, 1),
+                        std::max(fbSize.height, 1));
+    cv::Rect dst = full;
+    const cv::Rect free = shared.previewRect_ & full;
+    if (free.width > 0 && free.height > 0) {
+      const double scale =
+          std::min(double(free.width) / full.width,
+                   double(free.height) / full.height);
+      const int w = std::max(1, static_cast<int>(std::lround(full.width * scale)));
+      const int h = std::max(1, static_cast<int>(std::lround(full.height * scale)));
+      dst = cv::Rect(free.x + (free.width - w) / 2,
+                     free.y + (free.height - h) / 2, w, h);
+    }
+    return dst;
   }
 
   static cv::Size targetOf(const cv::Rect &canvas, const Shared &shared,
@@ -1064,51 +1113,157 @@ private:
     }
   }
 
-  // ---- the panel -----------------------------------------------------------
+  // ---- the workspace -------------------------------------------------------
+  //
+  // The editor is a docking workspace, not a single window: the code lives in
+  // "Editor" on the left, errors/channels/playback share a tab group under it,
+  // and the shader renders into the V4D framebuffer underneath the empty
+  // central node. The dockspace uses PassthruCentralNode, which is what turns
+  // that node into a see-through hole: ImGui paints its panel background
+  // everywhere else and leaves the hole alone - and punches a matching
+  // hit-test hole, so the mouse keeps reaching the shader canvas.
+  static constexpr const char *kDockSpaceName = "V4DShadertoyDockSpace";
+  static constexpr const char *kEditorWindow = "Editor";
+  static constexpr const char *kErrorsWindow = "Errors";
+  static constexpr const char *kChannelsWindow = "Channel inputs";
+  static constexpr const char *kPlaybackWindow = "Playback";
 
-  void drawPanel(Shared &shared) {
+  /// The default split: Editor on the left, a tab group of the inspector panes
+  /// under it, and the rest left empty for the shader. Called before the
+  /// dockspace is submitted, which is where DockBuilder expects to run.
+  static void buildDefaultLayout(ImGuiID dockspaceId, const ImVec2 &size) {
+    ImGui::DockBuilderRemoveNode(dockspaceId);
+    ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspaceId, size);
+
+    ImGuiID center = dockspaceId;
+    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.36f,
+                                               nullptr, &center);
+    ImGuiID bottom =
+        ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.45f, nullptr, &left);
+
+    ImGui::DockBuilderDockWindow(kEditorWindow, left);
+    ImGui::DockBuilderDockWindow(kErrorsWindow, bottom);
+    ImGui::DockBuilderDockWindow(kChannelsWindow, bottom);
+    ImGui::DockBuilderDockWindow(kPlaybackWindow, bottom);
+    // "center" is deliberately left without a window: it is the central node
+    // the shader shows through.
+    ImGui::DockBuilderFinish(dockspaceId);
+  }
+
+  void drawWorkspace(Shared &shared) {
     using namespace ImGui;
 
-    SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Once);
-    SetNextWindowSize(ImVec2(float(kPanelWidth) - 20.0f, 0.0f), ImGuiCond_Once);
-    if (!Begin("Shadertoy Editor")) {
-      End();
+    if (BeginMainMenuBar()) {
+      if (BeginMenu("File")) {
+        if (MenuItem("Open...", "Ctrl+O"))
+          openProjectDialog(shared);
+        if (MenuItem("Save", "Ctrl+S")) {
+          if (shared.path_.empty())
+            openSaveDialog(shared);
+          else
+            shared.save_ = true;
+        }
+        if (MenuItem("Save as...", "Ctrl+Shift+S"))
+          openSaveDialog(shared);
+        BeginDisabled(shared.path_.empty());
+        if (MenuItem("Reload"))
+          shared.reload_ = true;
+        EndDisabled();
+        EndMenu();
+      }
+      if (BeginMenu("View")) {
+        MenuItem("HUD", nullptr, &shared.showHud_);
+        MenuItem("Panel", nullptr, &shared.showPanel_);
+        MenuItem("Fullscreen", nullptr, &shared.fullscreen_);
+        EndMenu();
+      }
+      if (BeginMenu("Layout")) {
+        if (MenuItem("Reset docking layout"))
+          resetLayout_ = true;
+        EndMenu();
+      }
+      EndMainMenuBar();
+    }
+
+    ImGuiViewport *viewport = GetMainViewport();
+    const ImGuiID dockspaceId = ImHashStr(kDockSpaceName);
+
+    static bool layoutBuilt = false;
+    if (resetLayout_ || !layoutBuilt) {
+      resetLayout_ = false;
+      layoutBuilt = true;
+      buildDefaultLayout(dockspaceId, viewport->WorkSize);
+    }
+    DockSpaceOverViewport(dockspaceId, viewport,
+                          ImGuiDockNodeFlags_PassthruCentralNode);
+
+    if (Begin(kEditorWindow)) {
+      drawDocumentHeader(shared);
+      drawSampleRow(shared);
+      Separator();
+      drawPassTabs(shared);
+      drawEditor(shared);
+      // After the pane that can change the scheme has been drawn, so a new
+      // pick takes effect in the same frame rather than the next one.
+      rethemePanes(shared);
+
+      Separator();
+      if (shared.compiling_)
+        TextDisabled("compiling...");
+      else
+        TextWrapped("%s", shared.status_.c_str());
+
+      // The dialogs are modal popups PARENTED TO THIS WINDOW: OpenPopup called
+      // from the node's top level would parent them to ImGui's implicit
+      // fallback window, and the fallback window's cleanup (it unfocuses itself
+      // when nothing was written to it) then closes the popup on the next
+      // input event - which is exactly the "dialog closes as soon as I type"
+      // bug.
+      drawDialogs(shared);
+    }
+    End();
+
+    if (Begin(kErrorsWindow))
+      drawErrors(shared);
+    End();
+
+    if (Begin(kChannelsWindow))
+      drawChannels(shared);
+    End();
+
+    if (Begin(kPlaybackWindow))
+      drawPlayback(shared);
+    End();
+
+    mirrorPreview(shared, viewport);
+  }
+
+  /// Hands the shader canvas to the worker as the display thread's central
+  /// node. The node carries ImGui's logical window coordinates while the
+  /// worker only ever sees the framebuffer, so both the framebuffer scale and
+  /// the main-viewport origin are applied here.
+  static void mirrorPreview(Shared &shared, const ImGuiViewport *viewport) {
+    ImGuiDockNode *central =
+        ImGui::DockBuilderGetCentralNode(ImHashStr(kDockSpaceName));
+    if (central == nullptr || central->Size.x <= 1.0f ||
+        central->Size.y <= 1.0f) {
+      shared.previewRect_ = cv::Rect();
       return;
     }
-
-    if (shared.hasShader_) {
-      TextWrapped("%s", shared.shader_.name.c_str());
-      if (!shared.shader_.author.empty())
-        TextDisabled("by %s", shared.shader_.author.c_str());
-    }
-    TextDisabled("%s%s",
-                 shared.path_.empty() ? "(unsaved)" : shared.path_.c_str(),
-                 shared.dirty_ ? " *" : "");
-
-    drawFileRow(shared);
-    Separator();
-    drawPassTabs(shared);
-    drawEditor(shared);
-    // After the pane that can change the scheme has been drawn, so a new pick
-    // takes effect in the same frame rather than the next one.
-    rethemePanes(shared);
-    drawErrors(shared);
-    drawChannels(shared);
-    drawPlayback(shared);
-
-    Separator();
-    if (shared.compiling_)
-      TextDisabled("compiling...");
-    else
-      TextWrapped("%s", shared.status_.c_str());
-
-    // The dialogs are modal popups PARENTED TO THIS WINDOW: OpenPopup called
-    // from the node's top level would parent them to ImGui's implicit
-    // fallback window, and the fallback window's cleanup (it unfocuses itself
-    // when nothing was written to it) then closes the popup on the next input
-    // event - which is exactly the "dialog closes as soon as I type" bug.
-    drawDialogs(shared);
-    End();
+    const ImGuiIO &io = ImGui::GetIO();
+    const float scaleX =
+        io.DisplayFramebufferScale.x > 0.0f ? io.DisplayFramebufferScale.x
+                                            : 1.0f;
+    const float scaleY =
+        io.DisplayFramebufferScale.y > 0.0f ? io.DisplayFramebufferScale.y
+                                            : 1.0f;
+    const float x = (central->Pos.x - viewport->Pos.x) * scaleX;
+    const float y = (central->Pos.y - viewport->Pos.y) * scaleY;
+    shared.previewRect_ =
+        cv::Rect(int(std::lround(x)), int(std::lround(y)),
+                 int(std::lround(central->Size.x * scaleX)),
+                 int(std::lround(central->Size.y * scaleY)));
   }
 
   /// The directory the open/save dialogs were last left in, so reopening one
@@ -1122,6 +1277,9 @@ private:
   /// does not know what a channel is.
   int textureDialogPass_ = -1;
   int textureDialogChannel_ = -1;
+  /// Set from the Layout menu; the next frame rebuilds the default split.
+  /// GUI thread only.
+  bool resetLayout_ = false;
 
   static std::string directoryOf(const std::string &path) {
     if (path.empty())
@@ -1182,32 +1340,25 @@ private:
     }
   }
 
-  void drawFileRow(Shared &shared) {
+  /// Name/author/path of the open document, at the top of the Editor window.
+  void drawDocumentHeader(Shared &shared) {
     using namespace ImGui;
 
-    if (Button("Open##open", ImVec2(54.0f, 0.0f)))
-      openProjectDialog(shared);
-    if (IsItemHovered(ImGuiHoveredFlags_DelayShort))
-      SetTooltip("Open a Shadertoy JSON project (Ctrl+O)");
-    SameLine();
-    // Save goes back to the file it came from; without one there is nowhere to
-    // write, so ask for a name first.
-    if (Button("Save", ImVec2(54.0f, 0.0f))) {
-      if (shared.path_.empty())
-        openSaveDialog(shared);
-      else
-        shared.save_ = true;
+    if (shared.hasShader_) {
+      TextWrapped("%s", shared.shader_.name.c_str());
+      if (!shared.shader_.author.empty())
+        TextDisabled("by %s", shared.shader_.author.c_str());
     }
-    if (IsItemHovered(ImGuiHoveredFlags_DelayShort))
-      SetTooltip("Save (Ctrl+S); Ctrl+Shift+S saves under a new name");
-    SameLine();
-    if (Button("Save as", ImVec2(64.0f, 0.0f)))
-      openSaveDialog(shared);
-    SameLine();
-    BeginDisabled(shared.path_.empty());
-    if (Button("Reload", ImVec2(60.0f, 0.0f)))
-      shared.reload_ = true;
-    EndDisabled();
+    TextDisabled("%s%s",
+                 shared.path_.empty() ? "(unsaved)" : shared.path_.c_str(),
+                 shared.dirty_ ? " *" : "");
+  }
+
+  /// The built-in sample picker that starts a new document. The file actions
+  /// themselves live in the File menu; this stays by the tabs because picking
+  /// one replaces the document in place.
+  void drawSampleRow(Shared &shared) {
+    using namespace ImGui;
 
     const auto samples = builtIns();
     std::vector<const char *> names;
@@ -1632,8 +1783,6 @@ private:
   void drawErrors(Shared &shared) {
     using namespace ImGui;
 
-    if (!CollapsingHeader("Errors", ImGuiTreeNodeFlags_DefaultOpen))
-      return;
     if (shared.errors_.empty()) {
       TextDisabled("none");
       return;
@@ -1672,8 +1821,6 @@ private:
   void drawChannels(Shared &shared) {
     using namespace ImGui;
 
-    if (!CollapsingHeader("Channel inputs"))
-      return;
     if (shared.selected_ < 0 ||
         shared.selected_ >= int(shared.shader_.passes.size())) {
       TextDisabled("no pass selected");
@@ -1862,8 +2009,6 @@ private:
   void drawPlayback(Shared &shared) {
     using namespace ImGui;
 
-    if (!CollapsingHeader("Playback", ImGuiTreeNodeFlags_DefaultOpen))
-      return;
     Checkbox("Play", &shared.playing_);
     SameLine();
     if (Button("Save PNG"))
@@ -1903,8 +2048,7 @@ private:
     using namespace cv::v4d::nvg;
     if (!shared.hasShader_ || shared.shader_.name.empty())
       return;
-    const cv::Rect canvas =
-        canvasOf(cv::Size(sz.width, sz.height), shared, mode_);
+    const cv::Rect canvas = canvasOf(cv::Size(sz.width, sz.height));
 
     fontFace("sans-bold");
     fontSize(17.0f);

@@ -4,6 +4,8 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <opencv2/core.hpp>
 #include <semaphore>
 #include <sstream>
@@ -379,15 +381,50 @@ bool V4D::display() {
     }
 
     cv::Rect vp = get<cv::Rect>(Keys::VIEWPORT);
-    cv::Size winSz = get<cv::Size>(Keys::WINDOW_SIZE);
+    // glBlitFramebuffer addresses the default framebuffer in its own pixels
+    // (which a HiDPI window's logical size is not), and ImGui reports its
+    // windows in those same pixels once scaled, so both sides use this size.
+    cv::Size winSz = mainFbContext_->getNativeFrameBufferSize();
+    if (winSz.width <= 0 || winSz.height <= 0)
+      winSz = get<cv::Size>(Keys::WINDOW_SIZE);
+    const bool autoScale = V4D::get<bool>(V4D::Keys::AUTO_SCALE);
+    const bool showGui = (allocateFlags() & AllocateFlags::IMGUI) &&
+                         GlobalState::get<bool>(GlobalState::Keys::SHOW_GUI);
     {
+      // Destination of the framebuffer in the window, and whether it is fitted
+      // into that destination (aspect ratio preserved, centred) or placed 1:1.
+      // With the GUI on, the destination is the largest rectangle the ImGui
+      // panels leave free, so the image is letterboxed beside them instead of
+      // hidden behind them; that rectangle is in the top-left pixel space of
+      // the window, while the blit wants OpenGL framebuffer coordinates, so
+      // its Y is mirrored here. Without the GUI the destination is the whole
+      // window, which AUTO_SCALE then fits into (or leaves at 1:1 when off).
+      cv::Rect dst(0, 0, winSz.width, winSz.height);
+      bool fitDst = autoScale;
+      if (showGui && hasImguiCtx()) {
+        const cv::Rect free = imguiContext_->freeRect(winSz);
+        if (free.width > 0 && free.height > 0) {
+          dst = cv::Rect(free.x, winSz.height - (free.y + free.height),
+                         free.width, free.height);
+          fitDst = true;
+        }
+      }
       FrameBufferContext::WindowScope winScope(mainFbContext_);
       FrameBufferContext::GLScope glScope(mainFbContext_, GL_READ_FRAMEBUFFER);
+      if (std::getenv("V4D_FREERECT_DEBUG") != nullptr)
+        std::fprintf(stderr,
+                     "[display] winSz=%dx%d showGui=%d hasCtx=%d autoScale=%d "
+                     "dst=(%d,%d %dx%d) fitDst=%d\n",
+                     winSz.width, winSz.height, (int)showGui,
+                     (int)hasImguiCtx(), (int)autoScale, dst.x, dst.y,
+                     dst.width, dst.height, (int)fitDst);
       GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
       assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) ==
              GL_FRAMEBUFFER_COMPLETE);
-      mainFbContext_->blitFrameBufferToFrameBuffer(
-          vp, winSz, V4D::get<bool>(V4D::Keys::AUTO_SCALE), false);
+      if (fitDst)
+        mainFbContext_->blitFrameBufferToFrameBuffer(vp, dst, true, false);
+      else
+        mainFbContext_->blitFrameBufferToFrameBuffer(vp, winSz, false, false);
     }
     {
       if ((allocateFlags() & AllocateFlags::IMGUI) &&
