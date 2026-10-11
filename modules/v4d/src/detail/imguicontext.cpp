@@ -115,6 +115,10 @@ ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext)
   (void)io;
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+  // Native docking: plans get a dockable panel layout. Multi-viewport is left
+  // off on purpose -- V4D draws ImGui into its own framebuffer and never calls
+  // UpdatePlatformWindows(), so the dockspace must stay inside the main viewport.
+  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
   // Android has no mouse cursor to shape, and asking ImGui to try is what makes
   // it draw one at a wrong position.
 #if defined(__ANDROID__)

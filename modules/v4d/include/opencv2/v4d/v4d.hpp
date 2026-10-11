@@ -26,7 +26,6 @@ using namespace cv::plan;
 #include "detail/sinkcontext.hpp"
 #include "detail/sourcecontext.hpp"
 #include "detail/timetracker.hpp"
-#include "dock.hpp"
 #include "nvg.hpp"
 #include "sink.hpp"
 #include "source.hpp"
