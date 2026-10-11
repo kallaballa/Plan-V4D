@@ -1116,36 +1116,41 @@ private:
   // ---- the workspace -------------------------------------------------------
   //
   // The editor is a docking workspace, not a single window: the code lives in
-  // "Editor" on the left, errors/channels/playback share a tab group under it,
-  // and the shader renders into the V4D framebuffer underneath the empty
-  // central node. The dockspace uses PassthruCentralNode, which is what turns
-  // that node into a see-through hole: ImGui paints its panel background
-  // everywhere else and leaves the hole alone - and punches a matching
-  // hit-test hole, so the mouse keeps reaching the shader canvas.
+  // "Editor", and errors/channels/playback are tabs of the same tab bar -- one
+  // window per tab. A phone cannot show them all at once, so a tab bar lets it
+  // switch between them without giving up the shader. The shader renders into
+  // the V4D framebuffer underneath the empty central node, beside the tab bar.
+  // The dockspace uses PassthruCentralNode, which is what turns that node into
+  // a see-through hole: ImGui paints its panel background everywhere else and
+  // leaves the hole alone - and punches a matching hit-test hole, so the mouse
+  // keeps reaching the shader canvas.
   static constexpr const char *kDockSpaceName = "V4DShadertoyDockSpace";
   static constexpr const char *kEditorWindow = "Editor";
   static constexpr const char *kErrorsWindow = "Errors";
   static constexpr const char *kChannelsWindow = "Channel inputs";
   static constexpr const char *kPlaybackWindow = "Playback";
 
-  /// The default split: Editor on the left, a tab group of the inspector panes
-  /// under it, and the rest left empty for the shader. Called before the
-  /// dockspace is submitted, which is where DockBuilder expects to run.
+  /// The default layout: every pane is a tab of a single tab bar on the left,
+  /// one window per tab, and the shader preview is left empty beside it. Called
+  /// before the dockspace is submitted, which is where DockBuilder expects to
+  /// run.
   static void buildDefaultLayout(ImGuiID dockspaceId, const ImVec2 &size) {
     ImGui::DockBuilderRemoveNode(dockspaceId);
     ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockspaceId, size);
 
     ImGuiID center = dockspaceId;
-    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.72f,
-                                               nullptr, &center);
-    ImGuiID bottom =
-        ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.45f, nullptr, &left);
+    ImGuiID panes = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.72f,
+                                                nullptr, &center);
 
-    ImGui::DockBuilderDockWindow(kEditorWindow, left);
-    ImGui::DockBuilderDockWindow(kErrorsWindow, bottom);
-    ImGui::DockBuilderDockWindow(kChannelsWindow, bottom);
-    ImGui::DockBuilderDockWindow(kPlaybackWindow, bottom);
+    // All four panes dock into the same node, so ImGui gives each of them its
+    // own tab in one tab bar instead of splitting the space four ways. The
+    // editor is docked first because the node shows its first window by
+    // default, and the code is what the user came for.
+    ImGui::DockBuilderDockWindow(kEditorWindow, panes);
+    ImGui::DockBuilderDockWindow(kErrorsWindow, panes);
+    ImGui::DockBuilderDockWindow(kChannelsWindow, panes);
+    ImGui::DockBuilderDockWindow(kPlaybackWindow, panes);
     // "center" is deliberately left without a window: it is the central node
     // the shader shows through.
     ImGui::DockBuilderFinish(dockspaceId);
