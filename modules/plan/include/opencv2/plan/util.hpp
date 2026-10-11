@@ -603,7 +603,16 @@ public:
       create<false, uint64_t>(Keys::LCR_CNT, 0);
       create<false, bool>(Keys::SHOW_GUI, true);
       create<false, bool>(Keys::SHOW_FRAME_TIME, true);
+      // The time tracker is a developer's overlay: a table of per-stage
+      // timings, a filter field that needs a keyboard, and a window big enough
+      // to cover a third of a phone. The stages are measured either way, so a
+      // phone starts with it off -- and a plan that wants it still asks for it,
+      // exactly as one that wants it off does on the desktop.
+#if defined(__ANDROID__)
+      create<false, bool>(Keys::TIME_TRACKER, false);
+#else
       create<false, bool>(Keys::TIME_TRACKER, true);
+#endif
     }
   }
 

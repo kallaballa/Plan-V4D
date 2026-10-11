@@ -51,6 +51,29 @@ int32_t androidImGuiInput(const AInputEvent *event) {
 ANativeWindow *gImGuiWindow = nullptr;
 uint64_t gImGuiWindowGeneration = 0;
 
+/// The density last handed to the backend. -1 so the first call applies.
+float gImGuiDensity = -1.0f;
+
+/// Hands the display density to the backend, which turns it into the style,
+/// the font metric and the touch padding the GUI is drawn at.
+///
+/// Android reports its pixel ratio in dp (one dp is a pixel at 160 dpi) and
+/// everything in ImGui's default style is sized for 160 dpi: on a phone with a
+/// 480 dpi display that leaves the GUI a third of the size it is meant to be,
+/// with the text drawn at a third of the size too. The backend scales all of
+/// it, so a window that fits a mouse pointer becomes one that fits a finger.
+///
+/// Cheap enough to check every frame -- a read of the shim's cached value while
+/// it is unchanged -- and a display zoom switch or a change of display can
+/// move it at any time, with or without a new surface.
+void applyAndroidDensity() {
+  const float density = glfw_android_display_density();
+  if (density == gImGuiDensity)
+    return;
+  gImGuiDensity = density;
+  ImGui_ImplAndroid_SetDensity(density);
+}
+
 void ensureAndroidBackendWindow() {
   const uint64_t generation = glfw_android_native_window_generation();
   if (generation == gImGuiWindowGeneration)
@@ -68,6 +91,9 @@ void ensureAndroidBackendWindow() {
   }
   if (window) {
     ImGui_ImplAndroid_Init(window);
+    // The style the density scales is the one the app configured, so it goes
+    // after the init, not before it.
+    applyAndroidDensity();
     gImGuiWindow = window;
   }
   gImGuiWindowGeneration = generation;
@@ -241,8 +267,11 @@ int ImGuiContextImpl::execute(const cv::Rect &vp, std::function<void()> fn) {
     ImGui_ImplOpenGL3_NewFrame();
 #if defined(__ANDROID__)
     // A surface that arrived or went away since the last frame changes what the
-    // backend is bound to.
+    // backend is bound to, and a display whose density changed -- a zoom switch,
+    // another display -- changes the scale the GUI is drawn at. The density
+    // call is a cached read unless it changed.
     ensureAndroidBackendWindow();
+    applyAndroidDensity();
     ImGui_ImplAndroid_NewFrame();
     // The input method delivers characters through the activity's Java layer
     // (the NDK has no AKeyEvent_getUnicodeChar()), so drain the queue that the
@@ -285,7 +314,13 @@ int ImGuiContextImpl::execute(const cv::Rect &vp, std::function<void()> fn) {
     window_flags |= ImGuiWindowFlags_NoInputs;
     if (GlobalState::get<bool>(GlobalState::Keys::SHOW_FRAME_TIME)) {
       ImGuiStyle &style = ImGui::GetStyle();
+#if defined(__ANDROID__)
+      // The backend has already scaled the fonts by the display density (see
+      // applyAndroidDensity); this HUD wants more than that, not less of it.
+      style.FontScaleDpi = 1.6f * gImGuiDensity;
+#else
       style.FontScaleDpi = 1.6f;
+#endif
       ImVec2 pos(0, 0);
       ImGui::SetNextWindowPos(pos, ImGuiCond_Once);
       ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));

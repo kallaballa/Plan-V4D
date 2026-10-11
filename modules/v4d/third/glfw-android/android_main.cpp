@@ -350,6 +350,11 @@ extern "C" V4D_ACTIVITY_EXPORT void ANativeActivity_onConfigurationChanged(ANati
     glfw_android_set_display_size(
         static_cast<int>(AConfiguration_getScreenWidthDp(config) * scale),
         static_cast<int>(AConfiguration_getScreenHeightDp(config) * scale));
+  // The density is a display property, but the configuration is where it
+  // changes: a display zoom switch or a move to an external screen lands here
+  // too, and a GUI scaled for the old one has to be rescaled.
+  glfw_android_set_display_density(scale);
+  LOGI("configuration changed: density %d dpi (scale %.3f)", density, scale);
     AConfiguration_delete(config);
   }
 }

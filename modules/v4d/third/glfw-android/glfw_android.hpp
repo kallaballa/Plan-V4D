@@ -44,6 +44,23 @@ void glfw_android_set_activity_resumed(bool resumed);
 /// so a size query before the first surface has something to answer with.
 void glfw_android_set_display_size(int widthPx, int heightPx);
 
+/// Records the display density reported by the last configuration change, as a
+/// multiple of the 160 dpi baseline (1.0 = mdpi, 2.0 = xhdpi). Called from
+/// ANativeActivity_onConfigurationChanged together with the size; a value of
+/// zero or less is ignored, so a configuration that does not say leaves the
+/// last one in place.
+void glfw_android_set_display_density(float density);
+
+/// The display density as a multiple of the 160 dpi baseline (1.0 = mdpi).
+///
+/// Android draws in pixels but designs in dp: one dp is one pixel at 160 dpi,
+/// and every layout that is not measured in pixels is expected to be scaled by
+/// this. It is what a GUI that has to be hit with a finger is sized after. Safe
+/// from any thread, and before the first configuration change has been seen --
+/// the density is then read from the activity's asset manager -- and answers
+/// 1.0 when there is no activity to ask.
+float glfw_android_display_density();
+
 /// The surface the shim is currently rendering into, with a reference the caller
 /// owns (acquire/release it around a call to ANativeWindow_release). Returns
 /// nullptr before a window arrives and after it goes away.

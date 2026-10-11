@@ -33,6 +33,7 @@
 #include <EGL/eglext.h>
 
 #include <android/configuration.h>
+#include <android/asset_manager.h>
 #include <android/keycodes.h>
 #include <android/looper.h>
 #include <android/log.h>
@@ -202,6 +203,13 @@ struct Platform {
   // change. It is what FrameBufferContext asks for before a surface exists.
   int displayWidthPx = 0;
   int displayHeightPx = 0;
+
+  // Display density as a multiple of the 160 dpi baseline (1.0 = mdpi), from
+  // the same configuration change, and 0 until one has been read. Android
+  // reports the display's pixel ratio and the density in one place, and
+  // anything that draws UI at a size a finger can hit -- see
+  // cv::v4d::detail::ImGuiContextImpl -- needs it.
+  float displayDensity = 0.0f;
 
   GlfwAndroidInputHandler inputHandler = nullptr;
 
@@ -850,6 +858,42 @@ void glfw_android_set_display_size(int widthPx, int heightPx) {
   std::lock_guard<std::recursive_mutex> lock(p.mutex);
   p.displayWidthPx = widthPx;
   p.displayHeightPx = heightPx;
+}
+
+void glfw_android_set_display_density(float density) {
+  Platform &p = platform();
+  std::lock_guard<std::recursive_mutex> lock(p.mutex);
+  if (density > 0.f)
+    p.displayDensity = density;
+}
+
+float glfw_android_display_density() {
+  Platform &p = platform();
+  std::lock_guard<std::recursive_mutex> lock(p.mutex);
+  if (p.displayDensity > 0.f)
+    return p.displayDensity;
+
+  // Nothing has been recorded yet: the activity's asset manager carries the
+  // configuration, so the density is readable before the first
+  // onConfigurationChanged() -- which is exactly when a GUI built at startup
+  // asks for it. Density here is the density bucket's dpi (160 for mdpi, 320
+  // for xhdpi, 480 for the bucket most phones report as 2.75x), which is the
+  // scale Android's own dp units use.
+  if (p.activity && p.activity->assetManager) {
+    AConfiguration *config = AConfiguration_new();
+    if (config) {
+      AConfiguration_fromAssetManager(config, p.activity->assetManager);
+      const int32_t densityDpi = AConfiguration_getDensity(config);
+      AConfiguration_delete(config);
+      if (densityDpi > 0 && densityDpi < ACONFIGURATION_DENSITY_ANY)
+        p.displayDensity = static_cast<float>(densityDpi) / 160.f;
+    }
+  }
+  else {
+    LOGI("display density asked without an activity or asset manager");
+  }
+
+  return p.displayDensity > 0.f ? p.displayDensity : 1.f;
 }
 
 ANativeWindow *glfw_android_acquire_native_window() {
