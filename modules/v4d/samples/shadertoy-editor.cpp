@@ -1137,7 +1137,7 @@ private:
     ImGui::DockBuilderSetNodeSize(dockspaceId, size);
 
     ImGuiID center = dockspaceId;
-    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.36f,
+    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.72f,
                                                nullptr, &center);
     ImGuiID bottom =
         ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.45f, nullptr, &left);
