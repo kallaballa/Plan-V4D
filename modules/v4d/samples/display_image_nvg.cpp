@@ -66,7 +66,7 @@ V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
   // Define the viewport dimensions
-  cv::Rect viewport(0, 0, 960, 960);
+  cv::Rect viewport(0, 0, 1280, 720);
 
   // Initialize the V4D runtime with NanoVG and IMGUI subsystems
   Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG",

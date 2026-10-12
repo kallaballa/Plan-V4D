@@ -111,10 +111,10 @@ V4D_DEMO_MAIN(int argc, char **argv) {
   for (size_t i = 0; i < 1; ++i)
     runPlanInThread<TrianglePlan>(
         std::string("Threaded triangle") + std::to_string(i),
-        cv::Rect(0, 0, 480, 360), cv::Scalar(80, 200, 255, 255), maxFrames);
+        cv::Rect(0, 0, 1280, 720), cv::Scalar(80, 200, 255, 255), maxFrames);
 
   // The main thread displays the second window while the first one is running.
-  V4D::init(cv::Rect(0, 0, 480, 360), "Main triangle",
+  V4D::init(cv::Rect(0, 0, 1280, 720), "Main triangle",
             AllocateFlags::NANOVG | AllocateFlags::IMGUI);
   V4DPlan::run<TrianglePlan>(0, "Main triangle", cv::Scalar(255, 160, 80, 255),
                              maxFrames);

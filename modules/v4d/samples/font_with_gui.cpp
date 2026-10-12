@@ -47,7 +47,7 @@ public:
 FontWithGuiPlan::Params FontWithGuiPlan::params_;
 
 V4D_DEMO_MAIN(int argc, char **argv) {
-  cv::Rect viewport(0, 0, 960, 960);
+  cv::Rect viewport(0, 0, 1280, 720);
   Ptr<V4D> runtime = V4D::init(viewport, "Font Rendering with GUI",
                                AllocateFlags::NANOVG | AllocateFlags::IMGUI);
   V4DPlan::run<FontWithGuiPlan>(2);

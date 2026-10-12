@@ -134,7 +134,7 @@ V4D_DEMO_MAIN(int argc, char **argv) {
     cerr << "Usage: montage-demo <video-file>" << endl;
     return 1;
   }
-  cv::Rect viewport(0, 0, 640, 480);
+  cv::Rect viewport(0, 0, 1280, 720);
   cv::Ptr<V4D> runtime = V4D::init(
       viewport, "Montage Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
   auto sink =

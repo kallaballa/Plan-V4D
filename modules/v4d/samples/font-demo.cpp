@@ -249,7 +249,7 @@ double FontDemoPlan::timeOffset_ = 0.0f;
 
 V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
-  cv::Rect viewport(0, 0, 1920, 1080);
+  cv::Rect viewport(0, 0, 1280, 720);
   cv::Ptr<V4D> runtime =
       V4D::init(viewport, viewport.size(), "Font Demo",
                 AllocateFlags::NANOVG | AllocateFlags::IMGUI);

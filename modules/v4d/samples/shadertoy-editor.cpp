@@ -1134,7 +1134,7 @@ private:
   /// (TabItemCalcSize/DockNodeCalcTabBarLayout), so increasing FramePadding
   /// scoped around the tab bar is the way to give the tabs themselves a bigger
   /// touch target without inflating every button and frame in the app.
-  static inline const ImVec2 kTabPadding{12.0f, 7.0f};
+  // static inline const ImVec2 kTabPadding{12.0f, 7.0f};
 
   /// The default layout: every pane is a tab of a single tab bar on the left,
   /// one window per tab, and the shader preview is left empty beside it. Called
@@ -1174,12 +1174,6 @@ private:
 
   void drawWorkspace(Shared &shared) {
     using namespace ImGui;
-    // TEMP-DIAG: global style at start of frame
-    CV_LOG_INFO(&v4d_tag,
-      "drawWorkspace START: fp=(" + std::to_string(GetStyle().FramePadding.x) + "," +
-      std::to_string(GetStyle().FramePadding.y) + ") scale=" +
-      std::to_string(GetStyle()._MainScale) + " touch=" +
-      std::to_string(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_IsTouchScreen));
 
     if (BeginMainMenuBar()) {
       if (BeginMenu("File")) {
@@ -1216,6 +1210,15 @@ private:
     ImGuiViewport *viewport = GetMainViewport();
     const ImGuiID dockspaceId = ImHashStr(kDockSpaceName);
 
+    // Force touch-friendly FramePadding for the entire frame so that
+    // TitleBarHeight = FontSize + 2*FramePadding.y matches the tab bar height
+    // (FontSize + 2*GetTabItemPadding().y). GetTabItemPadding() floors
+    // FramePadding.y to 10*_MainScale, so we do the same.
+    {
+      ImGuiStyle &style = ImGui::GetStyle();
+      style.FramePadding.y = 10.0f * style._MainScale;
+    }
+
     static bool layoutBuilt = false;
     if (resetLayout_ || !layoutBuilt) {
       resetLayout_ = false;
@@ -1225,127 +1228,16 @@ private:
       panesPinFrames_ = 0;
     }
     // The dock node's tab bar (the pane tabs) is laid out and drawn while the
-    // dockspace is submitted, so the padding push below inflates exactly the
-    // tabs, not the pane contents submitted afterwards.
-    PushStyleVar(ImGuiStyleVar_FramePadding, kTabPadding);
+    // dockspace is submitted. The tab bar height is FontSize + 2*GetTabItemPadding().y
+    // while the pane windows claim the region below TitleBarHeight = FontSize + 2*FramePadding.y.
+    // On touch screens, GetTabItemPadding() floors FramePadding to (16,10)*_MainScale,
+    // so we must push FramePadding.y >= 10*_MainScale to keep them in sync.
+    // We compute the touch-appropriate padding from the current _MainScale.
+    ImVec2 touchTabPad(12.0f * ImGui::GetStyle()._MainScale, 10.0f * ImGui::GetStyle()._MainScale);
+    PushStyleVar(ImGuiStyleVar_FramePadding, touchTabPad);
     DockSpaceOverViewport(dockspaceId, viewport,
                           ImGuiDockNodeFlags_PassthruCentralNode);
     PopStyleVar();
-
-    // TEMP-DIAG (remove): where ImGui believes the panes are versus where the
-    // finger actually lands, plus a marker drawn at io.MousePos so that a
-    // screenshot shows both at once.
-    {
-      ImGuiIO &dio = ImGui::GetIO();
-      static int diagFrame = 0;
-      ImGuiWindow *dw = ImGui::FindWindowByName(kEditorWindow);
-      ImGuiDockNode *dn = dw ? dw->DockNode : nullptr;
-      ImGuiTabBar *tb = dn ? dn->TabBar : nullptr;
-      ImGuiContext *ictx = ImGui::GetCurrentContext();
-      auto tn = [tb](int id) -> std::string {
-        if (tb)
-          for (int i = 0; i < tb->Tabs.Size; ++i)
-            if ((int)tb->Tabs[i].ID == id)
-              return tb->Tabs[i].Window ? tb->Tabs[i].Window->Name : "?";
-        return "-";
-      };
-      static int lastSel = -1, lastNxt = -1, lastVis = -1, lastNsel = -1;
-      static std::string lastNav, lastHov;
-      const int sel = tb ? (int)tb->SelectedTabId : -1;
-      const int nxt = tb ? (int)tb->NextSelectedTabId : -1;
-      const int vis = tb ? (int)tb->VisibleTabId : -1;
-      const int nsel = dn ? (int)dn->SelectedTabId : -1;
-      const std::string nav = ictx->NavWindow ? ictx->NavWindow->Name : "-";
-      const std::string hov = ictx->HoveredWindow ? ictx->HoveredWindow->Name : "-";
-      const bool changed = sel != lastSel || nxt != lastNxt || vis != lastVis ||
-                           nsel != lastNsel || nav != lastNav || hov != lastHov;
-      if (changed || dio.MouseDown[0] || (diagFrame % 90) == 0) {
-        ImGuiDockNode *cn = ImGui::DockBuilderGetCentralNode(dockspaceId);
-        std::string s =
-            "TEMP-DIAG DisplaySize=" + std::to_string(dio.DisplaySize.x) + "x" +
-            std::to_string(dio.DisplaySize.y) + " MousePos=(" +
-            std::to_string(int(dio.MousePos.x)) + "," +
-            std::to_string(int(dio.MousePos.y)) + ") down=" +
-            std::to_string(int(dio.MouseDown[0])) + " rel=" +
-            std::to_string(int(dio.MouseReleased[0])) + " dragThresh=" +
-            std::to_string(int(dio.MouseDragThreshold)) + " winSize=" +
-            std::to_string(V4D::instance()->size().width) + "x" +
-            std::to_string(V4D::instance()->size().height);
-        if (tb) {
-          s += " bar=(" + std::to_string(int(tb->BarRect.Min.x)) + "," +
-               std::to_string(int(tb->BarRect.Min.y)) + " " +
-               std::to_string(int(tb->BarRect.Max.x)) + "," +
-               std::to_string(int(tb->BarRect.Max.y)) + ")";
-          for (int i = 0; i < tb->Tabs.Size; ++i) {
-            const ImGuiTabItem &t = tb->Tabs[i];
-            s += " | " + std::string(t.Window ? t.Window->Name : "?") + "@" +
-                 std::to_string(int(tb->BarRect.Min.x + t.Offset)) + ".." +
-                 std::to_string(int(tb->BarRect.Min.x + t.Offset + t.Width));
-          }
-        }
-        if (cn)
-          s += " central=(" + std::to_string(int(cn->Pos.x)) + "," +
-               std::to_string(int(cn->Pos.y)) + " " +
-               std::to_string(int(cn->Size.x)) + "x" +
-               std::to_string(int(cn->Size.y)) + ")";
-        s += " sel=" + tn(sel) + " next=" + tn(nxt) + " vis=" + tn(vis) +
-             " nodeSel=" + tn(nsel) + " nav=" + nav + " hov=" + hov +
-             " navPinsPanes=" +
-             std::to_string((ictx->NavWindow && dn &&
-                             ictx->NavWindow->RootWindow->DockNode == dn)
-                                ? 1
-                                : 0) +
-             " pin=" + std::to_string(panesPinFrames_) +
-             " act=" + (ictx->ActiveIdWindow ? ictx->ActiveIdWindow->Name : "-") +
-             " activeId=" + std::to_string((unsigned)ictx->ActiveId);
-        // TEMP-DIAG: the geometry that decides whether the pane tabs are
-        // reachable. DockNodeCalcTabBarLayout (imgui.cpp:20221-20223) sizes the
-        // tab bar from FontSize + 2 * GetTabItemPadding().y, while a docked pane
-        // window claims the region below its TitleBarHeight
-        // (imgui.cpp:8368/8677: FontSize + 2 * style.FramePadding.y).
-        const ImGuiStyle &style = ImGui::GetStyle();
-        ImVec2 tabpad = style.FramePadding;
-        if (ictx->IO.ConfigFlags & ImGuiConfigFlags_IsTouchScreen) {
-            const float scale = ImMax(style._MainScale, 1.0f);
-            tabpad = ImMax(tabpad, ImVec2(16.0f * scale, 10.0f * scale));
-        }
-        ImGuiWindow *hw = dn ? dn->HostWindow : nullptr;
-        s += " N: font=" + std::to_string(ImGui::GetFontSize()) +
-             " fp=(" + std::to_string(style.FramePadding.x) + "," +
-             std::to_string(style.FramePadding.y) + ")" +
-             " tabPad=(" + std::to_string(tabpad.x) + "," +
-             std::to_string(tabpad.y) + ")" +
-             " scale=" + std::to_string(style._MainScale) +
-             " touchX=" + std::to_string(style.TouchExtraPadding.x) +
-             " borderHov=" + std::to_string(style.WindowBorderHoverPadding) +
-             " workY=" + std::to_string(viewport->WorkPos.y);
-        if (hw)
-          s += " host=" + std::string(hw->Name) +
-               " hostOuterY=(" + std::to_string(int(hw->OuterRectClipped.Min.y)) +
-               ".." + std::to_string(int(hw->OuterRectClipped.Max.y)) + ")";
-        if (dw)
-          s += " dwPosY=" + std::to_string(int(dw->Pos.y)) +
-               " dwTitle=" + std::to_string(dw->TitleBarHeight) +
-               " dwOuterY=(" + std::to_string(int(dw->OuterRectClipped.Min.y)) +
-               ".." + std::to_string(int(dw->OuterRectClipped.Max.y)) + ")" +
-               " hidden=" + std::to_string(dw->Hidden ? 1 : 0) +
-               " noinput=" +
-               std::to_string((dw->Flags & ImGuiWindowFlags_NoMouseInputs) ? 1 : 0);
-        CV_LOG_INFO(&v4d_tag, s);
-      }
-      lastSel = sel;
-      lastNxt = nxt;
-      lastVis = vis;
-      lastNsel = nsel;
-      lastNav = nav;
-      lastHov = hov;
-      ++diagFrame;
-      ImDrawList *fg = ImGui::GetForegroundDrawList();
-      fg->AddCircle(dio.MousePos, 60.0f, IM_COL32(255, 0, 0, 255), 0, 8.0f);
-      if (tb)
-        fg->AddRect(tb->BarRect.Min, tb->BarRect.Max,
-                    IM_COL32(0, 255, 0, 255), 0.0f, 0, 6.0f);
-    }
 
     // ImGui picks the visible tab of a dock node from the window that has the
     // focus (imgui.cpp, DockNodeUpdateTabBar: "Apply NavWindow focus back to the
@@ -1556,7 +1448,8 @@ private:
 
     // Same trick as the pane tabs: tab sizing uses FramePadding, so scope a
     // bigger padding around just this tab bar.
-    PushStyleVar(ImGuiStyleVar_FramePadding, kTabPadding);
+    ImVec2 touchTabPad(12.0f * ImGui::GetStyle()._MainScale, 10.0f * ImGui::GetStyle()._MainScale);
+    PushStyleVar(ImGuiStyleVar_FramePadding, touchTabPad);
     if (!BeginTabBar("passes", ImGuiTabBarFlags_Reorderable |
                                    ImGuiTabBarFlags_AutoSelectNewTabs)) {
       // An empty shader still has to show the "add a pass" control.
@@ -2358,7 +2251,7 @@ V4D_DEMO_MAIN(int argc, char **argv) {
   int builtIn = 1; // the feedback sample: it shows a buffer chain at once
   bool verify = false;
   bool fullscreen = false;
-  cv::Size window(1600, 900);
+  cv::Size window(1280, 720);
 
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];

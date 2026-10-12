@@ -36,7 +36,7 @@ public:
 V4D_DEMO_MAIN(int argc, char **argv) {
   // The viewport may be changed at runtime by creating a set node (via a "set"
   // call)
-  cv::Rect viewport(0, 0, 960, 960);
+  cv::Rect viewport(0, 0, 1280, 720);
   // Initialization of the V4D runtime must be invoked before Plan::run is
   // called There are AllocateFlags for selective initialization of subsystems,
   // ConfigFlags, and DebugFlags
