@@ -608,11 +608,7 @@ public:
       // to cover a third of a phone. The stages are measured either way, so a
       // phone starts with it off -- and a plan that wants it still asks for it,
       // exactly as one that wants it off does on the desktop.
-#if defined(__ANDROID__)
       create<false, bool>(Keys::TIME_TRACKER, false);
-#else
-      create<false, bool>(Keys::TIME_TRACKER, true);
-#endif
     }
   }
 
