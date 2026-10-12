@@ -41,6 +41,10 @@ class CV_EXPORTS ImGuiContextImpl : public cv::plan::detail::PlanContext {
   // on focus changes and gates the Unicode poll, so neither costs a JNI round
   // trip while no text field is active.
   bool lastWantTextInput_ = false;
+  // True if the left mouse press that caused focus/latch in this or previous
+  // relevant frame was on a window scrollbar. Used to suppress keyboard show
+  // when touching scrollbars.
+  bool lastPressWasScrollbar_ = false;
 #endif
 
 public:

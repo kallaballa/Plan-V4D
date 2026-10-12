@@ -485,10 +485,21 @@ int ImGuiContextImpl::execute(const cv::Rect &vp, std::function<void()> fn) {
     // signal ImGui gives for "a text field is focused", so the on-screen
     // keyboard follows it. NewFrame() refreshes the flag from the previous
     // frame's widget state, hence the one-frame latency.
-    const bool wantTextInput = ImGui::GetIO().WantTextInput;
-    if (wantTextInput != lastWantTextInput_) {
-      glfw_android_set_soft_input_visible(wantTextInput);
-      lastWantTextInput_ = wantTextInput;
+    //
+    // Touching a window scrollbar focuses that window as a side effect
+    // (ButtonBehavior -> FocusWindow), which a text editor inside it reports as
+    // "wants text input" -- so scrolling the code pane used to raise the
+    // keyboard. Pressing a scrollbar must therefore not raise a hidden
+    // keyboard; any other press re-enables it.
+    {
+      ImGuiIO &io = ImGui::GetIO();
+      bool show = io.WantTextInput;
+      if (show && lastPressWasScrollbar_ && !lastWantTextInput_)
+        show = false;
+      if (show != lastWantTextInput_) {
+        glfw_android_set_soft_input_visible(show);
+        lastWantTextInput_ = show;
+      }
     }
 #endif
 
@@ -534,6 +545,26 @@ int ImGuiContextImpl::execute(const cv::Rect &vp, std::function<void()> fn) {
     }
     if (renderCallback_)
       renderCallback_->perform();
+
+#if defined(__ANDROID__)
+    // With the widgets done, remember whether this frame's left press landed on
+    // a window scrollbar: the next frame's io.WantTextInput is the one it may
+    // wrongly raise, so the decision above needs this latch. Any other press
+    // (in particular one inside a text field) clears it again.
+    {
+      ImGuiContext &g = *ImGui::GetCurrentContext();
+      if (g.IO.MouseClicked[0]) {
+        lastPressWasScrollbar_ = false;
+        if (g.ActiveIdIsJustActivated && g.ActiveIdWindow) {
+          const ImGuiID sby =
+              ImGui::GetWindowScrollbarID(g.ActiveIdWindow, ImGuiAxis_Y);
+          const ImGuiID sbx =
+              ImGui::GetWindowScrollbarID(g.ActiveIdWindow, ImGuiAxis_X);
+          lastPressWasScrollbar_ = (g.ActiveId == sby || g.ActiveId == sbx);
+        }
+      }
+    }
+#endif
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

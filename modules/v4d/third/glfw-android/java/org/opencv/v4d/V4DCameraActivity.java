@@ -28,6 +28,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.Display;
+import android.view.Surface;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -203,5 +205,14 @@ public class V4DCameraActivity extends NativeActivity {
     public int pollUnicodeChar() {
         Integer codepoint = unicodeCharacters.poll();
         return codepoint == null ? 0 : codepoint;
+    }
+
+    /** Polled from native code (JNI); returns the current screen rotation as a
+     *  Surface.ROTATION_* value (0..3). This is what makes the camera preview
+     *  upright however the device is turned: the sensor's fixed mounting
+     *  rotation only yields an upright image at the natural orientation. */
+    public int getDisplayRotation() {
+        Display display = getDisplay();
+        return display == null ? Surface.ROTATION_0 : display.getRotation();
     }
 }

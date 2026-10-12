@@ -99,6 +99,16 @@ void glfw_android_set_soft_input_visible(bool show);
 /// thread; a no-op returning 0 when no activity is recorded.
 int32_t glfw_android_poll_unicode_char();
 
+/// The activity's current screen rotation as a Surface.ROTATION_* value (0..3),
+/// forwarded from the activity's Java getDisplayRotation() over JNI like
+/// glfw_android_poll_unicode_char(). 0 when no activity is recorded or on error.
+///
+/// The camera pipeline needs it: the sensor's fixed mounting orientation only
+/// makes the frame upright at the device's natural orientation, so the display
+/// rotation must be folded in to keep the preview upright however the screen is
+/// turned. Safe to call from any thread.
+int32_t glfw_android_display_rotation();
+
 #endif // OPENCV_V4D_ANDROID
 
 #endif // MODULES_V4D_THIRD_GLFW_ANDROID_GLFW_ANDROID_HPP_

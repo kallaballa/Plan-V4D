@@ -22,79 +22,62 @@ int SourceContext::execute(const cv::Rect &vp, std::function<void()> fn) {
     sourceBuffer().create(sz, CV_8UC4);
   }
 
+  auto capture = [&]() -> bool {
+    if (!V4D::instance()->hasSource())
+      return false;
+    auto src = V4D::instance()->getSource();
+
+    // only one capture per sequence
+    if (!src->isOpen())
+      return false;
+    auto frame = src->operator()();
+
+    if (frame.empty()) {
+      // In zero-copy mode the camera frame was grabbed as an AHardwareBuffer
+      // and is drawn into the framebuffer by FrameBufferContext; there are no
+      // pixels to convert here. An empty frame from any other source is the
+      // end-of-stream signal below.
+      CV_Assert(src->zeroCopy());
+      // Keep the source buffer empty so the capture node skips the CPU copy;
+      // the framebuffer already carries the GPU-rendered camera frame.
+      sourceBuffer().release();
+    } else {
+      CV_Assert(frame.type() == CV_8UC3 || frame.type() == CV_8UC4);
+
+      if (vp.size() != sz) {
+        sourceBuffer().setTo(cv::Scalar(0, 0, 0, 0));
+      }
+
+      cv::resize(frame, frame, vp.size(), 0.0, 0.0, cv::INTER_LINEAR);
+
+      cv::Rect flipped =
+          cv::Rect(vp.x, sz.height - (vp.y + vp.height), vp.width, vp.height);
+      if (frame.channels() == 3)
+        cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGB2BGRA);
+      else
+        cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGBA2BGRA);
+    }
+
+    GlobalState::apply<uint64_t>(GlobalState::Keys::CAPTURE_CNT,
+                                 [](uint64_t &v) {
+                                   ++v;
+                                   return v;
+                                 });
+    return true;
+  };
+
   if (hasContext()) {
     CLExecScope_t scope(getCLExecContext());
     if (V4D::instance()->hasSource()) {
-      auto src = V4D::instance()->getSource();
-
-      // only one capture per sequence
-      if (src->isOpen()) {
-        auto frame = src->operator()();
-
-        if (frame.empty()) {
-          CV_Error(cv::Error::StsError, "End of stream");
-        }
-
-        CV_Assert(frame.type() == CV_8UC3 || frame.type() == CV_8UC4);
-
-        if (vp.size() != sz) {
-          sourceBuffer().setTo(cv::Scalar(0, 0, 0, 0));
-        }
-
-        cv::resize(frame, frame, vp.size(), 0.0, 0.0, cv::INTER_LINEAR);
-
-        cv::Rect flipped =
-            cv::Rect(vp.x, sz.height - (vp.y + vp.height), vp.width, vp.height);
-        if (frame.channels() == 3)
-          cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGB2BGRA);
-        else
-          cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGBA2BGRA);
-
-        GlobalState::apply<uint64_t>(GlobalState::Keys::CAPTURE_CNT,
-                                     [](uint64_t &v) {
-                                       ++v;
-                                       return v;
-                                     });
-      }
+      capture();
       fn();
       return 1;
     }
     return 0;
   } else {
     if (V4D::instance()->hasSource()) {
-      auto src = V4D::instance()->getSource();
-
-      // only one capture per sequence
-      if (src->isOpen()) {
-        auto frame = src->operator()();
-
-        if (frame.empty()) {
-          CV_Error(cv::Error::StsError, "End of stream");
-        }
-
-        CV_Assert(frame.type() == CV_8UC3 || frame.type() == CV_8UC4);
-
-        if (vp.size() != sz) {
-          sourceBuffer().setTo(cv::Scalar(0, 0, 0, 0));
-        }
-
-        cv::resize(frame, frame, vp.size(), 0.0, 0.0, cv::INTER_LINEAR);
-
-        cv::Rect flipped =
-            cv::Rect(vp.x, sz.height - (vp.y + vp.height), vp.width, vp.height);
-        if (frame.channels() == 3)
-          cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGB2BGRA);
-        else
-          cv::cvtColor(frame, sourceBuffer()(flipped), cv::COLOR_RGBA2BGRA);
-
-        GlobalState::apply<uint64_t>(GlobalState::Keys::CAPTURE_CNT,
-                                     [](uint64_t &v) {
-                                       ++v;
-                                       return v;
-                                     });
-      }
+      capture();
       fn();
-
       return 1;
     }
     return 0;

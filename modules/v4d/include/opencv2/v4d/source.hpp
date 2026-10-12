@@ -6,7 +6,9 @@
 #ifndef SRC_OPENCV_V4D_SOURCE_HPP_
 #define SRC_OPENCV_V4D_SOURCE_HPP_
 
+#include <atomic>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <opencv2/core.hpp>
 #include <string>
@@ -17,6 +19,21 @@ namespace cv {
 namespace v4d {
 
 class V4D;
+
+/*!
+ * Metadata of the current Android camera frame in zero-copy mode. buffer is a
+ * borrowed AHardwareBuffer* that backs the most recently grabbed frame; it is
+ * only valid until the next grab. A GL consumer imports it as an EGLImage with
+ * EGL_ANDROID_get_native_client_buffer + eglCreateImageKHR and samples it as
+ * GL_TEXTURE_EXTERNAL_OES.
+ */
+struct CV_EXPORTS HardwareBufferInfo {
+  void *buffer = nullptr; //!< AHardwareBuffer* of the current frame, or nullptr
+  int format = 0;         //!< AHardwareBuffer_Format of buffer
+  int sensorOrientation = 0; //!< clockwise degrees (0/90/180/270)
+  bool isFrontFacing = false;
+};
+
 /*!
  * A Source object represents a way to provide data to V4D by using
  * a generator functor.
@@ -27,6 +44,15 @@ class CV_EXPORTS Source {
   float fps_;
   std::mutex mtx_;
   inline static thread_local cv::UMat frame_;
+  // Android zero-copy camera capture
+  std::atomic<bool> zeroCopy_ = false;
+  // When set (Android camera), the generator lambda shares this flag, so a
+  // runtime switch back to the CPU path (e.g. the GPU draw failing) takes
+  // effect on the next grab.
+  std::shared_ptr<std::atomic<bool>> zeroCopyShared_;
+  std::function<bool(HardwareBufferInfo &)> hwBufferProvider_;
+  bool hwBufferReady_ = false;
+  HardwareBufferInfo hwBufferInfo_;
 
 public:
   /*!
@@ -67,6 +93,41 @@ public:
    * @return A pair containing the frame count and the frame generated.
    */
   CV_EXPORTS cv::UMat operator()();
+
+  /*!
+   * True when the Android camera source runs in zero-copy mode: the frame is
+   * grabbed as an AHardwareBuffer and drawn into the framebuffer by
+   * FrameBufferContext instead of being converted on the CPU. While it is on,
+   * operator() may return an empty frame (the pixels never reach the host).
+   */
+  CV_EXPORTS bool zeroCopy() const;
+
+  /*!
+   * Enables or disables zero-copy camera capture. Disabling it makes the source
+   * take the ordinary CPU path (VideoCapture >> UMat) like any other source.
+   */
+  CV_EXPORTS void setZeroCopy(bool enable);
+
+  /*!
+   * Binds the shared zero-copy flag the camera generator watches, so that
+   * setZeroCopy() takes effect on the next grab. Internal use by makeCamera().
+   */
+  CV_EXPORTS void
+  bindZeroCopyState(const std::shared_ptr<std::atomic<bool>> &state);
+
+  /*!
+   * Sets a functor that fills HardwareBufferInfo from the most recently grabbed
+   * camera frame. Called once per grab, right after the generator ran.
+   */
+  CV_EXPORTS void
+  setHardwareBufferProvider(const std::function<bool(HardwareBufferInfo &)> &provider);
+
+  /*!
+   * Returns the hardware buffer of the current camera frame and clears the
+   * "fresh" flag, so the frame is drawn into the framebuffer exactly once.
+   * @return false when the current frame has no hardware buffer (CPU fallback).
+   */
+  CV_EXPORTS bool consumeHardwareBufferInfo(HardwareBufferInfo &info);
 
   /*!
    * Opens a video file, using whatever hardware acceleration the platform

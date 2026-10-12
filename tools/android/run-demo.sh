@@ -50,20 +50,25 @@ command -v adb >/dev/null || {
 PACKAGE_ID="$("$SCRIPT_DIR/package-id.sh" "$DEMO")"
 ACTIVITY="$PACKAGE_ID/org.opencv.v4d.V4DCameraActivity"
 
-DEVICES=$(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
-[ -n "$DEVICES" ] || {
-  echo "run-demo: no device is attached (or none is authorised)." >&2
-  echo "  Check 'adb devices'; an emulator counts once it has booted." >&2
-  exit 1
-}
-DEVICE_COUNT=$(printf '%s\n' "$DEVICES" | wc -l)
-[ "$DEVICE_COUNT" = 1 ] || {
-  echo "run-demo: $DEVICE_COUNT devices attached; pass one with ANDROID_SERIAL=" >&2
-  printf '  %s\n' $DEVICES >&2
-  exit 1
-}
-SERIAL="$DEVICES"
-export ANDROID_SERIAL="$SERIAL"
+# An exported ANDROID_SERIAL (build.sh --serial) already names the device, and
+# adb honours it for every call below, so the one-device check is skipped.
+if [ -z "${ANDROID_SERIAL:-}" ]; then
+  DEVICES=$(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
+  [ -n "$DEVICES" ] || {
+    echo "run-demo: no device is attached (or none is authorised)." >&2
+    echo "  Check 'adb devices'; an emulator counts once it has booted." >&2
+    exit 1
+  }
+  DEVICE_COUNT=$(printf '%s\n' "$DEVICES" | wc -l)
+  [ "$DEVICE_COUNT" = 1 ] || {
+    echo "run-demo: $DEVICE_COUNT devices attached; pass one with ANDROID_SERIAL=" >&2
+    printf '  %s\n' $DEVICES >&2
+    exit 1
+  }
+  SERIAL="$DEVICES"
+  export ANDROID_SERIAL="$SERIAL"
+fi
+SERIAL="$ANDROID_SERIAL"
 
 echo "==> $SERIAL: $APK"
 # -r reinstalls, -d allows a version downgrade.

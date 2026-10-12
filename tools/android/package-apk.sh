@@ -189,12 +189,27 @@ echo "==> Staged $ASSET_COUNT asset files"
 # --- jniLibs ---------------------------------------------------------------
 # Only the demo: OpenCV, plan, nanovg and the GLFW shim are static, so they are
 # already inside it. Carrying a stale copy of another demo here would just make
-# the APK bigger.
+# the APK bigger. libOpenCL.so is clvk (OpenCL on Vulkan, built by
+# build-clvk.sh): OpenCV dlopen()s it by name at runtime, and without it there
+# is no OpenCL at all on modern Android, so it ships in every APK.
 mkdir -p "$WORK/lib/$ABI"
 cp -f "$SRC_SO" "$WORK/lib/$ABI/$DEMO_SO"
-for extra in "$STAGE_ROOT/jniLibs/$ABI"/libc++_shared.so; do
+for extra in "$STAGE_ROOT/jniLibs/$ABI"/libc++_shared.so \
+             "$STAGE_ROOT/jniLibs/$ABI"/libOpenCL.so; do
   [ -e "$extra" ] && cp -f "$extra" "$WORK/lib/$ABI/"
 done
+# A backend OpenCV's dnn links dynamically (ONNX Runtime, vendored for Android by
+# tools/android/fetch-onnxruntime.sh) must ship inside the APK like the demo
+# itself: the package manager's linker namespace only dlopens libs from the
+# app's own lib/ dir. Bundling it keeps a video/camera demo -- which uses no dnn
+# at inference time -- from dying on load with "libonnxruntime.so not found".
+# Copy as the SONAME the demo .so records (libonnxruntime.so); -L dereferences
+# the versioned symlinks the toolchain lib may use.
+ORT_LIB=""
+for cand in "$STAGE_ROOT/$ABI/3rdparty/onnxruntime/onnxruntime-android-"*/lib/libonnxruntime.so; do
+  [ -e "$cand" ] && ORT_LIB="$cand"
+done
+[ -n "$ORT_LIB" ] && cp -L -f "$ORT_LIB" "$WORK/lib/$ABI/libonnxruntime.so"
 
 # --- camera launcher ---------------------------------------------------------
 # Compiled to classes.dex and added to the APK root. See the note above for why
@@ -247,11 +262,11 @@ cat > "$WORK/AndroidManifest.xml" <<EOF
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-feature android:name="android.hardware.camera.any" android:required="false" />
   <application android:label="V4D $DEMO" android:hasCode="true">
-  <!-- Android 12+ apps run in a linker namespace that may only dlopen libs
-       from their own /data dir unless declared here; without this the
-       vendor's OpenCL driver can never be dlopened by OpenCV ("not
-       accessible for the namespace"). required=false: still installs and
-       falls back to the CPU path on devices without OpenCL. -->
+  <!-- OpenCL: the app bundles its own clvk libOpenCL.so (Vulkan-backed), so
+       OpenCV's dlopen("libOpenCL.so") resolves inside the APK. uses-native-library
+       additionally exposes a vendor ICD when one exists; the bundled copy still
+       loads when there is none. required=false: still installs and falls back to
+       the CPU path on devices with no OpenCL and no Vulkan. -->
   <uses-native-library android:name="libOpenCL.so" android:required="false" />
     <activity android:name="$ACTIVITY_CLASS"
         android:label="V4D $DEMO"

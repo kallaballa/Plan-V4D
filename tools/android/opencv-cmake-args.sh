@@ -107,20 +107,34 @@ cat <<EOF
 -DWITH_ITT=OFF
 # OpenCL is dlopen()ed at runtime from the device driver (libOpenCL.so, or the
 # Mali blob, PowerVR's libPVROCL.so, ...); nothing is linked or bundled. It
-# enables UMat kernels and V4D's CL-GL framebuffer sharing (zero-copy), with
-# an up-/download fallback when the device or driver does not cooperate.
+# powers UMat kernels for on-device processing. Note: it does NOT enable
+# zero-copy CL-GL framebuffer sharing on Android - the CL-GL interop path in
+# V4D is compile-disabled for Android (framebuffercontext.cpp) and OpenCV's
+# sharing machinery needs WITH_OPENGL=ON (off below). Zero-copy camera input is
+# a separate, per-capture opt-in instead: opening the Android camera with
+# CAP_PROP_ANDROID_HARDWARE_BUFFER asks the ImageReader for GPU-samplable
+# AHardwareBuffers that a GL consumer imports as EGLImage / GL_TEXTURE_EXTERNAL_OES.
 -DWITH_OPENCL=ON
 -DWITH_OPENCL_SVM=OFF
 -DWITH_OPENCLAMDFFT=OFF
 -DWITH_OPENCLAMDBLAS=OFF
--DWITH_VULKAN=OFF
+-DWITH_VULKAN=ON
 -DWITH_LAPACK=OFF
 -DWITH_EIGEN=OFF
 -DWITH_OPENVINO=OFF
--DWITH_ONNXRUNTIME=OFF
+# ONNX Runtime: enabled, but vendored for Android. OpenCV's dnn download logic
+# (modules/dnn/CMakeLists.txt) has no Android package -- it treats Android as
+# UNIX+aarch64 and fetches the glibc onnxruntime-linux-aarch64, which cannot
+# dlopen on Bionic ("libdl.so.2 not found") and crashes every demo on launch.
+# android-build.sh calls tools/android/fetch-onnxruntime.sh, which vendors the
+# official Maven Android AAR into the build tree and exports V4D_ONNXRT_ROOT_DIR.
+# With that dir present we point FindONNX at it and pre-seed HAVE_ONNXRUNTIME so
+# the glibc download block (elif NOT HAVE_ONNXRUNTIME) never fires. If the env var
+# is unset (standalone use), the -D lines below are omitted and dnn skips ORT.
+-DWITH_ONNXRUNTIME=ON
 -DOPENCV_DNN_OPENVINO=OFF
 -DOPENCV_DNN_TFLITE=OFF
--DOPENCV_DNN_OPENCL=OFF
+-DOPENCV_DNN_OPENCL=ON
 -DWITH_OPENVX=OFF
 -DWITH_FFMPEG=OFF
 -DWITH_GSTREAMER=OFF
@@ -182,3 +196,14 @@ cat <<EOF
 -DOPENGL_gles3_LIBRARY=$NDK_LIBS/libGLESv3.so
 -DOPENGL_gl_LIBRARY=$NDK_LIBS/libGLESv3.so
 EOF
+
+# The ONNX Runtime root is only known after android-build.sh has run
+# tools/android/fetch-onnxruntime.sh (it exports V4D_ONNXRT_ROOT_DIR). Emit the
+# pointer here, and pre-seed HAVE_ONNXRUNTIME so modules/dnn's "download the
+# glibc onnxruntime-linux-aarch64 package" branch (elif NOT HAVE_ONNXRUNTIME)
+# never fires and force-FORCEs ONNXRT_ROOT_DIR back to the glibc copy. Omitted
+# entirely when the var is unset, so a standalone run just builds dnn without ORT.
+if [ -n "${V4D_ONNXRT_ROOT_DIR:-}" ]; then
+  echo "-DONNXRT_ROOT_DIR=${V4D_ONNXRT_ROOT_DIR}"
+  echo "-DHAVE_ONNXRUNTIME=ON"
+fi

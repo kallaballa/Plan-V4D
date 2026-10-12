@@ -1007,14 +1007,39 @@ int32_t glfw_android_poll_unicode_char() {
     jmethodID id = env->GetMethodID(clazz, "pollUnicodeChar", "()I");
     if (id)
       codepoint = static_cast<int32_t>(env->CallIntMethod(activity->clazz, id));
-    if (env->ExceptionCheck()) {
-      env->ExceptionClear();
-      codepoint = 0;
-    }
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+    codepoint = 0;
+  }
     env->DeleteLocalRef(clazz);
   }
   detachActivityEnv(activity, attached);
   return codepoint;
+}
+
+int32_t glfw_android_display_rotation() {
+  ANativeActivity *activity = currentActivity();
+  if (!activity)
+    return 0;
+  bool attached = false;
+  JNIEnv *env = attachActivityEnv(activity, attached);
+  if (!env)
+    return 0;
+
+  int32_t rotation = 0;
+  jclass clazz = env->GetObjectClass(activity->clazz);
+  if (clazz) {
+    jmethodID id = env->GetMethodID(clazz, "getDisplayRotation", "()I");
+    if (id)
+      rotation = static_cast<int32_t>(env->CallIntMethod(activity->clazz, id));
+    if (env->ExceptionCheck()) {
+      env->ExceptionClear();
+      rotation = 0;
+    }
+    env->DeleteLocalRef(clazz);
+  }
+  detachActivityEnv(activity, attached);
+  return rotation;
 }
 
 // ---------------------------------------------------------------------------

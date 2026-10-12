@@ -323,6 +323,31 @@ the YuNet face detector, the MediaPipe pose models and the Roboto/JetBrains
 fonts ship in [modules/v4d/assets/](modules/v4d/assets/) and
 [modules/v4d/samples/fonts/](modules/v4d/samples/fonts/).
 
+#### clvk — OpenCL on Android (Vulkan backend)
+
+Android dropped the OpenCL ICD requirement, so most devices expose Vulkan but
+no OpenCL. [clvk](modules/v4d/third/clvk/README.md)
+([kpet/clvk](https://github.com/kpet/clvk), Apache-2.0) is a conformant OpenCL
+3.0 implementation on top of Vulkan, using [clspv](https://github.com/google/clspv)
+as its kernel compiler. Vendored under `modules/v4d/third/clvk` and built by
+[tools/android/build-clvk.sh](tools/android/build-clvk.sh) as part of the
+Android build, it produces a self-contained `libOpenCL.so` that is staged next to
+the demo `.so` and packaged into every APK. OpenCV already `dlopen()`s
+`libOpenCL.so` by name, so `cv::ocl::haveOpenCL()` then reports the device and
+the UMat/T-API paths work. What a V4D app prints at startup ("OpenCL Platforms:
+…" plus device names, forced to INFO level in `V4D::runFrameLoop`) shows what
+was found.
+
+Because OpenCV builds its OpenCL C kernels at runtime (`clBuildProgram`),
+clvk is built with clspv as an **in-process** compiler
+(`CLVK_COMPILER_AVAILABLE=ON`, `CLVK_CLSPV_ONLINE_COMPILER=ON`): the NDK
+cross-built LLVM/clang and `libclc` are linked into `libOpenCL.so`. That costs
+about 79 MB per ABI on the first build and a matching download of the pinned
+LLVM, both cached and resumable under `build/android/`, and it needs no
+`exec` from the app sandbox. The build is Arm/x86 ABI-specific (the *libclc*
+step is a host build shared by all ABIs). `V4D_SKIP_CLVK=1` skips it when a
+plain, CPU-only Android build is enough.
+
 ## Documentation
 
 * [OpenCV 5.x Overview](docs/OVERVIEW.md) — architecture, module map, build

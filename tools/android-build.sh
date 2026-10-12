@@ -14,7 +14,8 @@
 # Artifacts:
 #   build/android/<abi>/          the CMake/Ninja build tree
 #   build/android/<abi>/freetype/ the cross-built FreeType (see build-freetype.sh)
-#   build/android/<abi>/jniLibs/  the staged .so files for an APK
+#   build/android/<abi>/clvk/     the cross-built clvk (see build-clvk.sh)
+#   build/android/jniLibs/        the staged .so files for an APK (incl. libOpenCL.so)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,6 +70,19 @@ mkdir -p "$BUILD_DIR"
 export V4D_FREETYPE_DIR="$FREETYPE_PREFIX"
 "$ANDROID_HOST_DIR/build-freetype.sh" "$FREETYPE_PREFIX" "$ABI"
 
+# --- ONNX Runtime (dnn links it; Android has no glibc-free prebuilt in OpenCV's
+# own download logic, so vendor the official Maven Android AAR here) ----------
+export V4D_ONNXRT_ROOT_DIR="$("$ANDROID_HOST_DIR/fetch-onnxruntime.sh" "$BUILD_DIR" "$ABI")"
+
+# --- clvk (OpenCL on Vulkan; see tools/android/build-clvk.sh) ----------------
+# Modern Android ships no OpenCL ICD, so bundling clvk's libOpenCL.so is what
+# gives OpenCV's dlopen("libOpenCL.so") a backend on devices with Vulkan. The
+# build is idempotent and resume-safe; set V4D_SKIP_CLVK=1 to skip it and fall
+# back to the (CPU) no-OpenCL build, e.g. while iterating on a demo.
+if [ "${V4D_SKIP_CLVK:-0}" != 1 ]; then
+  "$ANDROID_HOST_DIR/build-clvk.sh" --abi "$ABI" --api-level "$API_LEVEL" -j "$JOBS"
+fi
+
 # --- configure -------------------------------------------------------------
 echo "==> Configuring OpenCV + plan + v4d for $ABI (API $API_LEVEL) in $BUILD_DIR"
 # opencv-cmake-args.sh keeps blank lines and # comments in its output for
@@ -113,6 +127,13 @@ mkdir -p "$JNI_LIBS"
 # -type f and the name filter keep the import libraries out.
 find "$BUILD_DIR/lib" -type f -name '*.so' ! -name '*.so.*' \
   -exec cp -f {} "$JNI_LIBS/" \; 2>/dev/null || true
+# clvk's libOpenCL.so is staged separately (its build tree is not OpenCV's);
+# packaged with the demo so OpenCV's runtime dlopen("libOpenCL.so") finds it.
+if [ -f "$STAGE/$ABI/clvk-prefix/lib/libOpenCL.so" ]; then
+  cp -f "$STAGE/$ABI/clvk-prefix/lib/libOpenCL.so" "$JNI_LIBS/libOpenCL.so"
+else
+  echo "WARNING: clvk libOpenCL.so not found (OpenCL will be unavailable)"
+fi
 if [ "${ANDROID_STL:-c++_static}" = "c++_shared" ]; then
   cp -f "$ANDROID_NDK/toolchains/llvm/prebuilt/$ANDROID_HOST_TAG/sysroot/usr/lib/$("$ANDROID_HOST_DIR/abi-triple.sh" "$ABI")/libc++_shared.so" "$JNI_LIBS/" 2>/dev/null || true
 fi

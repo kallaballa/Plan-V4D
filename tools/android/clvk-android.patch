@@ -1,0 +1,16 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -71,6 +71,13 @@
+ 
+   set(CMAKE_CXX_STANDARD 17)
+   set(CMAKE_CXX_STANDARD_REQUIRED ON)
++# Built for Android as part of clvk: LLVM's own targets are strict
++# c++17 (that is the language mode recorded in its precompiled headers),
++# while the project() call above resets CMAKE_CXX_EXTENSIONS to the compiler
++# default. Without this the SPIRV translation units get -std=gnu++17 and fail
++# against that PCH with "GNU extensions was disabled in PCH file but is
++# currently enabled".
++  set(CMAKE_CXX_EXTENSIONS OFF)
+ 
+   if(LLVM_SPIRV_INCLUDE_TESTS)
+     set(LLVM_TEST_COMPONENTS

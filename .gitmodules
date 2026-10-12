@@ -13,3 +13,6 @@
 [submodule "modules/v4d/third/glfw"]
 	path = modules/v4d/third/glfw
 	url = https://github.com/glfw/glfw.git
+[submodule "modules/v4d/third/clvk"]
+	path = modules/v4d/third/clvk
+	url = https://github.com/kpet/clvk.git
