@@ -26,9 +26,26 @@ DEMO="${V4D_ANDROID_DEMO:-font_rendering}"
 # otherwise.
 PACKAGE_ID="${V4D_ANDROID_PACKAGE:-}"
 STAGE_ROOT="${ANDROID_STAGE:-$REPO_DIR/build/android}"
-# A checked-in debug key would be a real signing key in the repository; this one
-# is generated on demand and never leaves the machine.
-KEYSTORE="${V4D_KEYSTORE:-$STAGE_ROOT/debug.keystore}"
+# --- signing key -----------------------------------------------------------
+# A checked-in debug key would be a real signing key in the repository, so this
+# one is generated on demand and never leaves the machine -- but it must also
+# outlive the *build tree*. It is therefore kept outside $STAGE_ROOT
+# (build/android) and outside the repository: '--rebuild'/'clean', wiping build/
+# or 'git clean -xdf' would otherwise delete it, and a regenerated key is a
+# different identity. The package manager then refuses to install over the
+# already-installed APK ("signatures do not match; uninstall first"), which is
+# exactly what the reuse below is meant to avoid.
+#
+# Android itself keeps its debug key in ~/.android, so the key lives there too,
+# under a dedicated name so it never collides with the SDK's own debug.keystore.
+# Override the location with V4D_KEYSTORE (or V4D_ANDROID_KEYSTORE_DIR) or a
+# --keystore argument.
+KEYSTORE_DIR="${V4D_ANDROID_KEYSTORE_DIR:-${HOME:-$REPO_DIR}/.android}"
+KEYSTORE="${V4D_KEYSTORE:-$KEYSTORE_DIR/v4d-debug.keystore}"
+# Where earlier builds put it (an in-tree key); adopted below if present, so an
+# existing APK can still be replaced in place.
+LEGACY_KEYSTORE="$STAGE_ROOT/debug.keystore"
+KEYSTORE_SET=0
 KEY_ALIAS="${V4D_KEY_ALIAS:-v4d}"
 usage() { sed -n '2,18p' "$0"; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
@@ -37,11 +54,20 @@ while [ $# -gt 0 ]; do
     --abi)       ABI="$2"; shift 2 ;;
     --api-level) API_LEVEL="$2"; shift 2 ;;
     --package)   PACKAGE_ID="$2"; shift 2 ;;
-    --keystore)  KEYSTORE="$2"; shift 2 ;;
+    --keystore)  KEYSTORE="$2"; KEYSTORE_SET=1; shift 2 ;;
     -h|--help)   usage 0 ;;
     *) echo "unknown argument: $1" >&2; usage 1 ;;
   esac
 done
+
+# Adopt a key left behind by an older build in the build tree, so the signing
+# identity (and therefore in-place updates of already-installed APKs) survives
+# the move. Only when the caller did not name a keystore explicitly.
+if [ "$KEYSTORE_SET" = 0 ] && [ ! -f "$KEYSTORE" ] && [ -f "$LEGACY_KEYSTORE" ]; then
+  echo "==> Adopted existing signing key: $LEGACY_KEYSTORE -> $KEYSTORE"
+  mkdir -p "$(dirname "$KEYSTORE")"
+  cp -p "$LEGACY_KEYSTORE" "$KEYSTORE"
+fi
 
 # Derived after parsing, so --demo and --package both take effect.
 # The demo name cannot go in a package name verbatim: half of them carry a hyphen

@@ -29,6 +29,12 @@ TRIPLE="$("$SCRIPT_DIR/abi-triple.sh" "$ABI")"
 # even on Android where GLESv3 is right there in the sysroot.
 NDK_LIBS="$("$SCRIPT_DIR/abi-triple.sh" --libs "$ABI")"
 
+# KleidiCV is an AArch64-focused SIMD HAL whose sources are compiled with
+# -march=armv8-a; on x86_64 (the emulator target) the toolchain rejects that,
+# so the HAL is left off there and OpenCV falls back to its own x86_64 SIMD.
+KLEIDICV=ON
+[ "$ABI" = "x86_64" ] && KLEIDICV=OFF
+
 cat <<EOF
 -DANDROID_ABI=$ABI
 -DANDROID_NATIVE_API_LEVEL=$ANDROID_API_LEVEL
@@ -132,7 +138,7 @@ cat <<EOF
 -DWITH_OPENEXR=OFF
 -DWITH_TIFF=ON
 -DWITH_CPUFEATURES=ON
--DWITH_KLEIDICV=ON
+-DWITH_KLEIDICV=$KLEIDICV
 -DWITH_ANDROID_MEDIANDK=ON
 -DWITH_ANDROID_NATIVE_CAMERA=ON
 

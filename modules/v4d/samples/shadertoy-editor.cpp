@@ -1088,6 +1088,7 @@ private:
         texture.rgba = it->second;
         texture.filter = in.filter;
         texture.wrap = in.wrap;
+        texture.vflip = in.vflip;
         pending.textures_.push_back(std::move(texture));
       }
     }
@@ -1129,6 +1130,11 @@ private:
   static constexpr const char *kErrorsWindow = "Errors";
   static constexpr const char *kChannelsWindow = "Channel inputs";
   static constexpr const char *kPlaybackWindow = "Playback";
+  /// Tab item padding. This ImGui build sizes tab items with Style.FramePadding
+  /// (TabItemCalcSize/DockNodeCalcTabBarLayout), so increasing FramePadding
+  /// scoped around the tab bar is the way to give the tabs themselves a bigger
+  /// touch target without inflating every button and frame in the app.
+  static inline const ImVec2 kTabPadding{12.0f, 7.0f};
 
   /// The default layout: every pane is a tab of a single tab bar on the left,
   /// one window per tab, and the shader preview is left empty beside it. Called
@@ -1144,9 +1150,9 @@ private:
                                                 nullptr, &center);
 
     // All four panes dock into the same node, so ImGui gives each of them its
-    // own tab in one tab bar instead of splitting the space four ways. The
-    // editor is docked first because the node shows its first window by
-    // default, and the code is what the user came for.
+    // own tab in one tab bar instead of splitting the space four ways. The dock
+    // order is the tab order, so the editor is docked first and its tab sits
+    // leftmost.
     ImGui::DockBuilderDockWindow(kEditorWindow, panes);
     ImGui::DockBuilderDockWindow(kErrorsWindow, panes);
     ImGui::DockBuilderDockWindow(kChannelsWindow, panes);
@@ -1154,10 +1160,26 @@ private:
     // "center" is deliberately left without a window: it is the central node
     // the shader shows through.
     ImGui::DockBuilderFinish(dockspaceId);
+
+    // A node built from scratch has no selected tab, and ImGui then falls back
+    // to the *last* tab of the bar (imgui.cpp, DockNodeUpdateTabBar: "tab_bar->
+    // SelectedTabId = tab_bar->Tabs.back().Window->TabId"), which would make
+    // Playback the visible pane. Docking the editor last instead would fix the
+    // selection but push its tab to the right end, so the selection is pinned by
+    // focusing the editor pane instead (drawWorkspace): the tab bar does not
+    // exist yet at this point -- ImGui only creates it once the panes are
+    // submitted -- and DockNodeUpdateTabBar keeps mirroring the window that has
+    // the focus into the tab bar, so the focus is the lever that sticks.
   }
 
   void drawWorkspace(Shared &shared) {
     using namespace ImGui;
+    // TEMP-DIAG: global style at start of frame
+    CV_LOG_INFO(&v4d_tag,
+      "drawWorkspace START: fp=(" + std::to_string(GetStyle().FramePadding.x) + "," +
+      std::to_string(GetStyle().FramePadding.y) + ") scale=" +
+      std::to_string(GetStyle()._MainScale) + " touch=" +
+      std::to_string(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_IsTouchScreen));
 
     if (BeginMainMenuBar()) {
       if (BeginMenu("File")) {
@@ -1199,9 +1221,143 @@ private:
       resetLayout_ = false;
       layoutBuilt = true;
       buildDefaultLayout(dockspaceId, viewport->WorkSize);
+      // A fresh layout needs the editor's tab selected again.
+      panesPinFrames_ = 0;
     }
+    // The dock node's tab bar (the pane tabs) is laid out and drawn while the
+    // dockspace is submitted, so the padding push below inflates exactly the
+    // tabs, not the pane contents submitted afterwards.
+    PushStyleVar(ImGuiStyleVar_FramePadding, kTabPadding);
     DockSpaceOverViewport(dockspaceId, viewport,
                           ImGuiDockNodeFlags_PassthruCentralNode);
+    PopStyleVar();
+
+    // TEMP-DIAG (remove): where ImGui believes the panes are versus where the
+    // finger actually lands, plus a marker drawn at io.MousePos so that a
+    // screenshot shows both at once.
+    {
+      ImGuiIO &dio = ImGui::GetIO();
+      static int diagFrame = 0;
+      ImGuiWindow *dw = ImGui::FindWindowByName(kEditorWindow);
+      ImGuiDockNode *dn = dw ? dw->DockNode : nullptr;
+      ImGuiTabBar *tb = dn ? dn->TabBar : nullptr;
+      ImGuiContext *ictx = ImGui::GetCurrentContext();
+      auto tn = [tb](int id) -> std::string {
+        if (tb)
+          for (int i = 0; i < tb->Tabs.Size; ++i)
+            if ((int)tb->Tabs[i].ID == id)
+              return tb->Tabs[i].Window ? tb->Tabs[i].Window->Name : "?";
+        return "-";
+      };
+      static int lastSel = -1, lastNxt = -1, lastVis = -1, lastNsel = -1;
+      static std::string lastNav, lastHov;
+      const int sel = tb ? (int)tb->SelectedTabId : -1;
+      const int nxt = tb ? (int)tb->NextSelectedTabId : -1;
+      const int vis = tb ? (int)tb->VisibleTabId : -1;
+      const int nsel = dn ? (int)dn->SelectedTabId : -1;
+      const std::string nav = ictx->NavWindow ? ictx->NavWindow->Name : "-";
+      const std::string hov = ictx->HoveredWindow ? ictx->HoveredWindow->Name : "-";
+      const bool changed = sel != lastSel || nxt != lastNxt || vis != lastVis ||
+                           nsel != lastNsel || nav != lastNav || hov != lastHov;
+      if (changed || dio.MouseDown[0] || (diagFrame % 90) == 0) {
+        ImGuiDockNode *cn = ImGui::DockBuilderGetCentralNode(dockspaceId);
+        std::string s =
+            "TEMP-DIAG DisplaySize=" + std::to_string(dio.DisplaySize.x) + "x" +
+            std::to_string(dio.DisplaySize.y) + " MousePos=(" +
+            std::to_string(int(dio.MousePos.x)) + "," +
+            std::to_string(int(dio.MousePos.y)) + ") down=" +
+            std::to_string(int(dio.MouseDown[0])) + " rel=" +
+            std::to_string(int(dio.MouseReleased[0])) + " dragThresh=" +
+            std::to_string(int(dio.MouseDragThreshold)) + " winSize=" +
+            std::to_string(V4D::instance()->size().width) + "x" +
+            std::to_string(V4D::instance()->size().height);
+        if (tb) {
+          s += " bar=(" + std::to_string(int(tb->BarRect.Min.x)) + "," +
+               std::to_string(int(tb->BarRect.Min.y)) + " " +
+               std::to_string(int(tb->BarRect.Max.x)) + "," +
+               std::to_string(int(tb->BarRect.Max.y)) + ")";
+          for (int i = 0; i < tb->Tabs.Size; ++i) {
+            const ImGuiTabItem &t = tb->Tabs[i];
+            s += " | " + std::string(t.Window ? t.Window->Name : "?") + "@" +
+                 std::to_string(int(tb->BarRect.Min.x + t.Offset)) + ".." +
+                 std::to_string(int(tb->BarRect.Min.x + t.Offset + t.Width));
+          }
+        }
+        if (cn)
+          s += " central=(" + std::to_string(int(cn->Pos.x)) + "," +
+               std::to_string(int(cn->Pos.y)) + " " +
+               std::to_string(int(cn->Size.x)) + "x" +
+               std::to_string(int(cn->Size.y)) + ")";
+        s += " sel=" + tn(sel) + " next=" + tn(nxt) + " vis=" + tn(vis) +
+             " nodeSel=" + tn(nsel) + " nav=" + nav + " hov=" + hov +
+             " navPinsPanes=" +
+             std::to_string((ictx->NavWindow && dn &&
+                             ictx->NavWindow->RootWindow->DockNode == dn)
+                                ? 1
+                                : 0) +
+             " pin=" + std::to_string(panesPinFrames_) +
+             " act=" + (ictx->ActiveIdWindow ? ictx->ActiveIdWindow->Name : "-") +
+             " activeId=" + std::to_string((unsigned)ictx->ActiveId);
+        // TEMP-DIAG: the geometry that decides whether the pane tabs are
+        // reachable. DockNodeCalcTabBarLayout (imgui.cpp:20221-20223) sizes the
+        // tab bar from FontSize + 2 * GetTabItemPadding().y, while a docked pane
+        // window claims the region below its TitleBarHeight
+        // (imgui.cpp:8368/8677: FontSize + 2 * style.FramePadding.y).
+        const ImGuiStyle &style = ImGui::GetStyle();
+        ImVec2 tabpad = style.FramePadding;
+        if (ictx->IO.ConfigFlags & ImGuiConfigFlags_IsTouchScreen) {
+            const float scale = ImMax(style._MainScale, 1.0f);
+            tabpad = ImMax(tabpad, ImVec2(16.0f * scale, 10.0f * scale));
+        }
+        ImGuiWindow *hw = dn ? dn->HostWindow : nullptr;
+        s += " N: font=" + std::to_string(ImGui::GetFontSize()) +
+             " fp=(" + std::to_string(style.FramePadding.x) + "," +
+             std::to_string(style.FramePadding.y) + ")" +
+             " tabPad=(" + std::to_string(tabpad.x) + "," +
+             std::to_string(tabpad.y) + ")" +
+             " scale=" + std::to_string(style._MainScale) +
+             " touchX=" + std::to_string(style.TouchExtraPadding.x) +
+             " borderHov=" + std::to_string(style.WindowBorderHoverPadding) +
+             " workY=" + std::to_string(viewport->WorkPos.y);
+        if (hw)
+          s += " host=" + std::string(hw->Name) +
+               " hostOuterY=(" + std::to_string(int(hw->OuterRectClipped.Min.y)) +
+               ".." + std::to_string(int(hw->OuterRectClipped.Max.y)) + ")";
+        if (dw)
+          s += " dwPosY=" + std::to_string(int(dw->Pos.y)) +
+               " dwTitle=" + std::to_string(dw->TitleBarHeight) +
+               " dwOuterY=(" + std::to_string(int(dw->OuterRectClipped.Min.y)) +
+               ".." + std::to_string(int(dw->OuterRectClipped.Max.y)) + ")" +
+               " hidden=" + std::to_string(dw->Hidden ? 1 : 0) +
+               " noinput=" +
+               std::to_string((dw->Flags & ImGuiWindowFlags_NoMouseInputs) ? 1 : 0);
+        CV_LOG_INFO(&v4d_tag, s);
+      }
+      lastSel = sel;
+      lastNxt = nxt;
+      lastVis = vis;
+      lastNsel = nsel;
+      lastNav = nav;
+      lastHov = hov;
+      ++diagFrame;
+      ImDrawList *fg = ImGui::GetForegroundDrawList();
+      fg->AddCircle(dio.MousePos, 60.0f, IM_COL32(255, 0, 0, 255), 0, 8.0f);
+      if (tb)
+        fg->AddRect(tb->BarRect.Min, tb->BarRect.Max,
+                    IM_COL32(0, 255, 0, 255), 0.0f, 0, 6.0f);
+    }
+
+    // ImGui picks the visible tab of a dock node from the window that has the
+    // focus (imgui.cpp, DockNodeUpdateTabBar: "Apply NavWindow focus back to the
+    // tab bar"), and once the layout is built that focus sits on the last pane
+    // ImGui created -- the Playback pane. Focusing the editor for the first
+    // frames pins its tab as the selected one and keeps the per-frame rule
+    // pointing at the editor. Two frames, because the panes are only created on
+    // the first frame and may re-focus themselves while they are appearing.
+    if (panesPinFrames_ < 2) {
+      SetNextWindowFocus();
+      ++panesPinFrames_;
+    }
 
     if (Begin(kEditorWindow)) {
       drawDocumentHeader(shared);
@@ -1285,6 +1441,9 @@ private:
   /// Set from the Layout menu; the next frame rebuilds the default split.
   /// GUI thread only.
   bool resetLayout_ = false;
+  /// Frames left to force the focus onto the editor pane, which is what makes
+  /// its tab the selected one. Rearmed whenever the layout is (re)built.
+  int panesPinFrames_ = 2;
 
   static std::string directoryOf(const std::string &path) {
     if (path.empty())
@@ -1395,10 +1554,14 @@ private:
   void drawPassTabs(Shared &shared) {
     using namespace ImGui;
 
+    // Same trick as the pane tabs: tab sizing uses FramePadding, so scope a
+    // bigger padding around just this tab bar.
+    PushStyleVar(ImGuiStyleVar_FramePadding, kTabPadding);
     if (!BeginTabBar("passes", ImGuiTabBarFlags_Reorderable |
                                    ImGuiTabBarFlags_AutoSelectNewTabs)) {
       // An empty shader still has to show the "add a pass" control.
       EndTabBar();
+      PopStyleVar();
       return;
     }
     for (size_t i = 0; i < shared.shader_.passes.size(); ++i) {
@@ -1418,6 +1581,7 @@ private:
     if (TabItemButton("+", ImGuiTabItemFlags_Trailing))
       addBufferPass(shared);
     EndTabBar();
+    PopStyleVar();
   }
 
   void addBufferPass(Shared &shared) {
@@ -1872,9 +2036,13 @@ private:
       if (Combo("##type", &type, kTypes, 4)) {
         changed = true;
         if (type == 0) {
-          if (input != nullptr)
+          if (input != nullptr) {
             pass.inputs.erase(pass.inputs.begin() +
                               (input - pass.inputs.data()));
+            // erase() invalidated `input`; without clearing it the channel
+            // would be read and written through freed storage below.
+            input = nullptr;
+          }
         } else {
           if (input == nullptr) {
             PassInput fresh;

@@ -24,9 +24,14 @@ import android.Manifest;
 import android.app.NativeActivity;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.inputmethod.InputMethodManager;
 
 import java.util.concurrent.LinkedBlockingQueue;
@@ -94,6 +99,63 @@ public class V4DCameraActivity extends NativeActivity {
                 + "video input and will show nothing. Grant it with "
                 + "'adb shell pm grant <package> android.permission.CAMERA'.");
         finish();
+    }
+
+    // --- Fullscreen ------------------------------------------------------------
+    //
+    // The demos draw their own chrome right up to the window edge, and the
+    // platform now hands an app an edge-to-edge window whether it asks or not:
+    // the status bar and the navigation bar are *translucent overlays* on top
+    // of it, so ImGui's menu bar ended up underneath the clock and the tab bar
+    // under the navigation bar (dumpsys window: StatusBar frame=[0,0][1600,74],
+    // NavigationBar0 frame=[1506,0][1600,720], both fmt=TRANSLUCENT, while the
+    // app window spans [74,0][1600,720]).
+    //
+    // Hide both bars so the whole window is the app's. A swipe in from an edge
+    // still brings them back transiently (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE),
+    // so the clock and the navigation gestures stay reachable. The display
+    // cutout is deliberately left alone: the window keeps avoiding it, which is
+    // why the left edge stays clear of the camera hole.
+    //
+    // Must not be called from onCreate(): Window.getInsetsController()
+    // dereferences the decor view, which a NativeActivity has not installed yet
+    // at that point, and the resulting NPE kills the launch. onWindowFocusChanged()
+    // is the first hook that is guaranteed to run with the window in place.
+    private void applyFullscreen() {
+        Window window = getWindow();
+        if (window == null) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.hide(WindowInsets.Type.statusBars()
+                        | WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+            return;
+        }
+        // API < 30: the flags above do not exist, and setSystemUiVisibility()
+        // is still the way. IMMERSIVE_STICKY matches the behaviour above.
+        @SuppressWarnings("deprecation")
+        int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+        window.getDecorView().setSystemUiVisibility(flags);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // A swipe, a dialog or a resume brings the bars back; hide them again as
+        // soon as the window is focused rather than only once at startup.
+        if (hasFocus) {
+            applyFullscreen();
+        }
     }
 
     // --- On-screen keyboard ----------------------------------------------------

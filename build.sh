@@ -17,19 +17,41 @@ ANDROID_API_LEVEL=32
 ANDROID_PACKAGE=0
 ANDROID_CONFIGURE_ONLY=0
 ANDROID_DEMO=all
+ANDROID_DEMO_SET=0
+ANDROID_SERIAL=
+ANDROID_LOG=0
+ANDROID_WAIT=12
+ANDROID_SETTLE=12
+ANDROID_KEEP_LOG=0
+SDK_NDK_VERSION=
+SDK_BUILD_TOOLS=
+SDK_PLATFORM=
+SDK_MINIMAL=0
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") <command> [options] [-- <test args>]
 
-Build the OpenCV plan / plan+v4d stack, or the V4D demos for Android.
+Build the OpenCV plan / plan+v4d stack, the V4D demos for Android, and deploy
+them to a device.
 
 Commands:
   plan            Configure, build and run the plan tests (the default when no
                   command is given)
-  plan+v4d        Configure, build and install the plan+v4d stack
+  plan+v4d        Configure and build the plan+v4d stack
                   ('v4d' is accepted as a shorthand)
   android         Cross-compile the V4D demos for Android
+  deploy          Install a packaged demo APK on a device and start it
+                  (tools/android/run-demo.sh)
+  debug           Install and start a demo, then capture its logcat, a
+                  screencap and the device's GL properties
+                  (tools/android/debug-device.sh)
+  smoke           Install, launch and judge every packaged demo on the device
+                  (tools/android/smoke-test.sh)
+  sdk             Install the Android SDK/NDK pieces the build needs
+                  (tools/android/install-sdk.sh)
+  devices         List the attached devices and emulators plus the SDK/NDK
+                  the build would use (tools/android/devices.sh)
   configure       Configure the build directory, nothing else
   build           Compile an already-configured build directory
   test            Run the plan test and perf binaries
@@ -54,8 +76,7 @@ Options:
                          build directory contents
   -h, --help             Show this help
 
-Android options (only meaningful with the 'android' command; everything below
-is handed to tools/android-build.sh, which owns the NDK settings):
+Android options:
 
       --abi ABI          Android ABI: arm64-v8a, armeabi-v7a or x86_64
                          (default: arm64-v8a)
@@ -63,13 +84,32 @@ is handed to tools/android-build.sh, which owns the NDK settings):
       --demo NAME        Which demos to build and package (default: all);
                          a comma separated list of sample names, or 'all' for
                          every sample that has an Android path (see
-                         tools/android/sample-list.sh)
+                         tools/android/sample-list.sh). 'deploy' and 'debug'
+                         take a single sample only; 'smoke' takes a list.
       --configure-only   Configure, but do not compile
       --apk              Also assemble a signed APK with
                          tools/android/package-apk.sh
+      --serial SERIAL    Talk to this device only (exported as ANDROID_SERIAL);
+                         when it is unset exactly one device has to be attached
+      --log              'deploy': keep following the demo's logcat
+                         after it starts
+      --wait N           'debug': seconds to wait for the demo to start
+                         before capturing (default: 12)
+      --settle N         'smoke': seconds to give each demo to come up
+                         (default: 12)
+      --keep-log         'smoke': keep each demo's app log under
+                         build/android/smoke-logs/
+
+Android SDK options (only meaningful with the 'sdk' command):
+
+      --ndk VERSION      NDK package to install (default: r27c)
+      --build-tools V    build-tools package (default: 34.0.0)
+      --platform NAME    SDK platform (default: android-34)
+      --minimal          NDK only, no aapt2/apksigner/platform
 
 Any arguments after '--' are passed through to the test binaries (only relevant
 for the 'plan' and 'test' commands, which build and run the plan tests).
+
 
 Environment:
   OpenVINO_DIR   OpenVINO devel tree to build against, e.g.
@@ -78,6 +118,8 @@ Environment:
                  libopenvino_intel_gpu_plugin.so for DNN_TARGET_OPENCL.
   ANDROID_SDK_ROOT / ANDROID_HOME  Android SDK location (default: ~/Android/Sdk)
   ANDROID_API_LEVEL / ANDROID_ABI  Defaults for the Android options above
+  ANDROID_SERIAL    Device serial for deploy/debug/smoke (equivalent to
+                    --serial)
 
 Examples:
   $(basename "$0") plan
@@ -87,6 +129,11 @@ Examples:
   $(basename "$0") build && $(basename "$0") test
   $(basename "$0") android --apk --demo font_rendering
   $(basename "$0") android --abi x86_64 --configure-only
+  $(basename "$0") sdk --ndk 27.2.12479018
+  $(basename "$0") deploy --demo font_rendering --log
+  $(basename "$0") debug --demo font_rendering --wait 15
+  $(basename "$0") smoke --settle 15
+  $(basename "$0") devices
   $(basename "$0") clean
 EOF
   exit 0
@@ -133,6 +180,71 @@ android_build() {
   fi
 }
 
+# --- Android device + SDK ----------------------------------------------------
+# deploy/debug/smoke/sdk/devices each delegate to one script under
+# tools/android/, which owns the adb and SDK details. This file contributes only
+# the option parsing and the default that a bare command needs.
+#
+# adb honours ANDROID_SERIAL itself; run-demo.sh and smoke-test.sh additionally
+# skip their "exactly one device" check when it is set, so a --serial on a host
+# with several devices addresses only that one.
+export_android_serial() {
+  if [ -n "$ANDROID_SERIAL" ]; then
+    export ANDROID_SERIAL
+  fi
+}
+
+# deploy and debug act on one demo. A bare command defaults to the first sample
+# rather than 'all'; an explicit --demo has to be a single name.
+require_single_demo() {
+  if [ "$ANDROID_DEMO_SET" = 0 ]; then
+    ANDROID_DEMO=font_rendering
+  fi
+  case "$ANDROID_DEMO" in
+    ""|all|*,*)
+      echo "'$COMMAND' acts on one demo at a time; --demo takes a single sample." >&2
+      exit 1 ;;
+  esac
+}
+
+android_deploy() {
+  require_single_demo
+  export_android_serial
+  local args=("$ANDROID_DEMO" "$ANDROID_ABI")
+  [ "$ANDROID_LOG" = 1 ] && args+=(--log)
+  "$SCRIPT_DIR/tools/android/run-demo.sh" "${args[@]}"
+}
+
+android_debug() {
+  require_single_demo
+  export_android_serial
+  "$SCRIPT_DIR/tools/android/debug-device.sh" "$ANDROID_DEMO" "$ANDROID_ABI" "$ANDROID_WAIT"
+}
+
+android_smoke() {
+  export_android_serial
+  local args=(--abi "$ANDROID_ABI" --settle "$ANDROID_SETTLE")
+  [ "$ANDROID_KEEP_LOG" = 1 ] && args+=(--keep-log)
+  if [ "$ANDROID_DEMO" != all ]; then
+    IFS=',' read -r -a DEMOS <<< "$ANDROID_DEMO"
+    args+=("${DEMOS[@]}")
+  fi
+  "$SCRIPT_DIR/tools/android/smoke-test.sh" "${args[@]}"
+}
+
+android_devices() {
+  "$SCRIPT_DIR/tools/android/devices.sh"
+}
+
+android_sdk() {
+  local args=()
+  [ -n "$SDK_NDK_VERSION" ] && args+=(--ndk "$SDK_NDK_VERSION")
+  [ -n "$SDK_BUILD_TOOLS" ] && args+=(--build-tools "$SDK_BUILD_TOOLS")
+  [ -n "$SDK_PLATFORM" ] && args+=(--platform "$SDK_PLATFORM")
+  [ "$SDK_MINIMAL" = 1 ] && args+=(--minimal)
+  "$SCRIPT_DIR/tools/android/install-sdk.sh" "${args[@]}"
+}
+
 # The command is the first positional argument; a leading '-' is not a command,
 # so it falls through to the option loop and gets its error message there.
 COMMAND=plan
@@ -163,11 +275,35 @@ while [ $# -gt 0 ] && [ "$1" != "--" ]; do
       ANDROID_API_LEVEL="$2"; shift 2 ;;
     --demo)
       [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
-      ANDROID_DEMO="$2"; shift 2 ;;
+      ANDROID_DEMO="$2"; ANDROID_DEMO_SET=1; shift 2 ;;
     --apk)
       ANDROID_PACKAGE=1; shift ;;
     --configure-only)
       ANDROID_CONFIGURE_ONLY=1; shift ;;
+    --serial)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      ANDROID_SERIAL="$2"; shift 2 ;;
+    --log)
+      ANDROID_LOG=1; shift ;;
+    --wait)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      ANDROID_WAIT="$2"; shift 2 ;;
+    --settle)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      ANDROID_SETTLE="$2"; shift 2 ;;
+    --keep-log)
+      ANDROID_KEEP_LOG=1; shift ;;
+    --ndk)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      SDK_NDK_VERSION="$2"; shift 2 ;;
+    --build-tools)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      SDK_BUILD_TOOLS="$2"; shift 2 ;;
+    --platform)
+      [ $# -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
+      SDK_PLATFORM="$2"; shift 2 ;;
+    --minimal)
+      SDK_MINIMAL=1; shift ;;
     -r|--rebuild)
       REBUILD=1; shift ;;
     -h|--help)
@@ -197,7 +333,7 @@ if [ "$COMMAND" = plan ] || [ "$COMMAND" = plan+v4d ]; then
 fi
 
 case "$COMMAND" in
-  plan|plan+v4d|android|configure|build|test|install|clean) ;;
+  plan|plan+v4d|android|deploy|debug|smoke|sdk|devices|configure|build|test|install|clean) ;;
   *)
     echo "Invalid command '$COMMAND'" >&2
     echo "Try '$(basename "$0") --help' for the list of commands." >&2
@@ -208,6 +344,14 @@ if [ "$COMMAND" = android ]; then
   android_build
   exit 0
 fi
+
+case "$COMMAND" in
+  deploy)  android_deploy;  exit 0 ;;
+  debug)   android_debug;   exit 0 ;;
+  smoke)   android_smoke;   exit 0 ;;
+  sdk)     android_sdk;     exit 0 ;;
+  devices) android_devices; exit 0 ;;
+esac
 
 case "$TARGET" in
   plan|plan+v4d) ;;
@@ -520,7 +664,8 @@ case "$COMMAND" in
     do_test ;;
   plan+v4d)
     do_configure
-    do_build ;;
+    do_build
+    do_make_install ;;
   configure)
     do_configure ;;
   build)

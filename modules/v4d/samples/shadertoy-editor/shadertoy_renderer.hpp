@@ -284,7 +284,9 @@ CompileError parseCompileError(const std::string &log,
           ++messageAt;
         line = int(value);
         found = true;
-        error.message = trim(lineText.substr(messageAt));
+        // Append rather than assign: the prefix lines gathered below are the
+        // useful part when the driver put the position on its own line.
+        error.message += trim(lineText.substr(messageAt));
         pos = nl + 1;
         continue;
       }
@@ -741,6 +743,10 @@ public:
     cv::Mat rgba; // CV_8UC4, continuous
     std::string filter = "linear";
     std::string wrap = "clamp";
+    /// Flip the decoded image vertically on upload. Shadertoy stores its
+    /// presets top-down while GL samples bottom-up, so the model defaults this
+    /// to true; a texture that already arrives in GL order sets it false.
+    bool vflip = false;
   };
 
   bool hasShader() const { return !passes_.empty(); }
@@ -838,7 +844,7 @@ public:
           !input.rgba.isContinuous())
         continue;
       const GLuint texture =
-          createTexture(input.rgba, input.filter, input.wrap, false);
+          createTexture(input.rgba, input.filter, input.wrap, input.vflip);
       if (texture == 0)
         continue;
       textureIds.emplace(input.src, texture);
