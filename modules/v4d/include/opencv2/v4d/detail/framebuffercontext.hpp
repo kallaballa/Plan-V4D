@@ -24,6 +24,7 @@ struct GLFWwindow;
 namespace cv {
 namespace v4d {
 class V4D;
+struct HardwareBufferInfo;
 
 namespace detail {
 struct FBConfigFlags {
@@ -108,6 +109,16 @@ class CV_EXPORTS FrameBufferContext : public cv::plan::detail::PlanContext {
   GLuint textureFlippedID_ = 0;
   GLuint textureID_ = 0;
   GLuint renderBufferID_ = 0;
+  // Android zero-copy camera capture. The frame arrives as an AHardwareBuffer
+  // (see Source::makeCamera) and is imported as GL_TEXTURE_EXTERNAL_OES and
+  // drawn into the main framebuffer texture (textureID_) right before the
+  // regular download, so the rest of the frame sees it like any other input.
+  GLuint cameraOESTextureID_ = 0;
+  GLuint cameraProgram_ = 0;
+  GLint cameraTexUniform_ = -1;
+  GLint cameraOrientationUniform_ = -1;
+  GLint cameraMirrorUniform_ = -1;
+  bool cameraGpuReady_ = false;
 #ifdef HAVE_OPENCL
   cl_mem clImage_ = nullptr;
 #endif
@@ -215,6 +226,18 @@ public:
   bool cl_gl_sharing() const { return clglSharing_; }
 
   /*!
+   * Draws the Android camera frame of the current grab (its AHardwareBuffer)
+   * directly into this context's main framebuffer texture (getTextureID()).
+   * The caller must have a GL context current. The frame covers the whole
+   * framebuffer, stretched to its size and rotated by the sensor orientation so
+   * it appears upright, producing exactly the content the CPU path would have
+   * uploaded there.
+   * @return true when the frame was drawn.
+   */
+  bool drawCameraBuffer(const cv::v4d::HardwareBufferInfo &info,
+                        const cv::Rect &dstViewport);
+
+  /*!
    * Get the framebuffer size.
    * @return The framebuffer size.
    */
@@ -239,6 +262,13 @@ public:
     }
 
     FrameBufferContext::WindowScope winScope(self());
+#if defined(__ANDROID__)
+    // Zero-copy camera capture: draw the grabbed AHardwareBuffer into the main
+    // framebuffer texture before the download below, so every consumer of the
+    // framebuffer (UMat bridging, plan nodes, the on-screen blit) sees the
+    // GPU-rendered camera frame.
+    drawCameraFromSource(vp);
+#endif
     if (cv::ocl::useOpenCL() && !getCLExecContext().empty()) {
       CLExecScope_t clExecScope(getCLExecContext());
       FrameBufferContext::GLScope glScope(self(), GL_FRAMEBUFFER);
@@ -349,6 +379,11 @@ protected:
   void flip();
   void unflip();
   GLFWwindow *getGLFWWindow() const;
+  // Android zero-copy camera: consults the current Source for a fresh
+  // AHardwareBuffer and draws it into the framebuffer. Called at the start of
+  // every execute(); consumes the source's "fresh buffer" flag, so it fires at
+  // most once per grabbed frame.
+  bool drawCameraFromSource(const cv::Rect &vp);
 
 public:
   CV_EXPORTS int configFlags();

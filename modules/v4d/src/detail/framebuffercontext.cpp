@@ -25,6 +25,21 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+// Android zero-copy camera capture imports the frame's AHardwareBuffer as an
+// EGLImage (EGL_ANDROID_get_native_client_buffer + EGL_KHR_image_base) and
+// samples it via GL_TEXTURE_EXTERNAL_OES (GL_OES_EGL_image_external).
+#if defined(__ANDROID__)
+#include <android/hardware_buffer.h>
+#include <android/log.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+// The OES external texture constant is only declared by the ES2 extension
+// headers, which V4D does not include on the ES3 path; the value is stable.
+#ifndef GL_TEXTURE_EXTERNAL_OES
+#define GL_TEXTURE_EXTERNAL_OES 0x8D65
+#endif
+#endif
+
 using std::cerr;
 using std::cout;
 using std::endl;
@@ -216,6 +231,139 @@ void FrameBufferContext::blendFramebuffer(const GLuint &otherID) {
 GLuint FrameBufferContext::getFramebufferID() { return framebufferID_; }
 
 GLuint FrameBufferContext::getTextureID() { return textureID_; }
+
+bool FrameBufferContext::drawCameraFromSource(const cv::Rect &vp) {
+#if defined(__ANDROID__)
+  if (!V4D::instance()->hasSource())
+    return false;
+  auto src = V4D::instance()->getSource();
+  if (!src->zeroCopy())
+    return false;
+
+  cv::v4d::HardwareBufferInfo info;
+  if (!src->consumeHardwareBufferInfo(info))
+    return false;
+
+  if (!drawCameraBuffer(info, vp)) {
+    CV_LOG_WARNING(nullptr,
+                   "Zero-copy camera draw failed; falling back to the CPU path "
+                   "from the next frame on");
+    __android_log_print(ANDROID_LOG_ERROR, "V4DOrient",
+                        "drawCameraBuffer FAILED; disabling zero-copy");
+    src->setZeroCopy(false);
+    return false;
+  }
+  return true;
+#else
+  CV_UNUSED(vp);
+  return false;
+#endif
+}
+
+bool FrameBufferContext::drawCameraBuffer(const cv::v4d::HardwareBufferInfo &info,
+                                          const cv::Rect &dstViewport) {
+#if defined(__ANDROID__)
+  if (!cameraGpuReady_ || info.buffer == nullptr) {
+    __android_log_print(ANDROID_LOG_ERROR, "V4DOrient",
+                        "drawCameraBuffer: not ready (gpuReady=%d buf=%p)",
+                        cameraGpuReady_ ? 1 : 0, info.buffer);
+    return false;
+  }
+
+  EGLDisplay dpy = eglGetCurrentDisplay();
+  if (dpy == EGL_NO_DISPLAY) {
+    __android_log_print(ANDROID_LOG_ERROR, "V4DOrient",
+                        "drawCameraBuffer: no EGL display");
+    return false;
+  }
+
+  // Resolve the EGL extensions once per process. Every API 26+ device has
+  // them; on older devices this returns false and the CPU path takes over.
+  typedef EGLClientBuffer(EGLAPIENTRYP CameraGetNativeClientBufferFn)(
+      const struct AHardwareBuffer *buffer);
+  typedef EGLImageKHR(EGLAPIENTRYP CameraCreateImageKHRFn)(
+      EGLDisplay dpy, EGLContext ctx, EGLenum target,
+      EGLClientBuffer buffer, const EGLint *attrib_list);
+  typedef EGLBoolean(EGLAPIENTRYP CameraDestroyImageKHRFn)(
+      EGLDisplay dpy, EGLImageKHR image);
+  typedef void(EGLAPIENTRYP CameraEGLImageTargetTexture2DOESFn)(
+      GLenum target, void *image);
+  static const CameraGetNativeClientBufferFn eglGetNativeClientBuffer =
+      reinterpret_cast<CameraGetNativeClientBufferFn>(
+          eglGetProcAddress("eglGetNativeClientBufferANDROID"));
+  static const CameraCreateImageKHRFn eglCreateImageKHRFn =
+      reinterpret_cast<CameraCreateImageKHRFn>(
+          eglGetProcAddress("eglCreateImageKHR"));
+  static const CameraDestroyImageKHRFn eglDestroyImageKHRFn =
+      reinterpret_cast<CameraDestroyImageKHRFn>(
+          eglGetProcAddress("eglDestroyImageKHR"));
+  static const CameraEGLImageTargetTexture2DOESFn
+      glEGLImageTargetTexture2DOESFn =
+          reinterpret_cast<CameraEGLImageTargetTexture2DOESFn>(
+              eglGetProcAddress("glEGLImageTargetTexture2DOES"));
+  if (eglGetNativeClientBuffer == nullptr || eglCreateImageKHRFn == nullptr ||
+      eglDestroyImageKHRFn == nullptr ||
+      glEGLImageTargetTexture2DOESFn == nullptr) {
+    __android_log_print(ANDROID_LOG_ERROR, "V4DOrient",
+                        "drawCameraBuffer: missing EGL ext getNB=%p create=%p "
+                        "destroy=%p targetTex=%p",
+                        eglGetNativeClientBuffer, eglCreateImageKHRFn,
+                        eglDestroyImageKHRFn, glEGLImageTargetTexture2DOESFn);
+    return false;
+  }
+
+  EGLClientBuffer clientBuffer =
+      eglGetNativeClientBuffer(static_cast<AHardwareBuffer *>(info.buffer));
+  if (clientBuffer == nullptr) {
+    __android_log_print(ANDROID_LOG_ERROR, "V4DOrient",
+                        "drawCameraBuffer: getNativeClientBuffer null");
+    return false;
+  }
+
+  EGLImageKHR image = eglCreateImageKHRFn(
+      dpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, clientBuffer, nullptr);
+  if (image == EGL_NO_IMAGE_KHR) {
+    __android_log_print(ANDROID_LOG_ERROR, "V4DOrient",
+                        "drawCameraBuffer: eglCreateImageKHR failed 0x%x",
+                        eglGetError());
+    return false;
+  }
+
+  GL_CHECK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, cameraOESTextureID_));
+  glEGLImageTargetTexture2DOESFn(GL_TEXTURE_EXTERNAL_OES, image);
+
+  // Draw the camera quad into the main framebuffer (getTextureID(), the
+  // texture every consumer reads back), matching the CPU path's end state:
+  // the frame covers the whole framebuffer and is rotated upright. The play
+  // region rect (vp) is honoured the same way the CPU path honours it: the
+  // full framebuffer is what the display blits, so a different viewport only
+  // matters on the way out.
+  CV_UNUSED(dstViewport);
+  GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferID_));
+  GL_CHECK(glViewport(0, 0, framebufferSize_.width, framebufferSize_.height));
+  GL_CHECK(glDisable(GL_DEPTH_TEST));
+  GL_CHECK(glDisable(GL_BLEND));
+  GL_CHECK(glUseProgram(cameraProgram_));
+  GL_CHECK(glActiveTexture(GL_TEXTURE0));
+  GL_CHECK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, cameraOESTextureID_));
+  GL_CHECK(glUniform1i(cameraTexUniform_, 0));
+  // Pixel-identical to the CPU metadata path: rotate clockwise by the sensor
+  // orientation (ROTATE_90_CLOCKWISE etc.), no mirroring.
+  GL_CHECK(glUniform1f(cameraOrientationUniform_,
+                       static_cast<float>((info.sensorOrientation / 90) % 4)));
+  GL_CHECK(glUniform1i(cameraMirrorUniform_, 0));
+  draw_quad();
+  GL_CHECK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0));
+  GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferID_));
+
+  eglDestroyImageKHRFn(dpy, image);
+  return true;
+#else
+  CV_UNUSED(info);
+  CV_UNUSED(dstViewport);
+  return false;
+#endif
+}
 
 void FrameBufferContext::init() {
   if (parent_) {
@@ -475,6 +623,86 @@ void FrameBufferContext::setup() {
     CV_Assert(false);
 
   currentFBO_ = framebufferID_;
+
+#if defined(__ANDROID__)
+  // Zero-copy camera capture support. The program samples a
+  // GL_TEXTURE_EXTERNAL_OES texture (the camera's AHardwareBuffer, re-imported
+  // as an EGLImage once per frame) and applies the sensor rotation.
+  {
+    const string cameraVert = R"(
+    		precision highp float;
+    		
+    		layout (location = 0) in vec2 aPos;
+    		layout (location = 1) in vec2 aTexCoords;
+    		
+    		out vec2 TexCoords;
+    		
+    		void main()
+    		{
+    			gl_Position = vec4(aPos, 0.0, 1.0);
+    			TexCoords = aTexCoords;
+    		}
+    	)";
+    const string cameraFrag = R"(
+        #extension GL_OES_EGL_image_external : require
+    	precision mediump float;
+    	
+    	in vec2 TexCoords;
+    	out vec4 FragColor;
+        
+        uniform samplerExternalOES texture0;
+        uniform float u_orientation; // quarter turns clockwise: 0,1,2,3
+        uniform int u_mirror;        // horizontal mirror (front camera)
+
+    	void main()
+    	{      
+            // Camera OES textures have their coordinate origin at the top-left
+            // of the image, while the quad below (draw_quad) samples v=1 at the
+            // top of the framebuffer. Flip V first so the image is upright in
+            // the GL framebuffer, i.e. what upload() of an upright UMat would
+            // contain.
+            vec2 uv = vec2(TexCoords.x, 1.0 - TexCoords.y);
+            if (u_mirror == 1)
+                uv.x = 1.0 - uv.x;
+             // Sensor orientation: the CPU metadata path rotates the image
+             // clockwise by sensorOrientation (ROTATE_90_CLOCKWISE etc.). To
+             // rotate the *image* clockwise by t the sampling coordinator is
+             // rotated counter-clockwise by t, i.e. the matrix below is applied
+             // with a negated angle. (The sign was inverted here: sampling
+             // rotated by +t rotates the image CCW, which left the live preview
+             // 180 deg off in portrait while landscape (t==0) looked fine.)
+             float t = -u_orientation * 0.5 * 3.141592653589793;
+             float c = cos(t);
+             float s = sin(t);
+             vec2 p = uv - 0.5;
+             uv = vec2(p.x * c - p.y * s, p.x * s + p.y * c) + 0.5;
+            FragColor = texture(texture0, uv);
+    	}
+    )";
+
+    unsigned int handles[3];
+    cv::v4d::init_shaders(handles, cameraVert.c_str(), cameraFrag.c_str(),
+                          "FragColor");
+    cameraProgram_ = handles[0];
+    cameraTexUniform_ = glGetUniformLocation(cameraProgram_, "texture0");
+    cameraOrientationUniform_ =
+        glGetUniformLocation(cameraProgram_, "u_orientation");
+    cameraMirrorUniform_ = glGetUniformLocation(cameraProgram_, "u_mirror");
+
+    GL_CHECK(glGenTextures(1, &cameraOESTextureID_));
+    GL_CHECK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, cameraOESTextureID_));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER,
+                             GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER,
+                             GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S,
+                             GL_CLAMP_TO_EDGE));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T,
+                             GL_CLAMP_TO_EDGE));
+    GL_CHECK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0));
+    cameraGpuReady_ = true;
+  }
+#endif
 }
 
 void FrameBufferContext::teardown() {
@@ -520,6 +748,17 @@ void FrameBufferContext::teardown() {
   if (framebufferFlippedID_) {
     GL_CHECK(glDeleteFramebuffers(1, &framebufferFlippedID_));
   }
+#if defined(__ANDROID__)
+  if (cameraProgram_) {
+    GL_CHECK(glDeleteProgram(cameraProgram_));
+    cameraProgram_ = 0;
+  }
+  if (cameraOESTextureID_) {
+    GL_CHECK(glDeleteTextures(1, &cameraOESTextureID_));
+    cameraOESTextureID_ = 0;
+  }
+  cameraGpuReady_ = false;
+#endif
 }
 
 void FrameBufferContext::flip() {

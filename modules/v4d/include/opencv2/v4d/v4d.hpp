@@ -839,6 +839,12 @@ public:
         [](const cv::UMat &inputFrame, cv::UMat &f) {
           if (!inputFrame.empty())
             inputFrame.copyTo(f);
+          else
+            // Zero-copy camera: the source buffer is empty because the frame
+            // was drawn into the framebuffer on the GPU. Keep the capture
+            // frame empty too, so the fb() node below leaves the GPU-rendered
+            // framebuffer alone instead of resizing stale pixels over it.
+            f.release();
         },
         Edge<cv::UMat, false, false>::make(self<V4DPlan>(), captureFrame_));
 
@@ -920,6 +926,8 @@ public:
         [](const cv::UMat &inputFrame, cv::UMat &f) {
           if (!inputFrame.empty())
             inputFrame.copyTo(f);
+          else
+            f.release();
         },
         makeInternalEdge<false>(
             std::dynamic_pointer_cast<SourceContext>(runtime()->sourceCtx())
