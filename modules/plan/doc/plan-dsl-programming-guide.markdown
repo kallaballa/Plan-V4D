@@ -141,7 +141,7 @@ The lifecycle methods have different roles:
 * `setup()` — one-shot initialization.
 * `infer()` — records the per-frame graph.
 * `teardown()` — one-shot cleanup.
-* `runGraph()` — replays the recorded graph once per frame (provided by the runtime).
+* `runGraph()` — a (virtual) `Plan` method that replays the recorded graph once per frame; the runtime only supplies the frame loop that calls it.
 
 ### Plan-DSL describes one iteration of a frame loop
 
@@ -206,7 +206,7 @@ A plan defines four lifecycle hooks:
 | `setup()` | Once per worker thread, before the frame loop |
 | `infer()` | Once per worker thread, to build the per-frame graph |
 | `teardown()` | Once per worker thread, after the frame loop |
-| `gui()` | Once, on the main thread, before the frame loop |
+| `gui()` | Once, on the display thread (the thread that called `run`), before the frame loop |
 
 The essential idea is the split between **building** the graph and **running** the graph.
 
@@ -227,7 +227,7 @@ loop forever:
     runGraph()
 ```
 
-`runGraph()` is provided by the runtime. You do not write it.
+`runGraph()` is a method of `Plan`; the runtime's frame loop calls it once per frame. You do not write it.
 
 It walks the recorded node list in record order. For each node:
 
@@ -322,7 +322,7 @@ The intent tells the runtime how the node should treat the storage behind the ed
 | `RWS(x)` | Shared variable `x` | Read-write under lock |
 | `CS(x)` | Snapshot of shared variable `x` | Read and copy under lock |
 | `P(key)` | Runtime property | Shared read-only |
-| `E<T>()` | Input event stream | Shared, polled each frame |
+| `E<T>()` | Input event stream | Read-only, evaluated each time the node runs (the core returns empty lists) |
 
 Here, `x` is any C++ lvalue that the plan owns or has registered.
 
@@ -373,7 +373,7 @@ auto sum = R(a) + _(R(b), R(c));
 This means roughly:
 
 ```cpp
-a + (b + c)
+(a + b) + c
 ```
 
 or, depending on lowering, one n-ary `ADD` node with three operands.
@@ -722,13 +722,13 @@ branch(cond)
     ->plain(workA)
     ->branch(subCond)
         ->plain(workB)
+    ->elseBranch()
+        ->plain(workC)
     ->endBranch()
-->elseBranch()
-    ->plain(workC)
 ->endBranch();
 ```
 
-This is equivalent to the nested block form. Use whichever is clearer.
+This is the nested block form: `elseBranch()` must precede the matching `endBranch()` — after `endBranch()` it binds to the enclosing branch, not to the inner one.
 
 ---
 
@@ -829,6 +829,7 @@ V4D adds the following keys:
 | `FULLSCREEN` | `bool` |
 | `DISABLE_INPUT_EVENTS` | `bool` |
 | `VISIBLE` | `bool` |
+| `AUTO_SCALE` | `bool` |
 
 Writable V4D properties fire runtime callbacks when they are set, for example `WINDOW_SIZE` resizes the window and `FULLSCREEN` toggles fullscreen.
 
@@ -1037,7 +1038,7 @@ The arguments are forwarded to the plan constructor.
 The runtime then performs roughly these steps:
 
 1. Spawn worker threads.
-2. Call `gui()` once on the main thread.
+2. Call `gui()` once on the display thread (the thread that called `run`).
 3. For each worker:
    * call `setup()`,
    * build and run the setup graph,
@@ -1148,7 +1149,7 @@ int main(int argc, char** argv) {
     std::string inputVideo = demo_video_input("videos/bunny.mp4", argc, argv);
     std::string outputVideo = (argc > 2) ? argv[2] : "video_editing_out.mkv";
 
-    cv::Rect viewport(0, 0, 960, 960);
+    cv::Rect viewport(0, 0, 1280, 720);
     cv::Ptr<V4D> runtime = V4D::init(
         viewport,
         "Video Editing",
@@ -1165,7 +1166,7 @@ int main(int argc, char** argv) {
 }
 ```
 
-Because `2` is passed to `run`, the runtime uses two worker threads plus a display thread (the main thread). For V4D the main thread handles the display and input-event loop, while each worker executes its own copy of the plan graph.
+Because `2` is passed to `run`, the runtime spawns three compute worker threads (`n + 1`) plus a display thread (the thread that called `run`). For V4D the main thread handles the display and input-event loop, while each worker executes its own copy of the plan graph.
 
 ---
 
@@ -1195,7 +1196,6 @@ struct BeautyDemoPlan : public V4DPlan {
         float skinSaturation_ = 1.35f;
         float skinContrast_ = 0.75f;
         bool sideBySide_ = true;
-        bool stretch_ = true;
         bool fullscreen_ = false;
         bool enabled_ = true;
 

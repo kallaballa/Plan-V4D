@@ -126,9 +126,9 @@ The tutorials are designed to be read one after the other to give you a good
 overview over the key concepts of V4D. After that you can move on to the demos.
 The same tutorials, with the walkthrough text and the code broken down line by
 line, are in
-[doc/samples/README.md](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/doc/samples/README.md);
-[doc/README.md](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/doc/README.md)
-maps the two sets onto the samples.
+[doc/samples/README.md](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/doc/samples/README.md).
+For the walkthroughs in the rendered docs, see
+[`../doc/samples/README.md`](../doc/samples/README.md).
 
 * \ref v4d_display_image_pipeline
 * \ref v4d_display_image_fb
@@ -161,11 +161,12 @@ OpenCV.
 * \ref v4d_imshow_reimplementation
 
 # Samples without a tutorial
-Five registered samples are documented only by their own comments, because they
+Six registered samples are documented only by their own comments, because they
 compose other samples rather than introduce an API:
 
+* `dock-demo.cpp` — Dear ImGui's native docking: a DockBuilder layout with dockable windows and a menu bar
 * `two-windows-demo.cpp` — two runtimes and two plans in one process
-* `pipeline-demo.cpp` — five samples composed as sub-plans
+* `pipeline-demo.cpp` — four samples composed as sub-plans (five are included, but `optflow-demo.cpp` is not spliced in)
 * `montage-demo.cpp` — nine samples side by side in one window
 * `skeletal-tracker-demo.cpp` — MediaPipe pose detection, per-person rotated
   RoIs, a pose network and multi-person tracking
@@ -260,7 +261,7 @@ bin/example_v4d_video_editing
 
 # Demos
 bin/example_v4d_cube-demo
-bin/example_v4d_many-cubes-demo
+bin/example_v4d_many_cubes-demo
 bin/example_v4d_two-windows-demo
 bin/example_v4d_video-demo modules/v4d/assets/videos/bunny.mp4
 bin/example_v4d_nanovg-demo modules/v4d/assets/videos/bunny.mp4

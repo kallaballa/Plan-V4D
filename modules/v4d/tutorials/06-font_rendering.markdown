@@ -13,5 +13,7 @@ Draws "Hello World" to the screen using NanoVG. Demos some basic font options.
 
 \htmlinclude "../samples/example_v4d_font_rendering.html"
 
+\image html ../doc/font_rendering.png
+
 @include samples/font_rendering.cpp
 

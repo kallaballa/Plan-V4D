@@ -13,6 +13,8 @@ In the previous tutorial we used a default video source and a video sink to stre
 
 \htmlinclude "../samples/example_v4d_custom_source_and_sink.html"
 
+\image html ../doc/custom_source_and_sink.gif
+
 @include samples/custom_source_and_sink.cpp
 
 

@@ -208,7 +208,7 @@ cv::Ptr<V4D> runtime = V4D::init(
     /* MSAA samples */ 0);
 ```
 
-There is also an overload taking a separate `framebufferSize` (for high-DPI or when window size ≠ pixel size).
+There is also an overload taking a separate `framebufferSize`; in the current implementation that parameter is ignored (`V4D::init` forwards an empty size, so the framebuffer is always the viewport size) and it is only kept for source compatibility — `samples/font-demo.cpp` is the one sample that spells it out.
 
 `AllocateFlags` — which subsystems to bring up:
 
@@ -399,9 +399,11 @@ plan->makeGraph();
 ```
 
 so the runtime's two I/O nodes bracket yours. The runtime also does the awkward
-part of getting a video frame onto a GL surface: it resizes to the viewport
-(preserving aspect ratio), flips vertically into OpenGL's coordinate system, and
-converts RGB/BGR to BGRA.
+part of getting a video frame onto a GL surface: it resizes it to the viewport
+(a plain stretch, aspect ratio not preserved), flips it vertically into OpenGL's
+coordinate system, and converts RGB/BGR to BGRA. (For a letterboxed blit set
+`V4D::Keys::AUTO_SCALE`; that only affects the window blit, not the source
+upload.)
 
 **A plan must not call `capture()` or `write()` itself.** `V4DPlan` inherits both
 — they are how the runtime emits the two nodes above — but calling them from
@@ -419,10 +421,11 @@ class GrayscalePlan : public V4DPlan {
     cv::UMat gray_, out_;
 public:
     void infer() override {
-        fb([](cv::UMat& frame, cv::UMat& gray, cv::UMat& out) {
-            cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
-            cv::cvtColor(gray, out, cv::COLOR_GRAY2BGR);   // sink expects 3 channels
-        }, RW(gray_), RW(out_));
+        fb([](cv::UMat& frame, cv::UMat& gray) {
+            // the framebuffer is always BGRA, whatever the source produced
+            cv::cvtColor(frame, gray, cv::COLOR_BGRA2GRAY);
+            cv::cvtColor(gray, frame, cv::COLOR_GRAY2BGRA);   // draw back into the framebuffer
+        }, RW(gray_));   // the sink converts the framebuffer's BGRA to RGB itself
     }
 };
 
@@ -529,7 +532,7 @@ fb<1>(cv::cvtColor,
 
 At replay time this calls `cv::cvtColor(result_, framebuffer, ...)` — i.e. it writes `result_` into the visible framebuffer. With the default `fb<0>` (or just `fb(...)`), the framebuffer is the first argument — typically the source.
 
-Because the framebuffer is a genuine `cv::UMat` backed by shared memory, you can run OpenCV (and thus OpenCL) directly on framebuffer data without copies.
+When CL-GL sharing is available (OpenCV built with OpenCL and a sharable context), the framebuffer is a genuine `cv::UMat` backed by shared memory, so you can run OpenCV (and thus OpenCL) on framebuffer data without copies. Without it V4D falls back to a download/upload copy per `fb(...)` node — `V4D::printSystemInfo()` reports which path is active.
 
 **Copying the framebuffer out.** Snapshot the framebuffer into a `UMat` with `copyTo`. Several samples define `UMAT_COPY_TO_` as a local constant with the `_OLMC_` macro — `beauty-demo.cpp`, `optflow-demo.cpp` and `nanovg-demo.cpp` do, and `font-demo.cpp` defines a `UMAT_COPY_` of its own:
 
@@ -615,6 +618,8 @@ The predicate snapshots the whole struct under the lock (`CS(params_)`) and extr
 
 ### 10.1 Events
 
+The event classes live in `namespace cv::v4d::event`, so every snippet in this section needs `using namespace cv::v4d::event;` on top of the usual `using namespace cv;` / `using namespace cv::v4d;`.
+
 Events are edges that produce a list of input events for the current frame:
 
 ```cpp
@@ -668,7 +673,7 @@ Property<uint64_t>  seqCnt_ = P<uint64_t>(GlobalState::Keys::FRAME_CNT);
 Property<size_t>    widx_   = P<size_t>(LocalState::Keys::WORKER_INDEX);
 ```
 
-V4D keys: `SIZE`, `WINDOW_SIZE`, `VIEWPORT`, `FRAMEBUFFER_SIZE`, `CLEAR_COLOR`, `NAMESPACE`, `FULLSCREEN`, `DISABLE_INPUT_EVENTS`, `VISIBLE`. Core DSL keys include `FRAME_CNT`, `CAPTURE_CNT`, `FPS`, `RUN_CNT`, `TIME_TRACKER`, `WORKERS_READY`, and more (see the Plan-DSL Reference for the full lists).
+V4D keys: `SIZE`, `WINDOW_SIZE`, `VIEWPORT`, `FRAMEBUFFER_SIZE`, `CLEAR_COLOR`, `NAMESPACE`, `FULLSCREEN`, `DISABLE_INPUT_EVENTS`, `VISIBLE`, `AUTO_SCALE`. Core DSL keys include `FRAME_CNT`, `CAPTURE_CNT`, `FPS`, `RUN_CNT`, `TIME_TRACKER`, `WORKERS_READY`, and more (see the Plan-DSL Reference for the full lists).
 
 **Writing** — record a `set(key, edge)` node:
 
@@ -755,7 +760,7 @@ Why bother? Organization (a 500-line `infer()` becomes three focused classes), r
 |---|---|
 | -1 | 1 worker + main (`Plan::run` calls `cv::setNumThreads(-1)` — OpenCV keeps its full internal threading) |
 | 0 | 1 worker + main ← the common case (`cv::setNumThreads(0)` — single-threaded OpenCV) |
-| ≥ 1 | **N + 1 workers** + main (e.g. `beauty-demo` passes `2` → 3 workers) |
+| ≥ 1 | **N + 1 workers** + main (e.g. `beauty-demo` passes `3` → 4 workers) |
 
 `0` is the special case meaning “one worker”; any positive `N` means `N + 1` workers. For V4D, the main thread usually handles the display and event loop.
 
@@ -781,6 +786,7 @@ Let's combine everything: video input, an adjustable color effect on the framebu
 #include <opencv2/v4d/v4d.hpp>
 using namespace cv;
 using namespace cv::v4d;
+using namespace cv::v4d::event;   // Mouse, Keyboard, Window, Joystick
 
 class ChromaPlan : public V4DPlan {
 public:

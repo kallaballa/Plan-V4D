@@ -32,10 +32,15 @@ converts anything to *display* a frame — it only draws on top of it.
 ## Reading the frame back
 
 A plan that needs the pixels, rather than just drawing over them, copies them
-out of the framebuffer with `fb`. This is `display_image_fb.cpp` without the
-`Source` — the same plan, with the source removed:
+out of the framebuffer with `fb`. The plan body is the interesting part — `fb`
+is how a plan gets the pixels rather than just drawing over them:
+
+![display_image.png](../doc/display_image.png)
 
 @include samples/display_image_fb.cpp
+
+This walkthrough reuses `display_image_fb.cpp`; tutorial
+\ref v4d_display_image_fb documents the same file.
 
 The plan body is the interesting part:
 
@@ -53,9 +58,9 @@ shape you want when rendering a result into it.
 
 ## Feeding an image through a Source instead
 
-To get the same behavior from the video pipeline, give the runtime a `Source`
-that yields the image and drop the `setup()` resize entirely — the runtime
-already did it:
+Modified for a `Source` — not the shipped sample: to get the same behavior from
+the video pipeline, give the runtime a `Source` that yields the image and drop
+the `setup()` resize entirely — the runtime already did it:
 
 ```cpp
 auto src = new Source([&](cv::UMat &frame) -> bool {

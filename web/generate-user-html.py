@@ -22,8 +22,8 @@ BRANCH = "rollback"
 
 DOCS = [
 REPO_ROOT / "modules/v4d/tutorials/00-intro.markdown",
-REPO_ROOT / "modules/v4d/tutorials/01-dislay_image.markdown",
-REPO_ROOT / "modules/v4d/tutorials/02-dislay_image_fb.markdown",
+REPO_ROOT / "modules/v4d/tutorials/01-display_image.markdown",
+REPO_ROOT / "modules/v4d/tutorials/02-display_image_fb.markdown",
 REPO_ROOT / "modules/v4d/tutorials/03-vector_graphics.markdown",
 REPO_ROOT / "modules/v4d/tutorials/04-vector_graphics_and_fb.markdown",
 REPO_ROOT / "modules/v4d/tutorials/05-render_opengl.markdown",
@@ -40,7 +40,7 @@ REPO_ROOT / "modules/v4d/tutorials/15-pedestrian.markdown",
 REPO_ROOT / "modules/v4d/tutorials/16-optflow.markdown",
 REPO_ROOT / "modules/v4d/tutorials/17-beauty.markdown",
 REPO_ROOT / "modules/v4d/tutorials/18-many-cubes.markdown",
-REPO_ROOT / "modules/v4d/tutorials/19-dislay_image_nvg.markdown",
+REPO_ROOT / "modules/v4d/tutorials/19-display_image_nvg.markdown",
 REPO_ROOT / "modules/v4d/tutorials/20-wasm.markdown",
 REPO_ROOT / "modules/v4d/tutorials/21-image_carousel.markdown",
 REPO_ROOT / "modules/v4d/tutorials/22-imshow_reimplementation.markdown"

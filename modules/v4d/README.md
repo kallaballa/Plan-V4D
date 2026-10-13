@@ -59,9 +59,11 @@ init(const cv::Rect &viewport, const cv::Size &fbsize, const string &title, /* �
 init(const V4D &v4d, const string &title);   // clone another runtime
 ```
 
-The second form names the framebuffer size separately from the window rect
-(`samples/font-demo.cpp` is the one sample that uses it), and `samples` is the
-MSAA sample count (0 = off, the default).
+The second form is accepted for compatibility but its `fbsize` parameter is
+currently **ignored** by the implementation (`V4D::init` passes an empty size on,
+so the framebuffer is always the viewport size); `samples/font-demo.cpp` is the
+one sample that still spells it out. The last argument, `samples`, is the MSAA
+sample count (0 = off, the default).
 
 ## The context calls
 
@@ -183,20 +185,23 @@ Sink(std::function<bool(const uint64_t&, const cv::UMat&)> consumer);
 `Sink::makeDefault` are the video-file wrappers — `makeDefault` resolves the
 input side for the platform, so on Android it picks the live camera instead of
 going through FFmpeg. A generator returning `false` marks the source closed,
-which stops the automatic capture; an *empty* frame raises `End of stream`. A
-consumer returning `false` does the same for the sink.
+which stops the automatic capture; an *empty* frame is only legal for the Android
+zero-copy camera — from any other source it trips the
+`CV_Assert(src->zeroCopy())` in `detail::SourceContext`. A consumer returning
+`false` does the same for the sink.
 
 The source generator fills a `CV_8UC3` or `CV_8UC4` frame in RGB order; the
-runtime resizes it (aspect ratio preserved, fitted to the viewport), flips it
-vertically into OpenGL's coordinate system and converts it to BGRA before it
-reaches the framebuffer. `Sink::makeDefault` takes an fps, a frame size and
-optionally a FourCC.
+runtime resizes it to the viewport size (a plain stretch — aspect ratio is
+*not* preserved), flips it vertically into OpenGL's coordinate system and
+converts it to BGRA before it reaches the framebuffer. `Sink::makeDefault` takes
+an fps and a frame size; `Sink::make` has an additional overload that takes an
+optional FourCC after the frame size.
 
 ### `capture()` and `write()` are the runtime's business
 
-`V4DPlan` inherits `capture(...)` and `write(...)` from its source/sink
-contexts. They are how the runtime emits the two I/O nodes, and
-`Plan::run` calls them for you, around `infer()`:
+`V4DPlan` *defines* `capture(...)` and `write(...)` (marked runtime-internal in
+`v4d.hpp`) as the source/sink context nodes. They are how the runtime emits the
+two I/O nodes, and `Plan::run` calls them for you, around `infer()`:
 
 ```cpp
 plan->capture();   // source → framebuffer
@@ -250,7 +255,7 @@ What ships in the tree:
 | YuNet face detector | `assets/models/face_detection_yunet_2023mar.onnx` (used by `beauty-demo`) |
 | LBF facemark | `assets/models/lbfmodel.yaml` (used by `beauty-demo`) |
 | MediaPipe pose models | `assets/models/pose/` — `person_detection_mediapipe_2023mar.onnx`, `pose_estimation_mediapipe_2023mar.onnx` (used by `skeletal-tracker-demo`) |
-| Fonts | `assets/fonts/` — DejaVuSans, JetBrainsMono, entypo (all OFL) |
+| Fonts | downloaded at configure time into `assets/fonts/` by `v4d_fetch_font()` — JetBrains Mono 2.304 (OFL 1.1), entypo, DejaVu; `src/detail/nanovgcontext.cpp` needs `entypo.ttf`, `DejaVuSans.ttf` and `DejaVuSans-Bold.ttf`, so the first configure needs network access |
 
 `skeletal-tracker-demo` hard-fails with a message naming the OpenCV Zoo when
 the two pose models are absent; they are checked into the tree, so a normal
@@ -258,9 +263,9 @@ checkout already has them.
 
 ## Samples
 
-27 samples are registered as CMake targets in
-[modules/v4d/CMakeLists.txt](CMakeLists.txt) (`BUILD_EXAMPLES=ON`, plus two more
-behind `OPENCV_V4D_ENABLE_BGFX=ON`). All of them link `opencv_v4d`,
+26 samples are registered as CMake targets in
+[modules/v4d/CMakeLists.txt](CMakeLists.txt) (`BUILD_EXAMPLES=ON`), plus two more
+behind `OPENCV_V4D_ENABLE_BGFX=ON`. All of them link `opencv_v4d`,
 `opencv_plan`, core, imgproc, ximgproc, videoio, video, imgcodecs, objdetect,
 xobjdetect, optflow, tracking, stitching, face, features, dnn, glfw and nanovg.
 
@@ -291,6 +296,7 @@ xobjdetect, optflow, tracking, stitching, face, features, dnn, glfw and nanovg.
 | `example_v4d_pipeline-demo` | `pipeline-demo.cpp` | composes five other samples as sub-plans |
 | `example_v4d_montage-demo` | `montage-demo.cpp` | nine samples side by side in one window |
 | `example_v4d_shadertoy-editor` | `shadertoy-editor.cpp` | an offline Shadertoy workbench with a GLSL editor |
+| `example_v4d_dock-demo` | `dock-demo.cpp` | Dear ImGui docking: a dockspace built with DockBuilder, tab splitting and a persisted layout |
 | `example_v4d_bgfx-demo` | `bgfx-demo.cpp` | bgfx only (`OPENCV_V4D_ENABLE_BGFX=ON`) |
 | `example_v4d_bgfx-demo2` | `bgfx-demo2.cpp` | bgfx over a source, with a sink and ImGui (`OPENCV_V4D_ENABLE_BGFX=ON`) |
 
@@ -304,14 +310,14 @@ theme headers.
 
 ### Command line
 
-Twelve samples take no arguments at all. Eleven take one optional input video,
-two take an optional output video, one takes any number of image paths, one takes
-a single `--no-auto-close` flag, and one (`shadertoy-editor`) has a full option
-set.
+Thirteen samples take no arguments at all. Nine take one optional input video,
+two take an optional input plus an optional output video, one takes a single
+image path, one takes any number of image paths, one takes a single
+`--no-auto-close` flag, and one (`shadertoy-editor`) has a full option set.
 
 | Sample | `[args]` |
 |---|---|
-| `font_rendering`, `render_opengl`, `cube-demo`, `many-cubes-demo`, `font-demo`, `font_with_gui`, `vector_graphics`, `vector_graphics_and_fb`, `display_image_fb`, `display_image_nvg`, `custom_source_and_sink`, `bgfx-demo` | — |
+| `font_rendering`, `render_opengl`, `cube-demo`, `many-cubes-demo`, `font-demo`, `font_with_gui`, `vector_graphics`, `vector_graphics_and_fb`, `display_image_fb`, `display_image_nvg`, `custom_source_and_sink`, `dock-demo`, `bgfx-demo` | — |
 | `video-demo`, `nanovg-demo`, `shader-demo`, `beauty-demo`, `montage-demo`, `optflow-demo`, `pedestrian-demo`, `pipeline-demo`, `bgfx-demo2` | `[input-video]` (default: the bundled asset) |
 | `video_editing` | `[input-video] [output-video]` (output defaults to `video_editing_out.mkv`) |
 | `skeletal-tracker-demo` | `[input-video] [output-video]` (no sink unless an output is given) |
@@ -321,11 +327,11 @@ set.
 | `shadertoy-editor` | see below |
 
 The one-video samples resolve `argv[1]` through `demo_video_input()`, which falls
-back to `cv::samples::findFile()` and prints a usage line when that fails too.
-`custom_source_and_sink`, `video-demo`, `montage-demo`, `bgfx-demo2` and
-`shadertoy-editor` write a hard-coded or defaulted output file
-(`custom_source_and_sink.mkv`, `video-demo.mkv`, `montage-demo.mkv`,
-`bgfx-demo2.mkv`).
+back to `cv::samples::findFile()`; when it returns an empty string the demo itself
+prints a usage line. `custom_source_and_sink`, `video-demo`, `montage-demo` and
+`bgfx-demo2` write a hard-coded output file (`custom_source_and_sink.mkv`,
+`video-demo.mkv`, `montage-demo.mkv`, `bgfx-demo2.mkv`); `shadertoy-editor`
+writes one only when `--shot` or `--export` is given.
 
 ```bash
 # source only
@@ -362,7 +368,7 @@ local files, and the 256x3 `iChannelKeyboard` texture.
 | `--shot <file>` | render `--frames` frames into a PNG and exit; opens no window |
 | `--frames <n>` | frames to wait before the shot (default 12, minimum 1) |
 | `--export <file>` | write the project back out as Shadertoy JSON |
-| `--size <WxH>` | window size (default 1600x900) |
+| `--size <WxH>` | window size (default 1280x720; in `--shot` mode it is the size of the PNG that is written) |
 | `--fullscreen` | the render fills the window instead of being inset by the panel |
 
 Both `--name value` and `--name=value` are accepted. An unrecognized option
@@ -401,8 +407,7 @@ modules/v4d/
 │   ├── models/                      YuNet, LBF facemark, MediaPipe pose models
 │   └── videos/                      bunny, dance, dance2, kristen
 ├── doc/
-│   ├── README.md                    the tutorial-mapping index
-│   ├── samples/README.md            walkthroughs 00–20, code inline
+│   └── samples/README.md            walkthroughs 00–20, code inline
 │   └── v4d-application-programming-guide.markdown
 ├── include/
 │   └── opencv2/
@@ -430,7 +435,6 @@ modules/v4d/
 │   ├── samples.hpp                  V4D_DEMO_MAIN and the Android entry point
 │   ├── cubescene.hpp                the shared OpenGL cube
 │   ├── data/                        lena.png
-│   ├── fonts/                       DejaVuSans, JetBrainsMono, entypo
 │   └── shadertoy-editor/            the Shadertoy editor's headers and scripts
 │   ├── font_rendering.cpp         minimum NanoVG program
 │   ├── render_opengl.cpp          minimum OpenGL program
@@ -454,18 +458,10 @@ modules/v4d/
 │   ├── optflow-demo.cpp           Farneback optical flow
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
 │   ├── imshow_reimplementation.cpp   full GUI image viewer
-│   ├── image_carousel.cpp         animated glossy image carousel
-│   ├── tetralis-demo.cpp          Tetralis 3D: an orthographic shaft rendered
-│   │                              with NanoVG, input via keys and gamepad
-│   ├── tetralis-rules.hpp         its rules engine, dependency-free C++17
-│   ├── tetralis-selftest.cpp      the engine's checks, no window and no OpenCV
-│   ├── tetralis-selftest.sh       compiles and runs them headlessly
+│   ├── image_carousel-demo.cpp    animated glossy image carousel
+│   ├── dock-demo.cpp              Dear ImGui docking layout
 │   ├── shadertoy-editor.cpp       offline Shadertoy editor: JSON projects,
 │   │                              per-pass code, recompile as you type
-│   ├── shadertoy_renderer.hpp     the Shadertoy render model, as plain OpenGL
-│   ├── shadertoy_model.hpp        passes, channel inputs, the shader
-│   ├── shadertoy_project.hpp      project files and local texture loading
-│   ├── shadertoy_json.hpp         the minimal JSON reader behind that
 │   └── shadertoy-editor-test.sh   compile / export / screenshot smoke test
 ├── src/
 │   ├── v4d.cpp                     V4D runtime lifecycle
@@ -475,11 +471,13 @@ modules/v4d/
 │   ├── util.cpp
 │   ├── resequence.cpp              frame-sequencing for display mode
 │   └── detail/                     per-context implementations
-├── third/                          glfw, glfw-android, nanovg, bgfx, glad,
-│                                   imgui, imgui-color-text-edit, AnyProperty,
-│                                   PerlinNoise, stb, doxygen-bootstrapped
+├── third/                          glfw, glfw-android, nanovg, imgui, glad,
+│                                   imgui-color-text-edit, AnyProperty,
+│                                   PerlinNoise, stb, clvk
+│   (bgfx.cmake is *not* vendored in this checkout; turning
+│    OPENCV_V4D_ENABLE_BGFX=ON needs a third/bgfx.cmake tree)
 └── tools/
-    └── make-dynamic-yunet.py       regenerates the YuNet anchor table
+    └── make-dynamic-yunet.py       gives the shipped YuNet ONNX a dynamic input shape
 ```
 
 ## Where to start
@@ -545,7 +543,7 @@ Requirements:
 * C++20
 * OpenCV core, imgproc, videoio, video, ximgproc, and (for the samples)
   imgcodecs, dnn, geometry, face, objdetect, xobjdetect, tracking, optflow,
-  plotting, stitching, features, flann
+  stitching, features
 * An OpenGL-capable driver (or OpenGL ES 3.0 with
   `OPENCV_V4D_ENABLE_ES3=ON`)
 

@@ -2,7 +2,7 @@
 
 > A comprehensive, hands-on guide to the Plan-V4D framework — from displaying your first image to building a full-featured `imshow` reimplementation.
 
-Each walkthrough below covers one sample, prints its complete source and breaks it down. The shorter Doxygen tutorials in [`../tutorials/`](../../tutorials/) cover the same samples for the rendered docs; [the index in `../README.md`](../README.md) maps one numbering onto the other, and lists the samples that have no walkthrough yet.
+Each walkthrough below covers one sample and breaks it down. Some print the complete source; the others are abridged and say so. The shorter Doxygen tutorials in [`../tutorials/`](../../tutorials/) cover the same samples for the rendered docs; the numbering is offset (walkthrough 01 here is tutorial 19 there), and the samples with no walkthrough are listed in the coverage table at the end of this file.
 
 ---
 
@@ -18,7 +18,7 @@ Each walkthrough below covers one sample, prints its complete source and breaks 
 | 05 | [Direct OpenGL Rendering](#tutorial-05--direct-opengl-rendering) | `gl` context, `V()` edge-call, OpenGL state preservation |
 | 06 | [Font Rendering](#tutorial-06--font-rendering) | `R()` edge-call, NanoVG text API, custom font loading |
 | 07 | [Simple Video Editing](#tutorial-07--simple-video-editing) | `Source`/`Sink`, automatic frame flow |
-| 08 | [Custom Source and Sink](#tutorial-08--custom-source-and-sink) | Lambda sources/sinks, `branch()` conditional logic |
+| 08 | [Custom Source and Sink](#tutorial-08--custom-source-and-sink) | `Source`/`Sink` functors, `fb`/`nvg` contexts |
 | 09 | [Font Rendering with a GUI](#tutorial-09--font-rendering-with-a-gui) | `gui()` method, `imgui` context, `RWS`/`CS` shared edges |
 | 10 | [Rendering a 3D Cube](#tutorial-10--rendering-a-3d-cube) | `teardown()`, separation of concerns, `set()`/`clear()` |
 | 11 | [Compositing 3D Graphics on Video](#tutorial-11--compositing-3d-graphics-on-video) | Compositing pipeline, source as background |
@@ -138,7 +138,7 @@ In addition, `V4D` provides a `Source` / `Sink` system. Sources and sinks are ha
 
 ## Lifecycle of a `V4DPlan`
 
-A `V4DPlan` (see [`v4d.hpp:422`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp)) inherits from `Plan` and adds four virtual hooks you can override:
+A `V4DPlan` (see [`v4d.hpp:537`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp#L537)) inherits from `Plan` and adds four virtual hooks you can override:
 
 - `setup()` — emitted once, before the frame loop. Use it to allocate resources.
 - `infer()` — emitted every frame. Use it for the main rendering/processing pipeline.
@@ -185,8 +185,9 @@ This tutorial demonstrates how to load and display an image using Plan-V4D's Nan
 Here is the complete source code for this example. You can find it in [`display_image_nvg.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/display_image_nvg.cpp).
 
 ```cpp
-#include <opencv2/v4d/v4d.hpp>
+#include "samples.hpp"
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/v4d/v4d.hpp>
 
 using namespace cv;
 using namespace cv::v4d;
@@ -225,14 +226,16 @@ public:
             roundedRect(0, 0, img.w_, img.h_, 50);
             fillPaint(img.paint_);
             fill();
-        }, size_, R(image_));
+        }, size_, RW(image_));
     }
 };
 
-int main() {
-    cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    V4DPlan::run<DisplayImageNVG>(0, samples::findFile("lena.png"));
+V4D_DEMO_MAIN(int argc, char **argv) {
+  cv::v4d::add_asset_search_paths();
+
+  cv::Rect viewport(0, 0, 1280, 720);
+  Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+  V4DPlan::run<DisplayImageNVG>(2, samples::findFile("lena.png"));
 }
 ```
 
@@ -264,7 +267,7 @@ The `infer()` method is called repeatedly in a loop.
 ### 4. The `main()` Function
 
 - **`V4D::init(…)`**: Initializes the V4D runtime with a specified window size and title. We also pass flags to enable the `NANOVG` and `IMGUI` subsystems.
-- **`V4DPlan::run<DisplayImageNVG>(…)`**: This static method creates an instance of our `DisplayImageNVG` plan, passes the filename "lena.png" to its constructor, and starts the execution loop. The first argument (`0`) selects the worker count; `0` means one worker plus the main thread.
+- **`V4DPlan::run<DisplayImageNVG>(…)`**: This static method creates an instance of our `DisplayImageNVG` plan, passes the filename "lena.png" to its constructor, and starts the execution loop. The first argument (`2`) selects the worker count; `0` would mean one worker plus the main thread.
 
 ## Summary
 
@@ -318,11 +321,14 @@ public:
     }
 };
 
-int main() {
-    cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> runtime = V4D::init(viewport, "Display an Image through direct FB access", AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
-    V4DPlan::run<DisplayImageFB>(0, samples::findFile("lena.png"));
-    return 0;
+V4D_DEMO_MAIN(int argc, char **argv) {
+  cv::v4d::add_asset_search_paths();
+  cv::Rect viewport(0, 0, 1280, 720);
+  Ptr<V4D> runtime =
+      V4D::init(viewport, "Display an Image through direct FB access",
+                 AllocateFlags::IMGUI);
+  V4DPlan::run<DisplayImageFB>(2, samples::findFile("lena.png"));
+  return 0;
 }
 ```
 
@@ -336,16 +342,11 @@ In the `setup()` phase, we prepare the image for display using a **plain context
 
 The **framebuffer context** provides direct write access to the window's back-buffer. The lambda receives a `UMat` handle to the framebuffer, and we simply copy our prepared image data into it.
 
-### 3. `ConfigFlags::DISPLAY_MODE`
-
-This flag tells V4D that we intend to use it primarily for direct framebuffer rendering, which can enable certain optimizations.
-
 ## Summary
 
 - Use a **plain context** for general-purpose image processing.
 - Use a **framebuffer context** to copy pixel data directly to the screen.
 - Prepare a `UMat` by resizing and color-converting it for display.
-- Initialize V4D in `DISPLAY_MODE` for direct framebuffer access.
 
 ---
 
@@ -421,15 +422,43 @@ public:
             fillColor(cv::Scalar(32, 32, 32, 255));
             fill();
 
-            // ... second pupil and gloss highlights ...
+            dx = (mx - rx) / (ex * 10);
+            dy = (my - ry) / (ey * 10);
+            d = sqrtf(dx * dx + dy * dy);
+            if (d > 1.0f) {
+              dx /= d;
+              dy /= d;
+            }
+            dx *= ex * 0.4f;
+            dy *= ey * 0.5f;
+            beginPath();
+            ellipse(rx + dx, ry + dy + ey * 0.25f * (1 - blink), br, br * blink);
+            fillColor(cv::Scalar(32, 32, 32, 255));
+            fill();
+
+            gloss = radialGradient(lx - ex * 0.25f, ly - ey * 0.5f, ex * 0.1f,
+                    ex * 0.75f, cv::Scalar(255, 255, 255, 128),
+                    cv::Scalar(255, 255, 255, 0));
+            beginPath();
+            ellipse(lx, ly, ex, ey);
+            fillPaint(gloss);
+            fill();
+
+            gloss = radialGradient(rx - ex * 0.25f, ry - ey * 0.5f, ex * 0.1f,
+                    ex * 0.75f, cv::Scalar(255, 255, 255, 128),
+                    cv::Scalar(255, 255, 255, 0));
+            beginPath();
+            ellipse(rx, ry, ex, ey);
+            fillPaint(gloss);
+            fill();
         }, sz_);
     }
 };
 
 int main() {
-    cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    V4DPlan::run<VectorGraphicsPlan>(0);
+  cv::Rect viewport(0, 0, 1280, 720);
+  Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+  V4DPlan::run<VectorGraphicsPlan>(2);
 }
 ```
 
@@ -517,7 +546,7 @@ using namespace cv::v4d;
 class RenderOpenGLPlan : public V4DPlan {
 public:
     void setup() override {
-        gl(glClearColor, V(0.0f), V(0.0f), V(1.0f), V(1.0f));
+        gl(glClearColor, V(0), V(0), V(1), V(1));
     }
 
     void infer() override {
@@ -526,9 +555,9 @@ public:
 };
 
 int main() {
-    cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> runtime = V4D::init(viewport, "GL Blue Screen", AllocateFlags::IMGUI);
-    V4DPlan::run<RenderOpenGLPlan>(0);
+  cv::Rect viewport(0, 0, 1280, 720);
+  Ptr<V4D> runtime = V4D::init(viewport, "GL Blue Screen", AllocateFlags::IMGUI);
+  V4DPlan::run<RenderOpenGLPlan>(2);
 }
 ```
 
@@ -542,12 +571,12 @@ Its usage is straightforward:
 gl(openGLFunction, arg1, arg2, …);
 ```
 
-The two-argument form `gl<-1>(V(idx), …)` (see [`v4d.hpp:584`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp)) routes the call to one of V4D's worker OpenGL contexts for parallel execution.
+The two-argument form `gl<-1>(V(idx), …)` (see [`v4d.hpp:720`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp#L720)) routes the call to one of V4D's worker OpenGL contexts for parallel execution.
 
 ### Setting State in `setup()`
 
 ```cpp
-gl(glClearColor, V(0.0f), V(0.0f), V(1.0f), V(1.0f));
+gl(glClearColor, V(0), V(0), V(1), V(1));
 ```
 
 - **`V(…)`** is an **edge-call** that passes constant values directly to the function.
@@ -605,9 +634,9 @@ public:
 };
 
 int main() {
-    cv::Rect viewport(0, 0, 960, 960);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Font Rendering", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    V4DPlan::run<FontRenderingPlan>(0);
+  cv::Rect viewport(0, 0, 1280, 720);
+  cv::Ptr<V4D> runtime = V4D::init(viewport, "Font Rendering", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+  V4DPlan::run<FontRenderingPlan>(2);
     return 0;
 }
 ```
@@ -623,16 +652,23 @@ int main() {
 
 ### Loading Custom Fonts
 
-You can load your own TrueType (`.ttf`) fonts by calling `createFont` in your `setup()` phase. The TTF files in [`modules/v4d/assets/fonts/`](https://github.com/kallaballa/Plan-V4D/tree/beta-5.x/modules/v4d/assets/fonts/) are copied into the build directory at `assets/fonts/` by the `v4d` CMake module.
+You can load your own TrueType (`.ttf`) fonts by calling `createFont` in your `setup()` phase.
+
+The TTF files are not checked in: `v4d_fetch_font()` in the `v4d` CMake module
+downloads them on demand into `modules/v4d/assets/fonts/`. That directory is on
+the compiled-in `V4D_ASSET_PATH`, so `assets/fonts/...` resolves straight from the
+source tree; nothing is copied into the build directory.
+
+This is illustrative, not part of the sample:
 
 ```cpp
 int my_font_;
 
 void setup() override {
-    nvg([&]() {
-        my_font_ = createFont("my-cool-font", "assets/fonts/DejaVuSans.ttf");
-        CV_Assert(my_font_ >= 0);
-    });
+    nvg([](int& font) {
+        font = createFont("my-cool-font", "assets/fonts/DejaVuSans.ttf");
+        CV_Assert(font >= 0);
+    }, RW(my_font_));
 }
 ```
 
@@ -692,8 +728,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+  cv::Rect viewport(0, 0, 1280, 720);
+  Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
     // Make the video source
     auto src = Source::makeDefault(runtime, inputVideo);
@@ -769,7 +805,7 @@ the framebuffer with `fb<1>(cv::cvtColor, …)`.
 
 > [Simple Video Editing](#tutorial-07--simple-video-editing) | [Next: Font Rendering with a GUI](#tutorial-09--font-rendering-with-a-gui)
 
-While Plan-V4D provides convenient `Source` and `Sink` objects for file I/O, you can also create your own from scratch. This tutorial demonstrates creating a procedural rainbow source, a pass-through sink, and conditional branching within a `V4DPlan`.
+While Plan-V4D provides convenient `Source` and `Sink` objects for file I/O, you can also create your own from scratch. This tutorial demonstrates creating a procedural rainbow source and a pass-through sink.
 
 ## The Code
 
@@ -794,22 +830,16 @@ cv::Ptr<Sink> sink = new Sink([videoSink](const uint64_t& seq, const cv::UMat& f
 ### Conditional Branching
 
 ```cpp
-void infer() override {
+  void infer() override {
     fb<1>(&PureColor::find, RW(finder_));
     nvg(&PureColor::draw, R(finder_), size_);
-
-    branch(&PureColor::found, R(finder_))
-        ->endBranch();
-}
+  }
 ```
-
-- **`branch(&PureColor::found, R(finder_))`**: The nodes inside the branch only execute if `found()` returns `true`.
 
 ## Summary
 
 - Creating a procedural video **`Source`** from a lambda function.
 - Creating a custom **`Sink`** from a lambda to define custom output behavior.
-- Using **`branch()`** to create conditional logic within a `V4DPlan`'s task graph.
 
 ---
 
@@ -831,7 +861,7 @@ using namespace cv::v4d;
 
 class FontWithGuiPlan: public V4DPlan {
     static struct Params {
-        float fontSize_ = 40.0f;
+        float frontSize_ = 40.0f;
         cv::Scalar_<float> color_ = {1.0f, 0.0f, 0.0f, 1.0f};
     } params_;
 
@@ -842,7 +872,7 @@ public:
         imgui([](Params& params) {
             using namespace ImGui;
             Begin("Settings");
-            SliderFloat("Font Size", &params.fontSize_, 1.0f, 100.0f);
+            SliderFloat("Font Size", &params.frontSize_, 1.0f, 100.0f);
             ColorPicker4("Text Color", params.color_.val);
             End();
         }, RWS(params_));
@@ -852,7 +882,7 @@ public:
         nvg([](const cv::Size& sz, const string& str, const Params& params) {
             using namespace cv::v4d::nvg;
             clearScreen();
-            fontSize(params.fontSize_);
+            fontSize(params.frontSize_);
             fontFace("sans-bold");
             fillColor(params.color_ * 255.0);
             textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
@@ -862,6 +892,13 @@ public:
 };
 
 FontWithGuiPlan::Params FontWithGuiPlan::params_;
+
+V4D_DEMO_MAIN(int argc, char **argv) {
+  cv::Rect viewport(0, 0, 1280, 720);
+  Ptr<V4D> runtime = V4D::init(viewport, "Font Rendering with GUI",
+                               AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+  V4DPlan::run<FontWithGuiPlan>(2);
+}
 ```
 
 ## Code Breakdown
@@ -944,8 +981,8 @@ public:
 };
 
 int main() {
-    cv::Rect viewport(0, 0, 1920, 1080);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Cube Demo", AllocateFlags::IMGUI);
+  cv::Rect viewport(0, 0, 1280, 720);
+  cv::Ptr<V4D> runtime = V4D::init(viewport, "Cube Demo", AllocateFlags::IMGUI);
     V4DPlan::run<CubeDemoPlan>(2);
     return 0;
 }
@@ -992,10 +1029,7 @@ This tutorial demonstrates compositing: reading a video, rendering a rotating 3D
 You can find the complete source in [`video-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/video-demo.cpp).
 
 ```cpp
-void infer() override {
-    // 1. Render the 3D cube on top of the video frame.
-    gl(&CubeScene::render, R(scene_), V(0.0), V(0.0));
-}
+  void infer() override { gl(&CubeScene::render, R(scene_), V(false), V(0.0)); }
 ```
 
 ## Code Breakdown
@@ -1027,6 +1061,12 @@ You can find the complete source in [`nanovg-demo.cpp`](https://github.com/kalla
 ```cpp
 // Abridged for clarity
 class NanoVGDemoPlan : public V4DPlan {
+    constexpr static auto UMAT_COPY_TO_ =
+        _OLMC_(void, cv::UMat, &cv::UMat::copyTo, cv::OutputArray);
+    cv::UMat hueChannel_;
+    constexpr static auto ROUND_ = _OL_(double, std::round, double);
+    constexpr static auto FABS_ = _OL_(double, std::fabs, double);
+    constexpr static auto FMOD_ = _OL_(double, std::fmod, double, double);
     std::vector<cv::UMat> hsvChannels_;
     cv::UMat frame_, bgra_, hsv_;
     float hue_ = 0;
@@ -1045,10 +1085,13 @@ public:
         fb(UMAT_COPY_TO_, RW(bgra_));
         assign(RW(hue_), (F(&sinf, (F(&cv::getTickCount) / F(&cv::getTickFrequency)) * V(0.12) + V(1))) * V(255.0));
 
+        // Acquire the framebuffer and convert it to RGB
         plain(cv::cvtColor, R(bgra_), RW(frame_), V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
-        ->plain(cv::cvtColor, R(frame_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
+
+        // Transform HSV space
+        plain(cv::cvtColor, R(frame_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
         ->plain(SPLIT_, R(hsv_), RW(hsvChannels_))
-        ->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), F(&fmod, F(&fabs, R(hue_) - V(255)) - V(81), V(255)), V(cv::noArray()))
+        ->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), F(FMOD_, F(FABS_, R(hue_) - V(255)) - V(81), V(255)), V(cv::noArray()))
         ->plain(MERGE_, R(hsvChannels_), RW(hsv_))
         ->plain(cv::cvtColor, R(hsv_), RW(frame_), V(cv::COLOR_HSV2RGB_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
         ->plain(&std::vector<cv::UMat>::clear, RW(hsvChannels_));
@@ -1065,6 +1108,7 @@ public:
 
 The core is a chain of `plain` contexts:
 
+0. **BGRA to RGB** conversion
 1. **RGB to HSV** conversion
 2. **Split** into H, S, V channels
 3. **Modify Hue** channel using `setTo` with an animated value
@@ -1098,6 +1142,14 @@ You can find the complete source in [`shader-demo.cpp`](https://github.com/kalla
 ```cpp
 // Abridged for clarity
 class ShaderDemoPlan : public V4DPlan {
+  using K = V4D::Keys;
+  using M = Mouse::Type;
+
+  int autoZoomSeconds_;
+  double scale_ = 1.0;
+
+  Property<cv::Size> size_ = P<cv::Size>(K::SIZE);
+  Property<cv::Size> winSz_ = P<cv::Size>(K::WINDOW_SIZE);
     static struct Params {
         Camera2D camera_;
         MandelbrotScene::Settings settings_;
@@ -1130,6 +1182,7 @@ public:
     }
 
     void infer() override {
+        assign(RW(scale_), F(aspect_preserving_scale, winSz_, size_));
         branch(process_events, size_, winSz_, scroll_, release_, R(scale_), RWS(params_))
             ->plain(&Camera2D::updateAutoZoom, RWS(params_.camera_), R(params_.settings_.maxIterations_))
         ->endBranch();
@@ -1180,8 +1233,10 @@ You can find the complete source in [`font-demo.cpp`](https://github.com/kallaba
 ```cpp
 // Abridged for clarity.
 struct TextRenderer { /* renders scrolling text into a UMat */ };
-struct StarsRenderer { /* renders a starfield into a UMat */ };
+class StarsRenderer { /* renders a starfield into a UMat */ };
 struct Warp { /* warps the text rendering and composites it with the stars */ };
+
+static constexpr auto v4d_hypot_ = _OL_(double, std::hypot, double, double);
 
 class FontDemoPlan : public V4DPlan {
     static TextRenderer text_;
@@ -1201,10 +1256,7 @@ public:
     void setup() override {
         branch(BranchType::ONCE, always_)
                 ->assign(RW(timeOffset_), F(seconds))
-                ->construct(RW(text_), F(hypot,
-                                         F(&cv::Size::width,  size_),
-                                         F(&cv::Size::height, size_)
-                                     ) / V(60.0))
+                ->construct(RW(text_), F(v4d_hypot_, F(&cv::Size::width, size_), F(&cv::Size::height, size_)) / V(60.0))
         ->endBranch();
     }
 
@@ -1225,7 +1277,7 @@ public:
         fb<3>(&Warp::perform, RWS(warp_), RS(text_.rendering_), RS(stars_.rendering_));
 
         branch(-CS(text_.textOffsetY_) > CS(text_.height_))
-            ->assign(RW(timeOffset_), F(seconds))
+            ->assign(RWS(timeOffset_), F(seconds))
         ->endBranch();
 
         assign(RW(lastVpSize_), F(&cv::Rect::size, vp_));
@@ -1433,25 +1485,38 @@ public:
     }
 
     void infer() override {
+        set(V_::FULLSCREEN, CS(params_.fullscreen_));
+
+        // The runtime copies the source frame into the framebuffer before the
+        // plan runs, so the frame is read back out of it. An explicit capture()
+        // here would both duplicate that node and race the automatic one.
         fb(UMAT_COPY_TO_, RW(frames_.orig_));
         plain(prepare_frames, R(downSize_), RW(frames_));
 
-        branch(RWS(params_.enabled_) = IF(
-                                          F(&Mouse::List::empty, pressEvents_),
-                                          CS(params_.enabled_),
-                                          !CS(params_.enabled_)))
+        // A branch is basically a graph node that decides what graph node to run
+        // next.
+        branch(
+            // edge-calls result in edge-objects which support many operators.
+            RWS(params_.enabled_) = IF(
+                /// query mouse release events
+                F(&Mouse::List::empty, pressEvents_), CS(params_.enabled_),
+                !CS(params_.enabled_)))
+            // every N frames redect the face features.
             ->branch(seqCnt_ % V(uint64_t(8)) == V(uint64_t(0)))
-                ->branch(!F(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RWS(features_)))
-                    ->assign(RWS(params_.state_), V(Params::NOT_DETECTED))
-                    ->plain(compose_result, RW(frames_), CS(params_))
-                ->endBranch()
-            ->endBranch()
-            ->branch(!(F(&FaceFeatures::empty, RS(features_))))
-                assign(RWS(params_.state_), V(Params::ON))
-                ->subInfer(prepareFeatureMasksPlan_)
-                ->subInfer(beautyFilterPlan_)
+            ->branch(!F(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RWS(features_)))
+                // Set a shared state that will be displayed on-screen.
+                ->assign(RWS(params_.state_), V(Params::NOT_DETECTED))
                 ->plain(compose_result, RW(frames_), CS(params_))
             ->endBranch()
+        ->endBranch();
+
+        branch(!(F(&FaceFeatures::empty, RS(features_))));
+        assign(RWS(params_.state_), V(Params::ON))
+            // run inference on the sub-plans which will emit their own nodes
+            ->subInfer(prepareFeatureMasksPlan_)
+            ->subInfer(beautyFilterPlan_)
+            ->plain(compose_result, RW(frames_), CS(params_))
+        ->endBranch()
         ->elseBranch()
             ->plain(compose_result, RW(frames_), CS(params_))
             ->assign(RWS(params_.state_), V(Params::OFF))
@@ -1466,8 +1531,8 @@ public:
 
 ### Sub-Plans: Hierarchical Task Graphs
 
-- **`_sub<T>(…)`**: Creates a sub-plan instance in the constructor (see `plan.hpp:979`).
-- **`subInfer(…)`**: Executes the sub-plan's entire `infer()` graph as if it were a single node in the main graph (see [`v4d.hpp:531`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp)).
+- **`_sub<T>(…)`**: Creates a sub-plan instance in the constructor (see `plan.hpp:1058`).
+- **`subInfer(…)`**: Executes the sub-plan's entire `infer()` graph as if it were a single node in the main graph (see [`v4d.hpp:662`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp#L662)).
 
 ### The Pipeline Data Flow
 
@@ -1503,6 +1568,7 @@ using namespace cv::v4d;
 class ManyCubesDemoPlan : public V4DPlan {
     constexpr static size_t NUMBER_OF_CONTEXTS_ = 10;
     CubeScene scene_;
+    size_t currentGlCtx_ = 0;
 public:
     void setup() override {
         for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
@@ -1512,6 +1578,7 @@ public:
 
     void infer() override {
         set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255)));
+        // Render using multiple OpenGL contexts
         clear();
         for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
             gl<-1>(V(i),
@@ -1529,7 +1596,7 @@ public:
 };
 
 int main() {
-    cv::Rect viewport(0, 0, 1920, 1080);
+  cv::Rect viewport(0, 0, 1280, 720);
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Many Cubes Demo", AllocateFlags::IMGUI);
     V4DPlan::run<ManyCubesDemoPlan>(2);
     return 0;
@@ -1569,24 +1636,54 @@ This tutorial builds a self-contained image gallery application: it loads images
 You can find the complete source in [`image_carousel-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/image_carousel-demo.cpp). Run it with one or more image files or directories. Controls: arrow keys for prev/next, Space to toggle auto-play, mouse scroll/clicks, Home/End.
 
 ```cpp
+// Abridged for clarity
 class ImageCarousel : public V4DPlan {
     struct Card {
         std::string path_;
         cv::UMat    rgba_;
-        int         w_ = 0, h_ = 0;
+        int w_ = 0;
+        int h_ = 0;
         int         handle_ = -1;
         std::string name_;
     };
     std::vector<Card> cards_;
     Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 
+  static constexpr float kCardHeightFrac = 0.52f;
+  static constexpr float kMaxCardWidthFrac = 0.50f;
+  static constexpr float kSideScale = 0.55f;
+  static constexpr float kFarScale = 0.30f;
+  static constexpr int kRadius = 18;
+
     Event<Keyboard> pressKey_ = E<Keyboard>(Keyboard::PRESS);
     Event<Mouse>    scroll_   = E<Mouse>(Mouse::SCROLL);
     Event<Mouse>    click_    = E<Mouse>(Mouse::PRESS, Mouse::LEFT);
 
 public:
-    ImageCarousel() {
+    explicit ImageCarousel(const std::vector<std::string> &paths) {
         _shared(state_);
+        for (const auto &p : paths) {
+            std::error_code ec;
+            std::filesystem::path fsPath(p);
+            if (std::filesystem::is_directory(fsPath, ec)) {
+                for (const auto &entry :
+                     std::filesystem::directory_iterator(fsPath, ec)) {
+                    if (ec)
+                        break;
+                    if (entry.is_regular_file(ec) &&
+                        isImageExt(entry.path().extension().string()))
+                        loadFile(entry.path().string());
+                }
+            } else if (std::filesystem::is_regular_file(fsPath, ec)) {
+                loadFile(p);
+            }
+        }
+        if (cards_.empty()) {
+            CV_LOG_WARNING(nullptr, "No images could be loaded from the given "
+                                    "paths; pass image files or directories.");
+        }
+        std::sort(cards_.begin(), cards_.end(),
+                  [](const Card &a, const Card &b) { return a.path_ < b.path_; });
     }
 
     void setup() override {
@@ -1645,7 +1742,7 @@ Each card's RGBA `UMat` becomes a NanoVG texture handle via `createImageRGBA`, u
 
 ### Shared State Across Threads
 
-`CarouselState` is a static member registered with `_shared(state_)` and accessed with `RWS` from both the `nvg` and `imgui` nodes. With `ConfigFlags::DISPLAY_MODE`, the worker and GUI threads are serialized.
+`CarouselState` is a static member registered with `_shared(state_)` and accessed with `RWS` from both the `nvg` and `imgui` nodes. The sample runs with 0 workers (`run<ImageCarousel>(0, ...)`), so the plan and the GUI share the main thread and no `ConfigFlags` are needed.
 
 ### Smooth Animation
 
@@ -1675,6 +1772,7 @@ This tutorial dissects the most feature-complete sample: a reimplementation of O
 You can find the complete source in [`imshow_reimplementation.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/imshow_reimplementation.cpp). Run it with an image path; it falls back to `lena.png`.
 
 ```cpp
+// Abridged for clarity
 class ImshowReimplementation : public V4DPlan {
     UMat image_;   // original, as loaded
     UMat bgra_;    // BGRA copy for status bar / deep-zoom readout
@@ -1709,6 +1807,8 @@ class ImshowReimplementation : public V4DPlan {
     Event<Mouse> hoverExit_   = E<Mouse>(Mouse::HOVER_EXIT);
 };
 ```
+
+The listing is abridged: it elides the deep-zoom buffers, the save/view dialogs and the file dialog state that the real `State` also carries.
 
 ## Code Breakdown
 
@@ -1748,3 +1848,40 @@ A `branch(RWS(state_.reloadRequested_))` sub-graph re-imreads a new file, re-con
 - Keeping the original image separate from RGBA/BGRA working copies makes "save original" vs "save view" trivially correct.
 
 This concludes the tutorial series. You have now seen the entire Plan-V4D feature set in action, from a single NanoVG image to a full-blown `imshow` reimplementation.
+
+---
+
+## Coverage: Samples vs. Walkthroughs
+
+The series has 21 sections (00–20): the introduction in section 00 plus 20 sample walkthroughs. `modules/v4d/CMakeLists.txt` registers 28 `add_binary_sample` targets, so 20 of them have a walkthrough in this file and the remaining 8 do not (yet).
+
+| Sample source | CMake target | Walkthrough |
+|---------------|--------------|-------------|
+| [`display_image_fb.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/display_image_fb.cpp) | `example_v4d_display_image_fb` | [Tutorial 02](#tutorial-02--displaying-an-image-via-framebuffer) |
+| [`imshow_reimplementation.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/imshow_reimplementation.cpp) | `example_v4d_imshow_reimplementation` | [Tutorial 20](#tutorial-20--reimplementing-opencvs-imshow) |
+| [`display_image_nvg.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/display_image_nvg.cpp) | `example_v4d_display_image_nvg` | [Tutorial 01](#tutorial-01--displaying-an-image-with-nanovg) |
+| [`vector_graphics.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/vector_graphics.cpp) | `example_v4d_vector_graphics` | [Tutorial 03](#tutorial-03--2d-vector-graphics-with-nanovg) |
+| [`vector_graphics_and_fb.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/vector_graphics_and_fb.cpp) | `example_v4d_vector_graphics_and_fb` | [Tutorial 04](#tutorial-04--combining-vector-graphics-and-framebuffer-processing) |
+| [`render_opengl.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/render_opengl.cpp) | `example_v4d_render_opengl` | [Tutorial 05](#tutorial-05--direct-opengl-rendering) |
+| [`custom_source_and_sink.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/custom_source_and_sink.cpp) | `example_v4d_custom_source_and_sink` | [Tutorial 08](#tutorial-08--custom-source-and-sink) |
+| [`font_rendering.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/font_rendering.cpp) | `example_v4d_font_rendering` | [Tutorial 06](#tutorial-06--font-rendering) |
+| [`font_with_gui.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/font_with_gui.cpp) | `example_v4d_font_with_gui` | [Tutorial 09](#tutorial-09--font-rendering-with-a-gui) |
+| [`video_editing.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/video_editing.cpp) | `example_v4d_video_editing` | [Tutorial 07](#tutorial-07--simple-video-editing) |
+| [`cube-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/cube-demo.cpp) | `example_v4d_cube-demo` | [Tutorial 10](#tutorial-10--rendering-a-3d-cube) |
+| [`many_cubes-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/many_cubes-demo.cpp) | `example_v4d_many_cubes-demo` | [Tutorial 18](#tutorial-18--parallel-rendering-with-multiple-opengl-contexts) |
+| [`two-windows-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/two-windows-demo.cpp) | `example_v4d_two-windows-demo` | no walkthrough yet |
+| [`video-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/video-demo.cpp) | `example_v4d_video-demo` | [Tutorial 11](#tutorial-11--compositing-3d-graphics-on-video) |
+| [`nanovg-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/nanovg-demo.cpp) | `example_v4d_nanovg-demo` | [Tutorial 12](#tutorial-12--advanced-nanovg-and-processing-pipelines) |
+| [`font-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/font-demo.cpp) | `example_v4d_font-demo` | [Tutorial 14](#tutorial-14--advanced-font-effects-demo) |
+| [`shader-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/shader-demo.cpp) | `example_v4d_shader-demo` | [Tutorial 13](#tutorial-13--interactive-custom-shaders) |
+| [`pedestrian-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/pedestrian-demo.cpp) | `example_v4d_pedestrian-demo` | [Tutorial 15](#tutorial-15--pedestrian-detection-and-tracking-demo) |
+| [`skeletal-tracker-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/skeletal-tracker-demo.cpp) | `example_v4d_skeletal-tracker-demo` | no walkthrough yet |
+| [`optflow-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/optflow-demo.cpp) | `example_v4d_optflow-demo` | [Tutorial 16](#tutorial-16--sparse-optical-flow-demo) |
+| [`beauty-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/beauty-demo.cpp) | `example_v4d_beauty-demo` | [Tutorial 17](#tutorial-17--real-time-beauty-filter-demo) |
+| [`bgfx-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/bgfx-demo.cpp) | `example_v4d_bgfx-demo` | no walkthrough yet |
+| [`bgfx-demo2.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/bgfx-demo2.cpp) | `example_v4d_bgfx-demo2` | no walkthrough yet |
+| [`montage-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/montage-demo.cpp) | `example_v4d_montage-demo` | no walkthrough yet |
+| [`pipeline-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/pipeline-demo.cpp) | `example_v4d_pipeline-demo` | no walkthrough yet |
+| [`image_carousel-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/image_carousel-demo.cpp) | `example_v4d_image_carousel-demo` | [Tutorial 19](#tutorial-19--an-interactive-image-carousel) |
+| [`shadertoy-editor.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/shadertoy-editor.cpp) | `example_v4d_shadertoy-editor` | no walkthrough yet |
+| [`dock-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/dock-demo.cpp) | `example_v4d_dock-demo` | no walkthrough yet |

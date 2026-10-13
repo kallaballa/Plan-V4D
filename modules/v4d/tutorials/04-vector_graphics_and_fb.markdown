@@ -13,4 +13,6 @@ The framebuffer can be accessed directly to manipulate data created in other con
 
 \htmlinclude "../samples/example_v4d_vector_graphics_and_fb.html"
 
+\image html ../doc/vector_graphics_and_fb.png
+
 @include samples/vector_graphics_and_fb.cpp

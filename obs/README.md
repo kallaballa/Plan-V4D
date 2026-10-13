@@ -1,20 +1,22 @@
 # OBS packaging for Plan-V4D
 
 Builds [Plan-V4D](https://github.com/kallaballa/Plan-V4D) — a custom build of
-OpenCV 4.13.0 with the Plan-DSL (`plan`) and V4D visualization (`v4d`) modules —
+OpenCV 5.x with the Plan-DSL (`plan`) and V4D visualization (`v4d`) modules —
 for four distros on the [Open Build Service](https://build.opensuse.org/):
 
 | Target | Project | Repo | Packages |
 |---|---|---|---|
-| openSUSE Tumbleweed | `home:<user>:Plan-V4D:openSUSE_Tumbleweed` | openSUSE_Factory | RPM |
-| Fedora | `home:<user>:Plan-V4D:Fedora` | Fedora Rawhide | RPM |
-| Ubuntu 24.04 | `home:<user>:Plan-V4D:Ubuntu_24.04` | Ubuntu 24.04 (x86_64 + aarch64) | deb |
-| Raspbian 12 | `home:<user>:Plan-V4D:Raspbian_12` | Debian 12 (armhf + arm64) | deb |
+| openSUSE Tumbleweed | `home:<user>:Plan-V4D:openSUSE_Tumbleweed` | `openSUSE_Tumbleweed` (openSUSE:Factory/standard) | RPM |
+| Fedora | `home:<user>:Plan-V4D:Fedora` | `Fedora` (Fedora:Rawhide/rawhide) | RPM |
+| Ubuntu 24.04 | `home:<user>:Plan-V4D:Ubuntu_24.04` | `Ubuntu_24.04` (Ubuntu:24.04/universe, x86_64 + aarch64) | deb |
+| Raspbian 12 | `home:<user>:Plan-V4D:Raspbian_12` | `Raspbian_12` (Debian:12/standard, armhf + arm64) | deb |
 
-Each target produces the same subpackage set: `plan-v4d-data`, `plan-v4d-libs`,
-`plan-v4d-docs`, `plan-v4d-devel` (RPM) / `plan-v4d-dev` (deb), and
-`plan-v4d-samples` — providing the shared libraries, headers/pkgconfig, model
-data, docs, and `example_v4d_*` demo binaries.
+RPM targets produce the subpackage set `plan-v4d-data`, `plan-v4d-libs`,
+`plan-v4d-docs`, `plan-v4d-devel`, `plan-v4d-samples`; deb targets produce
+`plan-v4d-data`, `plan-v4d-libs`, `plan-v4d-dev` (no `plan-v4d-docs` — the
+plan/v4d guides ship inside `plan-v4d-dev`), and `plan-v4d-samples` — providing
+the shared libraries, headers/pkgconfig, model data, docs, and `example_v4d_*`
+demo binaries.
 
 ## Layout
 
@@ -39,7 +41,9 @@ obs/
    ```sh
    ./osc-setup.sh              # or: OSC_USER=me ./osc-setup.sh
    ```
-   Requires `osc` installed and configured (`osc ls` first to create `~/.oscrc`).
+   Requires `osc` installed and configured (run `osc ls` once so `~/.oscrc` or
+   `~/.config/osc/oscrc` exists; `osc-setup.sh`/`osc-build.sh` read only the
+   former, `regenerate.sh` reads both).
 
 2. **Regenerate + upload sources** after any change to this repo or the OpenCV
    checkout (`$OPENCV_DIR`, branch `plan-v4d-5.x`):
@@ -58,6 +62,9 @@ obs/
    ./osc-build.sh                      # watch all four builds
    ./osc-build.sh --status             # one-shot status
    ./osc-build.sh --results            # download packages into results/<TARGET>
+                                       # (only works once osc-build.sh's repo
+                                       #  names match the project meta: Fedora
+                                       #  and Raspbian_12, not standard/Debian_12)
    ./osc-build.sh --rebuild openSUSE_Tumbleweed
    ./osc-build.sh --submit openSUSE_Tumbleweed   # submit request to devel project
    ```
@@ -72,8 +79,9 @@ catches what container builds can't — distro-specific installers, missing
 runtime deps, ABI/linking issues, and GUI startup.
 
 Base images are **downloaded automatically** on first use (needs `curl`; see
-step 2 below), and the script refuses to run until `obs/results/<TARGET>` is
-populated.
+step 2 below), and the packages must already be in `obs/results/<TARGET>` before
+you start: the check happens after the base image is downloaded and the VM has
+booted, so a missing `results/<TARGET>` costs a full VM boot before it aborts.
 
 ```sh
 ./qemu-test.sh <target>       # tumbleweed | fedora | ubuntu | raspbian
@@ -84,8 +92,10 @@ populated.
 
 ### How it works
 
-1. **Packages** are read from `obs/results/<TARGET>` (populate with
-   `./osc-build.sh --results`; the script refuses to run if they are missing).
+1. **Packages** must already be in `obs/results/<TARGET>` (populate with
+   `./osc-build.sh --results`): the check happens after the base image is
+   downloaded and the VM has booted, so a missing `results/<TARGET>` costs a
+   full VM boot before it aborts.
 2. **Base images** live under `$WORK_ROOT/images` (default
    `/tmp/opencode/qemu/images`, override with `QEMU_WORK_ROOT`). If an image is
    missing it is **downloaded automatically** (needs `curl`):
@@ -132,7 +142,10 @@ Environment variables honored by the scripts:
 | `OBS_API` | all osc commands | `https://api.opensuse.org` |
 | `VERSION` | regenerate.sh | `5.x.x~beta~kallaballa` |
 | `REVISION` | regenerate.sh | `1` |
-| `OPENCV_DIR` | regenerate.sh | `~/devel/opencv` or cloned |
+| `OPENCV_DIR` | regenerate.sh | `<repo root>/opencv` (repo sibling) or cloned |
 | `OPENCV_BRANCH` | regenerate.sh | `plan-v4d-5.x` |
 | `PLANV4D_BRANCH` | regenerate.sh | `beta-5.x` |
+| `FORCE_REBUILD` | regenerate.sh | `0` |
+| `OPENCV_REPO_URL` | regenerate.sh | `https://github.com/kallaballa/opencv.git` |
+| `PLANV4D_REPO_URL` | regenerate.sh | `https://github.com/kallaballa/Plan-V4D.git` |
 | `QEMU_WORK_ROOT` | qemu-test.sh | `/tmp/opencode/qemu` |

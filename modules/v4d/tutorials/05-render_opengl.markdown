@@ -13,6 +13,8 @@ This example simply paints the screen blue using OpenGL without shaders for brev
 
 \htmlinclude "../samples/example_v4d_render_opengl.html"
 
+\image html ../doc/render_opengl.png
+
 @include samples/render_opengl.cpp
 
 

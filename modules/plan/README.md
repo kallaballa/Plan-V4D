@@ -26,8 +26,8 @@ survives to be replayed — see the [V4D README](../v4d/README.md).
 
 `Plan::run<Tplan>(extra_workers, args...)` boots the lifecycle. The graph is
 built during `infer()` and replayed by `runGraph()` every frame. `extra_workers`
-is the number of worker threads to spawn; the display thread always runs on top
-of them. `-1` additionally enables OpenCV's own threading
+selects the number of compute workers: `-1` and `0` both give one worker, `n >= 1`
+gives `n + 1` workers; the display thread always runs on top of them. `-1` additionally enables OpenCV's own threading
 (`cv::setNumThreads(-1)`).
 
 `extra_workers` and `args...` are forwarded to the plan's constructor, so a plan
@@ -75,10 +75,10 @@ It is an abstract interface with 21 pure virtuals: nine context accessors
 
 | Hook | Default | Purpose |
 |---|---|---|
-| `onRunStart(int32_t workers)` | no-op | on the display thread, after the workers are spawned but before they synchronize — build run-scoped frame-sync primitives here |
+| `onRunStart(int32_t workers)` | no-op | on the display thread, **before the workers are spawned** — build run-scoped frame-sync primitives here |
 | `initWorkerThread(int32_t workerIdx)` | no-op | in each worker, before its plan is built — associate the thread, propagate I/O, name the thread |
 | `willGui(const Ptr<Plan>&)` | no-op | on the display thread, just before `gui()` |
-| `releaseIo()` | no-op | after the frame loop, on every participating thread |
+| `releaseIo()` | no-op | after the frame loop, on the display thread only, once every spawned worker has been joined |
 | `captureInput(const Ptr<Plan>&)` | no-op | emitted before `infer()` — see below |
 | `writeOutput(const Ptr<Plan>&)` | no-op | emitted after `infer()` — see below |
 
@@ -107,9 +107,9 @@ modules/plan/
 │       └── plan/
 │           ├── flags.hpp              AllocateFlags / ConfigFlags / DebugFlags
 │           ├── plan.hpp               Plan, PlanRuntime, Edge, Property, Event, …
-│           ├── util.hpp               misc helpers (lambda_ptr_hex, PlanSession, …)
+│           ├── util.hpp               SharedVariables, GlobalState / LocalState, PlanSession, cnz, setThreadName, …
 │           └── detail/
-│               ├── context.hpp        PlainContext, PlanContext (CPU/GPU dispatch)
+│               ├── context.hpp        PlanContext (execute hook) and PlainContext (runs the node inline)
 │               └── transaction.hpp    Transaction, Node
 ├── perf/
 │   ├── perf_main.cpp
@@ -117,9 +117,10 @@ modules/plan/
 │   └── perf_precomp.hpp
 ├── test/
 │   ├── test_main.cpp
-│   ├── test_plan_core.cpp            edge, operator, branch and node-count tests
+│   ├── probe.cpp                     (disabled scratch probe; compiles to nothing)
+│   ├── test_plan_core.cpp            edge, operator, branch and node-existence tests
 │   ├── test_plan_state.cpp           global/local/shared state tests
-│   ├── test_plan_runtime.cpp         lifecycle and threading tests
+│   ├── test_plan_runtime.cpp         lifecycle tests (manual build/replay, runFrameLoop, willGui)
 │   ├── TestedPlan.hpp
 │   ├── MockPlanRuntime.hpp           a minimal PlanRuntime to test against
 │   └── test_precomp.hpp
@@ -129,13 +130,14 @@ modules/plan/
 
 ## Tests
 
-`opencv_test_plan` holds the accuracy tests (92 across `PlanNodeCount`,
-`PlanCore` and friends) and `opencv_perf_plan` the perf tests (37 parameterized
-cases). Both are built and run by:
+`opencv_test_plan` holds the accuracy tests (92 across the `PlanCoreTest`,
+`PlanStateTest` and `PlanRuntimeTest` fixtures) and `opencv_perf_plan` the perf
+tests (37 cases: 36 parameterized `PlanNodeCount`/`PlanFrameSize` instances plus
+`PlanPerf.end_to_end_run_3_workers`). Both are built and run by:
 
 ```bash
 ./build.sh plan              # from the repository root
-./build.sh plan -- --gtest_filter=Plan.*
+./build.sh plan -- --gtest_filter=Plan*.*
 ```
 
 ## Where to start

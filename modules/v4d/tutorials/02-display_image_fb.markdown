@@ -13,4 +13,6 @@ Instead of feeding to the video pipeline we can request the framebuffer in a ```
 
 \htmlinclude "../samples/example_v4d_display_image_fb.html"
 
+\image html ../doc/display_image_fb.png
+
 @include samples/display_image_fb.cpp

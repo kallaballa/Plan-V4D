@@ -40,7 +40,7 @@ frameworks. The difference is *when* the graph is decided.
 | Halide | DSL-specific pipeline | compile-time | stencil/image-processing algorithm+schedule eDSL |
 | DSPatch | runtime-wired objects | runtime, untyped | generic C++ dataflow/patching framework |
 | TBB flow graph | runtime-wired nodes | runtime | dataflow graphs from function nodes |
-| **Plan-DSL** | **recorded once, in C++** | **compile-time, type-safe** | task graphs with control flow, threading, GPU contexts |
+| **Plan-DSL** | **recorded once, in C++** | **compile-time, type-safe** | task graphs with control flow and threading |
 
 Plan-DSL goes beyond a pure DAG:
 
@@ -169,21 +169,21 @@ Sources and sinks read from video files, webcams, or arbitrary functors, and
 write to files or anything else:
 
 ```cpp
-auto src  = Source::make(rt, "in.mp4");
-auto sink = Sink::make(rt, "out.mkv", src->fps(), viewport.size());
+auto src  = Source::makeDefault(rt, "in.mp4");
+auto sink = Sink::makeDefault(rt, "out.mkv", src->fps(), viewport.size());
 rt->setSource(src);
 rt->setSink(sink);
 ```
 
 ## Samples
 
-Twenty-seven sample programs are registered as CMake targets in
-[modules/v4d/samples/](modules/v4d/samples/) (plus two more behind
+Twenty-eight sample programs are registered as CMake targets in
+[modules/v4d/samples/](modules/v4d/samples/) (two of them only behind
 `OPENCV_V4D_ENABLE_BGFX=ON`):
 
 | Start here | What it shows |
 |---|---|
-| `font_rendering.cpp` | the smallest visible program (32 lines) |
+| `font_rendering.cpp` | the smallest visible program (38 lines, 30 of them code) |
 | `video_editing.cpp` | source → nvg → sink, the canonical pipeline |
 | `beauty-demo.cpp` | the kitchen sink: shared state, sub-plans, `IF`, events, NanoVG, ImGui |
 | `pedestrian-demo.cpp` | HOG/NMS detection, multi-pedestrian KCF tracking, and ImGui controls |
@@ -198,9 +198,9 @@ takes, is in the [V4D module README](modules/v4d/README.md#samples).
 ## Requirements
 
 * C++20 (`<barrier>` and `<semaphore>`)
-* OpenCV 5.x (core + imgproc; V4D additionally uses videoio, video, imgcodecs,
-  ximgproc, dnn, geometry, face, objdetect, xobjdetect, tracking, optflow,
-  plot, features, flann and stitching)
+* OpenCV 5.x (core + imgproc for `plan`; `v4d` additionally uses videoio,
+  video, imgcodecs, ximgproc, and — for the samples — geometry, face,
+  objdetect, xobjdetect, tracking, optflow, features, dnn and stitching)
 * The X11 (and, with `-DWITH_WAYLAND=ON`, Wayland) development files — GLFW
   itself is vendored, see [Third-party code](#third-party-code)
 * An OpenGL-capable driver (or OpenGL ES 3.0)
@@ -236,8 +236,10 @@ net.setPreferableTarget(cv::dnn::DNN_TARGET_OPENCL);   // or OPENCL_FP16
 (`intel-opencl-icd`) for the GPU itself. Set `OPENCV_DNN_IE_GPU_CACHE_DIR` to
 cache the compiled OpenCL kernels.
 
-`./build.sh` selects the DNN backend with `-d/--dnn-backend`; see its `--help`
-for what that does and does not buy you on 5.x.
+`./build.sh` accepts a DNN backend with `-d/--dnn-backend` (`openvino` or
+`opencv`, default `openvino`) for forward-compatible scripting; on 5.x the
+OpenVINO backend is compiled in either way, so the option currently selects
+nothing — see `./build.sh --help` for what that does and does not buy you.
 
 ## Building
 
@@ -256,7 +258,7 @@ below, or add them to an existing OpenCV build via `OPENCV_EXTRA_MODULES_PATH`
 | `configure`               | Configure the build directory, nothing else           |
 | `build`                   | Compile an already-configured build directory         |
 | `test`                    | Run the plan test and perf binaries                   |
-| `install`                 | Install a built tree (`sudo make install`)            |
+| `install`                 | Build (if needed) and install a built tree (`sudo make install`) |
 | `clean`                   | Remove the build directory                            |
 
 `./build.sh --help` is the authoritative list. The options are `-t/--target`,
@@ -290,9 +292,10 @@ the test binaries:
 | `OPENCV_V4D_SAMPLES`            | Android only: which samples to build as shared objects. |
 | `BUILD_EXAMPLES`                | Build the programs in `modules/v4d/samples/`. |
 
-Note that a locally built Release library is compiled with `-march=native`, so
-it is pinned to the build machine's CPU. Rebuild for the target host rather
-than shipping such a binary.
+Note that a locally built **Release** build of the **plan** module (and its
+test/perf binaries) is compiled with `-march=native` — see
+`modules/plan/CMakeLists.txt` — so it is pinned to the build machine's CPU.
+Rebuild for the target host rather than shipping such a binary.
 
 Run the Plan-DSL test suite (92 accuracy tests, 37 perf tests) with:
 
@@ -308,20 +311,26 @@ Run the Plan-DSL test suite (92 accuracy tests, 37 perf tests) with:
   available on macOS. V4D automatically uses a desktop GL 3.2 core profile with
   forward compatibility and loads system GL function pointers.
 * The `macOS-ARM64` and `macOS-X64` jobs in
-  [`.github/workflows/PR-5.x.yaml`](.github/workflows/PR-5.x.yaml) exercise the
-  modules on macOS in CI.
+  [`.github/workflows/PR-5.x.yaml`](.github/workflows/PR-5.x.yaml) run the
+  upstream contrib CI on macOS; V4D itself is exercised on macOS by building
+  the modules locally (see
+  [Building on macOS](modules/v4d/README.md#building-on-macos)), not by those shared
+  workflows.
 
 ### Third-party code
 
 V4D vendors GLFW, NanoVG, ImGui, GLAD and friends under
 [modules/v4d/third/](modules/v4d/third/); it may require
-`git submodule update --init --recursive`. GLFW
+`git submodule update --init --recursive` (both modules also run it for you at
+configure time and fail loudly if a submodule is missing). GLFW
 ([3.5.1](modules/v4d/third/glfw)) is built together with the module and
 installed alongside `libnanovg.so`, so no GLFW package is required; pass
-`-DOPENCV_V4D_USE_SYSTEM_GLFW=ON` to link a system GLFW instead. Assets such as
-the YuNet face detector, the MediaPipe pose models and the Roboto/JetBrains
-fonts ship in [modules/v4d/assets/](modules/v4d/assets/) and
-[modules/v4d/samples/fonts/](modules/v4d/samples/fonts/).
+`-DOPENCV_V4D_USE_SYSTEM_GLFW=ON` to link a system GLFW instead. Assets such
+as the YuNet face detector, the MediaPipe pose models and the
+JetBrains/DejaVu/entypo fonts are fetched into
+[modules/v4d/assets/](modules/v4d/assets/) (`assets/fonts/` is populated at
+configure time by `v4d_fetch_font` and is git-ignored); see the Assets table in
+the [V4D module README](modules/v4d/README.md).
 
 #### clvk — OpenCL on Android (Vulkan backend)
 
@@ -340,22 +349,16 @@ was found.
 
 Because OpenCV builds its OpenCL C kernels at runtime (`clBuildProgram`),
 clvk is built with clspv as an **in-process** compiler
-(`CLVK_COMPILER_AVAILABLE=ON`, `CLVK_CLSPV_ONLINE_COMPILER=ON`): the NDK
+(`CLVK_COMPILER_AVAILABLE=ON`, `CLVK_CLSPV_ONLINE_COMPILATOR=ON`): the NDK
 cross-built LLVM/clang and `libclc` are linked into `libOpenCL.so`. That costs
-about 79 MB per ABI on the first build and a matching download of the pinned
-LLVM, both cached and resumable under `build/android/`, and it needs no
-`exec` from the app sandbox. The build is Arm/x86 ABI-specific (the *libclc*
-step is a host build shared by all ABIs). `V4D_SKIP_CLVK=1` skips it when a
-plain, CPU-only Android build is enough.
+a large first build — the pinned LLVM is checked out by clspv's
+`fetch_sources.py` under `build/android/` (cached and resumable) — and it needs
+no `exec` from the app sandbox. The build is Arm/x86 ABI-specific (the
+*libclc* step is a host build shared by all ABIs). `V4D_SKIP_CLVK=1` skips it
+when a plain, CPU-only Android build is enough.
 
 ## Documentation
 
-* [OpenCV 5.x Overview](docs/OVERVIEW.md) — architecture, module map, build
-  system, backends, and provenance of the vendored `opencv/` tree.
-* [OpenCV Programmer's Reference](docs/programmers-reference.markdown) — the
-  structural, contract-level reference for the modules in `opencv/`.
-* [OpenCV Application Programmers Guide](docs/application-programmers-guide.markdown) —
-  the task-driven workflows (I/O, calibration, stereo, DNN, …).
 * [Plan-DSL Programming Guide](modules/plan/doc/plan-dsl-programming-guide.markdown) —
   a friendly tour through the language.
 * [Plan-DSL Reference](modules/plan/doc/plan-dsl-reference.markdown) —
@@ -363,14 +366,21 @@ plain, CPU-only Android build is enough.
 * [V4D Application Programming Guide](modules/v4d/doc/v4d-application-programming-guide.markdown) —
   the V4D tutorial, milestone by milestone.
 * [Sample walkthroughs](modules/v4d/doc/samples/README.md) — annotated walkthroughs
-  `00`–`20`, one per sample, with the full code inline.
+  `00`–`20`, one per sample, with the full code inline. The samples with no
+  walkthrough yet are listed in the coverage table at the end of that file.
 * [V4D doxygen tutorials](modules/v4d/tutorials/) — the short stubs the OpenCV
-  doc build renders. [Both sets are mapped here.](modules/v4d/doc/README.md)
+  doc build renders. The two numbering systems do not map one to one; see
+  [the walkthroughs' introductory note](modules/v4d/doc/samples/README.md).
 
 ## Packaging
 
-The project ships Debian packaging (`plan-v4d.dsc`, `debian.rules`,
-`debian.tar.gz`) and an OBS recipe ([`obs/plan-v4d.spec`](obs/plan-v4d.spec)).
+The project ships an OBS recipe ([`obs/plan-v4d.spec`](obs/plan-v4d.spec)) for
+the RPM targets, and Debian packaging templates under
+[`obs/packaging/`](obs/packaging/) (rendered into `debian.tar.gz` +
+`plan-v4d.dsc` by `obs/osc-setup.sh` / `obs/regenerate.sh`) for the DEB
+targets. The `plan-v4d.dsc`, `debian.rules` and `debian.tar.gz` at the
+repository root are leftovers from the OpenCV-4 packaging and are not used by
+the OBS flow.
 
 ## Installing the packages
 
@@ -388,9 +398,9 @@ What each package provides:
 
 | Package | Contents |
 |---|---|
-| `plan-v4d-libs` | Shared libraries (`libopencv_*.so`, `libnanovg.so`, `libglfw.so`). |
-| `plan-v4d-devel` / `plan-v4d-dev` | Headers (including the vendored `GLFW/` and `nanovg/`), pkgconfig and CMake config for building against the modules. |
-| `plan-v4d-data` | Pre-trained models, cascade classifiers, fonts (`/usr/share/opencv4`). |
+| `plan-v4d-libs` | Shared libraries (`libopencv_*.so`, `libnanovg.so`, and — RPM only — `libglfw.so`). |
+| `plan-v4d-devel` / `plan-v4d-dev` | Headers (`nanovg/`, plus the vendored `GLFW/` on RPM), pkgconfig and CMake config for building against the modules. |
+| `plan-v4d-data` | Pre-trained models, cascade classifiers (`/usr/share/opencv5`), V4D fonts, models and videos (`/usr/share/opencv4`). |
 | `plan-v4d-docs` (RPM only) | Programming guides and module documentation. |
 | `plan-v4d-samples` | `example_v4d_*` binaries plus sample sources. |
 
@@ -417,34 +427,26 @@ sudo dnf config-manager --add-repo https://download.opensuse.org/repositories/ho
 sudo dnf install plan-v4d-libs plan-v4d-devel plan-v4d-data plan-v4d-docs plan-v4d-samples
 ```
 
-**Ubuntu 24.04** (DEB) — pick the repo matching your architecture (`Ubuntu_24.04`
-for amd64, `Ubuntu_24.04_arm64` for aarch64). The apt source must reference the
+**Ubuntu 24.04** (DEB) — one repo serves both architectures; the per-arch
+indices live under the repo path (`Ubuntu_24.04/amd64/`,
+`Ubuntu_24.04/arm64/`). The apt source must reference the
 repo's signing key, fetched from its published `Release.key`; the same command
 rewrites an existing unsigned `plan-v4d.list`.
 
-*amd64:*
+*amd64 + aarch64:*
 
 ```bash
 sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.opensuse.org/repositories/home:/elchaschab:/Plan-V4D:/Ubuntu_24.04/Ubuntu_24.04/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/plan-v4d-archive-keyring.gpg;
+curl -fsSL https://download.opensuse.org/repositories/home:/elchaschab:/Plan-V4D:/Ubuntu_24.04/Ubuntu_24.04/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/plan-v4d-archive-keyring.gpg
 echo "deb [signed-by=/etc/apt/keyrings/plan-v4d-archive-keyring.gpg] https://download.opensuse.org/repositories/home:/elchaschab:/Plan-V4D:/Ubuntu_24.04/Ubuntu_24.04/ " | sudo tee /etc/apt/sources.list.d/plan-v4d.list
 sudo apt update
 sudo apt install plan-v4d-libs plan-v4d-dev plan-v4d-data plan-v4d-samples
 ```
 
-*aarch64:*
-
-```bash
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.opensuse.org/repositories/home:/elchaschab:/Plan-V4D:/Ubuntu_24.04_arm64/Ubuntu_24.04/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/plan-v4d-archive-keyring.gpg
-echo "deb [signed-by=/etc/apt/keyrings/plan-v4d-archive-keyring.gpg] https://download.opensuse.org/repositories/home:/elchaschab:/Plan-V4D:/Ubuntu_24.04_arm64/Ubuntu_24.04/ " | sudo tee /etc/apt/sources.list.d/plan-v4d.list
-sudo apt update
-sudo apt install plan-v4d-libs plan-v4d-dev plan-v4d-data plan-v4d-samples
-```
-
 **Raspberry Pi OS (Debian 12)** (DEB) — same pattern as Ubuntu, with the
-`Raspbian_12` repo path in place of the `Ubuntu_24.04` one (arch-suffixed,
-e.g. `Raspbian_12_arm64`, once its binaries are published).
+`Raspbian_12` repo path in place of the `Ubuntu_24.04` one; the single repo
+serves both `armhf` and `arm64` (per-arch indices under `Raspbian_12/armhf/`,
+`Raspbian_12/arm64/`).
 
 *armv7l / arm64:*
 
@@ -470,8 +472,11 @@ installs the packages, and runs a link/ABI/GUI test suite — details in
 
 Base images are downloaded automatically on first run (into
 `$QEMU_WORK_ROOT/images`, default `/tmp/opencode/qemu/images`); populate
-`obs/results/<TARGET>` first by running `./osc-build.sh --results` **from inside
-`obs/`**, so there are packages to install. The arm64 Raspbian target
+`obs/results/` first by running `./obs/osc-build.sh --results` (any working
+directory), so there are packages to install — the packages land in
+`obs/results/<target>` under the long target names (`openSUSE_Tumbleweed`,
+`Fedora`, `Ubuntu_24.04`, `Raspbian_12`), which `qemu-test.sh` maps from
+`tumbleweed|fedora|ubuntu|raspbian` itself. The arm64 Raspbian target
 additionally needs `qemu-system-aarch64` and a `QEMU_EFI.fd` firmware installed
 on the host.
 

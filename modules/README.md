@@ -10,15 +10,39 @@ $ cmake -D OPENCV_EXTRA_MODULES_PATH=<opencv_contrib>/modules -D BUILD_opencv_<r
 
 - **alphamat**: Computer Vision based Alpha Matting -- Given an input image and a trimap, generate an alpha matte.
 
-- **aruco**: ArUco and ChArUco Markers -- Augmented reality ArUco marker and "ChARUco" markers where ArUco markers embedded inside the white areas of the checker board.
-
 - **bgsegm**: Background segmentation algorithm combining statistical background image estimation and per-pixel Bayesian segmentation.
 
 - **bioinspired**: Biological Vision -- Biologically inspired vision model: minimize noise and luminance variance, transient event segmentation, high dynamic range tone mapping methods.
 
+- **cannops**: AscendC operator library for CANN devices -- device-side operator kernels plus their host bindings, samples and tests.
+
 - **ccalib**: Custom Calibration -- Patterns for 3D reconstruction, omnidirectional camera calibration, random pattern calibration and multi-camera calibration.
 
 - **cnn_3dobj**: Deep Object Recognition and Pose -- Uses Caffe Deep Neural Net library to build, train and test a CNN model of visual object recognition and pose.
+
+- **cudaarithm**: CUDA-accelerated arithmetic and matrix operations on `cv::cuda::GpuMat`.
+
+- **cudabgsegm**: CUDA background segmentation.
+
+- **cudacodec**: CUDA video decoding/encoding.
+
+- **cudafeatures2d**: CUDA 2D features and descriptors.
+
+- **cudafilters**: CUDA image filtering.
+
+- **cudaimgproc**: CUDA image processing.
+
+- **cudalegacy**: CUDA implementations of legacy (pre-2.0) algorithms.
+
+- **cudaobjdetect**: CUDA object detection (HOG, cascade).
+
+- **cudaoptflow**: CUDA optical flow.
+
+- **cudastereo**: CUDA stereo correspondence.
+
+- **cudawarping**: CUDA image warping and remapping.
+
+- **cudev**: CUDA device-layer helpers for writing custom kernels.
 
 - **cvv**: Computer Vision Debugger -- Simple code that you can add to your program that pops up a GUI allowing you to interactively and visually debug computer vision programs.
 
@@ -34,9 +58,13 @@ $ cmake -D OPENCV_EXTRA_MODULES_PATH=<opencv_contrib>/modules -D BUILD_opencv_<r
 
 - **face**: Face Recognition -- Face recognition techniques: Eigen, Fisher and Local Binary Pattern Histograms LBPH methods.
 
+- **fastcv**: Qualcomm FastCV -- GPU-accelerated mobile computer vision primitives, for the functions the OpenCV HAL does not cover.
+
 - **freetype**: Drawing text using freetype and harfbuzz.
 
 - **fuzzy**: Fuzzy Logic in Vision -- Fuzzy logic image transform and inverse; Fuzzy image processing.
+
+- **gapi**: Graph API -- a graph-based computation framework with pluggable backends.
 
 - **hdf**: Hierarchical Data Storage -- This module contains I/O routines for Hierarchical Data Format: https://en.m.wikipedia.org/wiki/Hierarchical_Data_Format meant to store large amounts of data.
 
@@ -52,13 +80,15 @@ $ cmake -D OPENCV_EXTRA_MODULES_PATH=<opencv_contrib>/modules -D BUILD_opencv_<r
 
 - **matlab**: Matlab Interface -- OpenCV Matlab Mex wrapper code generator for certain opencv core modules.
 
-- **mcc**: Macbeth Color Chart detector -- Find and return color patch location in MacBeth color calibration charts.
+- **ml**: Machine Learning -- statistical classifiers, neural nets (MLP), SVM, k-NN, decision trees and boosting.
 
 - **optflow**: Optical Flow -- Algorithms for running and evaluating deepflow, simpleflow, sparsetodenseflow and motion templates (silhouette flow).
 
 - **ovis**: OGRE 3D Visualiser -- allows you to render 3D data using the OGRE 3D engine.
 
 - **phase_unwrapping**: Quality-guided phase unwrapping.
+
+- **plan**: Plan-DSL -- a small type-safe, dataflow-oriented graph-recording language embedded in C++; the core the `v4d` module builds on. This module and `v4d` are the fork's own additions rather than upstream contrib modules.
 
 - **plot**: Plotting -- The plot module allows you to easily plot data in 1D or 2D.
 
@@ -72,13 +102,11 @@ $ cmake -D OPENCV_EXTRA_MODULES_PATH=<opencv_contrib>/modules -D BUILD_opencv_<r
 
 - **saliency**: Saliency API -- Where humans would look in a scene. Has routines for static, motion and "objectness" saliency.
 
-- **signal**: Signal processing algorithms
-
 - **sfm**: Structure from Motion -- This module contains algorithms to perform 3d reconstruction from 2d images. The core of the module is a light version of Libmv.
 
 - **shape**: Shape Distance and Matching
 
-- **stereo**: Stereo Correspondence -- Stereo matching done with different descriptors: Census / CS-Census / MCT / BRIEF / MV and dense stereo correspondence using Quasi Dense Stereo method.
+- **signal**: Signal processing algorithms
 
 - **structured_light**: Structured Light Use -- How to generate and project gray code patterns and use them to find dense depth in a scene.
 
@@ -89,6 +117,8 @@ $ cmake -D OPENCV_EXTRA_MODULES_PATH=<opencv_contrib>/modules -D BUILD_opencv_<r
 - **text**: Scene Text Detection and Recognition -- This module contains algorithms to perform text detection, words segmentation and text recognition in a visual scene.
 
 - **tracking**: Vision Based Object Tracking -- Use and/or evaluate different visual object tracking techniques.
+
+- **v4d**: Visualization for Video and Data -- a GLFW/OpenGL windowed runtime with NanoVG, ImGui and bgfx rendering contexts, built on top of the `plan` module.
 
 - **videostab**: Video Stabilization
 
@@ -103,3 +133,5 @@ $ cmake -D OPENCV_EXTRA_MODULES_PATH=<opencv_contrib>/modules -D BUILD_opencv_<r
 - **xobjdetect**: Boosted 2D Object Detection -- Uses a Waldboost cascade and local binary patterns computed as integral features for 2D object detection.
 
 - **xphoto**: Extra Computational Photography -- Additional photo processing algorithms: Color balance / Denoising / Inpainting.
+
+- **xstereo**: Semi-Global Block Matching stereo correspondence.

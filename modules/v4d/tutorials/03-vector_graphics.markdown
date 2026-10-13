@@ -13,4 +13,6 @@ Through the html5-canvas-like nvg-context sophisticated vector graphics renderin
 
 \htmlinclude "../samples/example_v4d_vector_graphics.html"
 
+\image html ../doc/vector_graphics.png
+
 @include samples/vector_graphics.cpp

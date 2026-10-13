@@ -8,7 +8,7 @@
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
 | Compatibility | OpenCV >= 5.0 |
 
-Optical flow visualization on top of a video. Uses background subtraction (OpenCV) to isolate areas with motion, detects features to track (OpenCV), calculates the optical flow (OpenCV), uses nanovg for rendering (OpenGL) and post-processes the video (OpenCV).
+Optical flow visualization on top of a video. Detects features to track (FAST, OpenCV), tracks them with sparse pyramidal Lucas-Kanade (OpenCV), renders the vectors with nanovg (OpenGL), reacts to scene changes through a heuristic detector, and post-processes the video with glow/bloom effects (OpenCV).
 
 \htmlinclude "../samples/example_v4d_optflow-demo.html"
 

@@ -8,7 +8,7 @@
 | Original author | Amir Hassan (kallaballa) <amir@viel-zu.org> |
 | Compatibility | OpenCV >= 5.0 |
 
-Renders a rainbow cube on top of a input-video using OpenGL and applies a glow effect using OpenCV.
+Renders a rainbow cube on top of a input-video using OpenGL.
 
 \htmlinclude "../samples/example_v4d_video-demo.html"
 

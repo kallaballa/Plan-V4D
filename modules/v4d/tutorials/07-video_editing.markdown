@@ -13,6 +13,8 @@ Through adding a source and a sink v4d becomes capable of video editing. Reads a
 
 \htmlinclude "../samples/example_v4d_video_editing.html"
 
+\image html ../doc/video_editing.png
+
 @include samples/video_editing.cpp
 
 

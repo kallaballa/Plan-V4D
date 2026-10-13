@@ -12,6 +12,8 @@ Draws "Hello World" to the screen and let's you control the font size and color 
 
 \htmlinclude "../samples/example_v4d_font_with_gui.html"
 
+\image html ../doc/font_with_gui.png
+
 @include samples/font_with_gui.cpp
 
 

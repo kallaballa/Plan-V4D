@@ -76,6 +76,8 @@ extra_workers ==  0 -> 1 compute worker + display thread, cv::setNumThreads(0)
 extra_workers ==  n -> n+1 compute workers + display thread, cv::setNumThreads(0)
 ```
 
+Note that OpenCV's pool is process-wide: the first plan that runs in the process decides it (`std::call_once` in `Plan::run`), so later runs cannot change the setting.
+
 ### 1.5 Runtime and lifecycle
 
 `Plan` is runtime-agnostic. Runtime-specific behavior — rendering contexts, source/sink buffers, frame pacing, debug flags — is delegated to an abstract `PlanRuntime` registered thread-locally and picked up by the plan constructor:
@@ -317,6 +319,7 @@ V4D adds a runtime key family read through `P<T>(V4D::Keys::…)`:
 | `FULLSCREEN` | `bool` | no |
 | `DISABLE_INPUT_EVENTS` | `bool` | no |
 | `VISIBLE` | `bool` | no |
+| `AUTO_SCALE` | `bool` | no |
 
 Writable V4D properties fire runtime callbacks when they are set (for example `WINDOW_SIZE` resizes the window, `FULLSCREEN` toggles fullscreen). Other runtimes may add their own key families.
 
@@ -813,7 +816,7 @@ State::set<V>(key, v)
 State::apply<V>(key, f)
 ```
 
-* `GlobalState` is process-wide; `LocalState` is `thread_local`.
+* `GlobalState` resolves to the property map of the calling thread's `PlanSession` (one per plan run, so two concurrent plans count independently); threads outside any run fall back to a process-wide default session. `LocalState` is `thread_local`.
 * `create<false, V>(key, value, cb)` stores a callback that fires whenever `set` changes the value.
 * `P<T>(key)` binds an edge to a state value. A property is `Edge<const T, false, true, true>` — shared and read-only.
 
@@ -956,7 +959,7 @@ LLVM pointer values can be represented by:
 For floating-point remainder, use:
 
 ```cpp
-F(std::fmod, R(a), R(b))
+F([](float a, float b) { return std::fmod(a, b); }, R(a), R(b))
 ```
 
 ---
