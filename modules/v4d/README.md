@@ -136,13 +136,24 @@ thread** every display refresh. Mutate shared state from inside
 `V4D::Keys` holds the runtime properties a plan reads with
 `P<T>(V4D::Keys::…)`: `SIZE`, `VIEWPORT`, `WINDOW_SIZE`, `FRAMEBUFFER_SIZE`,
 `CLEAR_COLOR`, `NAMESPACE`, `FULLSCREEN`, `DISABLE_INPUT_EVENTS`, `VISIBLE`,
-`AUTO_SCALE`.
+`AUTO_SCALE`, `AUTO_VIEWPORT`.
 
 `AUTO_SCALE=true` makes the runtime blit its framebuffer into the window
 scaled to fit, preserving the source's aspect ratio (centred letterbox /
 pillarbox) rather than stretching it to the window's size. It defaults to
 `true` on Android, where the surface is always the whole screen, and `false`
 on desktop.
+
+`AUTO_VIEWPORT=true` (the default) additionally makes that destination the
+largest rectangle the visible ImGui windows leave free, so a GUI panel
+letterboxes the image beside itself instead of covering it. Set it to `false`
+to always fill the window and let the GUI draw over the image — the default
+ImGui behaviour. `V4D_AUTO_VIEWPORT=0` in the environment does the same
+without touching the code:
+
+```cpp
+V4D::set<bool>(V4D::Keys::AUTO_VIEWPORT, false);   // or P<bool>(V4D::Keys::AUTO_VIEWPORT) in a plan
+```
 
 ## Sources and sinks
 

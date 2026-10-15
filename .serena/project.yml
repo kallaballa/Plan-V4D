@@ -40,7 +40,7 @@ project_name: "Plan-V4D"
 # The first language server is the default language and the respective language server will be used as a fallback.
 # Note that when using the JetBrains backend, language servers are not used and this list is correspondingly ignored.
 language_servers:
-- cpp
+  - cpp
 
 # the encoding used by text files in the project
 # For a list of possible encodings, see https://docs.python.org/3.11/library/codecs.html#standard-encodings
@@ -69,7 +69,7 @@ line_ending:
 # Valid values: LSP, JetBrains
 # Note: the backend is fixed at startup. If a project with a different backend
 # is activated post-init, an error will be returned.
-language_backend:
+language_backend: LSP
 
 # The interface through which the agent (LLM) accesses Serena's functionality (overrides the global setting).
 # Valid values: tools, REPL (see the global configuration for details); leave empty to use the global setting.
@@ -118,7 +118,7 @@ ls_additional_workspace_folders: []
 #     - "**/bin/**"
 #     - "**/obj/**"
 # Note: global ignored_paths from serena_config.yml are also applied additively.
-ignored_paths: []
+ignored_paths:  [ "./modules/v4d/third/clvk/**" ]
 
 # whether the project is in read-only mode
 # If set to true, all editing tools will be disabled and attempts to use them will result in an error

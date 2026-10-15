@@ -669,6 +669,7 @@ if(NOT (TARGET ${the_module}))
     v4d_fetch_font(dejavu-fonts-ttf-2.37.zip "http://sourceforge.net/projects/dejavu/files/dejavu/2.37/dejavu-fonts-ttf-2.37.zip" "7576310b219e04159d35ff61dd4a4ec4cdba4f35c00e002a136f00e96a908b0a")
     add_binary_sample(example_v4d_shadertoy-editor samples/shadertoy-editor.cpp)
     add_binary_sample(example_v4d_dock-demo samples/dock-demo.cpp)
+    add_binary_sample(example_v4d_sandcraft samples/sandcraft.cpp)
     # The code pane is a vendored ImGui widget (ImGuiColorTextEdit, MIT) rather
     # than part of libv4d: only this sample edits code, and TextEditor.cpp is a
     # third-party translation unit that no other target should have to compile.

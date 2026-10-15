@@ -673,7 +673,7 @@ Property<uint64_t>  seqCnt_ = P<uint64_t>(GlobalState::Keys::FRAME_CNT);
 Property<size_t>    widx_   = P<size_t>(LocalState::Keys::WORKER_INDEX);
 ```
 
-V4D keys: `SIZE`, `WINDOW_SIZE`, `VIEWPORT`, `FRAMEBUFFER_SIZE`, `CLEAR_COLOR`, `NAMESPACE`, `FULLSCREEN`, `DISABLE_INPUT_EVENTS`, `VISIBLE`, `AUTO_SCALE`. Core DSL keys include `FRAME_CNT`, `CAPTURE_CNT`, `FPS`, `RUN_CNT`, `TIME_TRACKER`, `WORKERS_READY`, and more (see the Plan-DSL Reference for the full lists).
+V4D keys: `SIZE`, `WINDOW_SIZE`, `VIEWPORT`, `FRAMEBUFFER_SIZE`, `CLEAR_COLOR`, `NAMESPACE`, `FULLSCREEN`, `DISABLE_INPUT_EVENTS`, `VISIBLE`, `AUTO_SCALE`, `AUTO_VIEWPORT`. `AUTO_VIEWPORT` (default `true`) blits the framebuffer into the largest rectangle the visible ImGui windows leave free; set it to `false` (or `V4D_AUTO_VIEWPORT=0`) to fill the whole window and draw the GUI over the image. Core DSL keys include `FRAME_CNT`, `CAPTURE_CNT`, `FPS`, `RUN_CNT`, `TIME_TRACKER`, `WORKERS_READY`, and more (see the Plan-DSL Reference for the full lists).
 
 **Writing** — record a `set(key, edge)` node:
 

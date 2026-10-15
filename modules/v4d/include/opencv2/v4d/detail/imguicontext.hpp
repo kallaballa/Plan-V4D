@@ -71,6 +71,8 @@ public:
    *
    * Returns an empty rectangle when the whole window is covered. Falls back to
    * the whole window while no ImGui frame has run yet.
+   *
+   * Only used when `V4D::Keys::AUTO_VIEWPORT` is true.
    */
   CV_EXPORTS cv::Rect freeRect(const cv::Size &fbSize);
 
