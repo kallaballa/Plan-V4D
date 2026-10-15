@@ -479,9 +479,9 @@ V4D_DEMO_MAIN(int argc, char **argv) {
   // tuned at (2x the grid => 2x the old 1280x720 canvas). A smaller window just
   // falls through to the banded diagram; the renderer refits on resize, so a
   // user may still shrink it on a modest screen.
-  cv::Rect viewport(0, 0, 2560, 1440);
+  cv::Rect viewport(0, 0, 1920, 1080);
   cv::Ptr<V4D> runtime = V4D::init(
-      viewport, "Sandcraft", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+      viewport, "Sandcraft", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT | ConfigFlags::DISPLAY_MODE);
   V4DPlan::run<SandcraftPlan>(0);
   return 0;
 }
