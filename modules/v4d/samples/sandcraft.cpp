@@ -381,7 +381,7 @@ public:
     // makes "the world is allocated and seeded exactly once" a property of the
     // code rather than a property of the runtime's construction order.
     //
-    // 320x180 is the original's 640x360 at half the resolution; nothing in the
+    // 640x360, the original's resolution; nothing in the
     // automaton depends on it, and the renderer fits whatever it is given to
     // the viewport.
     if (sandbox_.cells_.empty()) {
@@ -474,7 +474,12 @@ Sandbox SandcraftPlan::sandbox_;
 V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
 
-  cv::Rect viewport(0, 0, 1280, 720);
+  // The Van Gogh brush path only engages above ~2.6 px/cell, so a 640x360 grid
+  // needs a large window to keep the ~3.4 px/cell stroke scale the demo was
+  // tuned at (2x the grid => 2x the old 1280x720 canvas). A smaller window just
+  // falls through to the banded diagram; the renderer refits on resize, so a
+  // user may still shrink it on a modest screen.
+  cv::Rect viewport(0, 0, 2560, 1440);
   cv::Ptr<V4D> runtime = V4D::init(
       viewport, "Sandcraft", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
   V4DPlan::run<SandcraftPlan>(0);

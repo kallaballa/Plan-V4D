@@ -226,10 +226,10 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
     drawMaterial(pal, t, runs[t], v, tsec, vg, sb.impasto_);
 
   if (vg) {
-    // The canvas the world was painted on: the weave once more, over the slab
-    // only, where the paint is. A painting shows its cloth most where the
-    // paint is thickest, and at a higher strength than on the studio wall.
-    vg::paintCanvas(o.x, o.y, w, h, 0.11f);
+    // The linen weave is intentionally NOT laid over the paint here: on the
+    // heaps it reads as a greyish criss-cross that fights the brushwork. A faint
+    // canvas is still felt behind the slab (the studio-wall weave drawn at the
+    // top of this function); the paint itself is left clean.
     resetScissor();
   }
 }
