@@ -46,6 +46,7 @@
 #include <vector>
 
 #include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 #include <opencv2/v4d/v4d.hpp>
 
 #include "sandcraft_grid.hpp"
@@ -65,6 +66,69 @@ inline uint32_t hashBits(int a, int b) {
 }
 inline float hash01(int a, int b) {
   return float(hashBits(a, b) & 0xFFFFu) / 65535.0f;
+}
+
+// ---- value noise, for the sky ---------------------------------------------
+// The sky's flow field needs a *smooth* 2D field, not the uncorrelated hash
+// above: neighbouring samples have to agree or the strokes tear instead of
+// flowing. Bilinear value noise with a smoothstep is the cheapest thing that
+// does; the hash is still the source of the random corners, so the two agree
+// about what "random" means.
+inline float vnoise2(float x, float y) {
+  const int xi = int(std::floor(x)), yi = int(std::floor(y));
+  const float xf = x - float(xi), yf = y - float(yi);
+  const float u = xf * xf * (3.0f - 2.0f * xf);
+  const float v = yf * yf * (3.0f - 2.0f * yf);
+  const float a = hash01(xi, yi), b = hash01(xi + 1, yi);
+  const float c = hash01(xi, yi + 1), d = hash01(xi + 1, yi + 1);
+  return (a * (1.0f - u) + b * u) * (1.0f - v) + (c * (1.0f - u) + d * u) * v;
+}
+inline float fbm2(float x, float y, int octaves) {
+  float s = 0.0f, a = 0.5f, f = 1.0f;
+  for (int i = 0; i < octaves; ++i) {
+    s += a * vnoise2(x * f, y * f);
+    f *= 2.03f;
+    a *= 0.5f;
+  }
+  return s;
+}
+
+// ---- the sky's flow --------------------------------------------------------
+// A unit vector at a point of the *normalised* slab (u,v in [0,1]), so the same
+// painting appears whatever the window size. Three things are added, and the
+// sum is what makes it read as Van Gogh rather than as generic flow art:
+//
+//   * the curl of a value-noise field -- (dN/dy, -dN/dx) -- which is
+//     divergence-free, so the streamlines swirl and never cross or focus to a
+//     point (a plain gradient would make them all pile into the noise minima);
+//   * two explicit vortices, the great spirals of the painting, falling off
+//     with a Gaussian so each turns only its own corner of the sky;
+//   * a travelling sine across the sky, the broad rolling wave the whole
+//     composition rides on.
+enum class SkyLayer { FIELD, HIGHLIGHT };
+inline cv::Point2f skyVel(float u, float v, float t) {
+  cv::Point2f f(0.0f, 0.0f);
+  const float e = 0.014f;
+  const float dnv =
+      fbm2(u * 2.6f, (v + e) * 2.6f, 3) - fbm2(u * 2.6f, (v - e) * 2.6f, 3);
+  const float dnu =
+      fbm2((u + e) * 2.6f, v * 2.6f, 3) - fbm2((u - e) * 2.6f, v * 2.6f, 3);
+  f.x += dnv / (2.0f * e) * 0.14f;
+  f.y += -dnu / (2.0f * e) * 0.14f;
+  const auto swirl = [&](float cx, float cy, float r, float s) {
+    const float dx = u - cx, dy = v - cy;
+    const float w = s * std::exp(-(dx * dx + dy * dy) / (2.0f * r * r));
+    f.x += -dy * w;
+    f.y += dx * w;
+  };
+  swirl(0.36f, 0.44f, 0.30f, 3.4f);
+  swirl(0.66f, 0.26f, 0.22f, -2.8f);
+  f.x += 1.0f;
+  f.y += 0.85f *
+         std::sin(6.2831853f * (v * 1.8f + 0.10f * std::sin(6.2831853f * u * 1.15f)) +
+                  t * 0.10f);
+  const float m = std::sqrt(f.x * f.x + f.y * f.y) + 1e-6f;
+  return {f.x / m, f.y / m};
 }
 
 // ---- colour arithmetic, on cv::Scalar's BGRA channel order -----------------
@@ -288,7 +352,15 @@ inline void paintMaterial(const Pigment &pig, const std::vector<Run> &runs,
       ang += brush.rise;
       const float ca = std::cos(ang), sa = std::sin(ang);
       const float nx = -sa, ny = ca;
-      const float half = std::max(len / float(strokes) * 0.42f, cell * 0.25f);
+      // The floor on the half-length is what turns a falling grain -- a
+      // one-cell run -- into a loaded dash rather than a dot. Without it the
+      // streams of sand read as a stipple of single pixels, which is exactly
+      // the "one SDL pixel per particle" look the painting is meant to leave
+      // behind; with it, each grain is a stroke along the flow and a falling
+      // column combs into a cascade of dashes.
+      const float half =
+          std::max(len / float(strokes) * 0.42f,
+                   cell * std::max(0.5f, brush.length * 0.38f));
       const Stroke axis{mid - ca * half, yc - sa * half, mid + ca * half,
                         yc + sa * half, w, (h2 - 0.5f) * w * 1.4f,
                         (h - 0.5f) * cell * 0.16f, (h2 - 0.5f) * cell * 0.16f};
@@ -435,83 +507,389 @@ inline void paintCanvas(float x, float y, float w, float h, float strength) {
 }
 
 // ---- the night -------------------------------------------------------------
-// Starry Night, as the empty cells of the world: a field of ultramarine with
-// three vortices rolled through it and eleven halated stars. Van Gogh painted
-// eleven -- ten stars and the moon -- so eleven it is.
-inline void paintNight(float x, float y, float w, float h, float cell,
-                       float tsec) {
-  using namespace cv::v4d::nvg;
+//
+// Starry Night, as the background the world hangs in. Van Gogh's sky is not a
+// gradient with stars on it: it is a *field of brush strokes* -- tens of
+// thousands of short, loaded dashes, every one following the turbulent flow of
+// the composition -- so the only honest way to paint it is to lay those strokes
+// down. That is far more work than belongs in a frame (the sky never changes;
+// only the sand over it does), so it is rasterised once, on the CPU, into a
+// texture and drawn back with a single imagePattern -- the same route the
+// canvas weave takes, and never fb().
+//
+// The raster is built at the slab's own pixel size and cached per size, so a
+// resize repaints it once and every frame in between is one textured quad.
 
-  // The field: a vertical wash from Prussian blue at the top of the slab to
-  // near-black at the bottom.
-  beginPath();
-  rect(x, y, w, h);
-  fillPaint(linearGradient(x, y, x, y + h, cv::Scalar(150, 104, 46, 255),
-                           cv::Scalar(40, 26, 12, 255)));
-  fill();
+// The sky's pigments, in RGB because they are written into a cv::Mat (NanoVG's
+// BGRA convention does not reach a CPU buffer). Ultramarine to lead white, the
+// sequence Van Gogh mixed his night from.
+struct SkyPigment {
+  unsigned char r, g, b;
+};
+inline const std::array<SkyPigment, 7> &skyPigments() {
+  static const std::array<SkyPigment, 7> p = {{
+      {14, 24, 58},    // deep ultramarine, nearly black
+      {24, 42, 92},    // Prussian blue
+      {36, 64, 136},   // ultramarine
+      {48, 92, 172},   // cobalt
+      {92, 140, 202},  // cerulean
+      {156, 192, 228}, // pale blue
+      {226, 234, 248}, // lead white
+  }};
+  return p;
+}
+inline cv::Scalar pigmentRgba(const SkyPigment &p) {
+  return cv::Scalar(p.r, p.g, p.b, 255);
+}
+inline int skyIndex(float q) {
+  if (q < 0.34f)
+    return 0;
+  if (q < 0.56f)
+    return 1;
+  if (q < 0.74f)
+    return 2;
+  if (q < 0.87f)
+    return 3;
+  if (q < 0.94f)
+    return 4;
+  if (q < 0.978f)
+    return 5;
+  return 6;
+}
 
-  // Three vortices, rolled as short spiral ribbons of cerulean.
-  static const float kCol[3] = {0.24f, 0.62f, 0.86f};
-  static const float kRow[3] = {0.30f, 0.68f, 0.44f};
-  for (int k = 0; k < 3; ++k) {
-    const float vx = x + w * kCol[k], vy = y + h * kRow[k];
-    const float R = std::min(w, h) * (0.20f + 0.11f * k);
-    const float spin = 0.05f + 0.02f * float(k);
-    for (int i = 0; i < 22; ++i) {
-      const float t = float(i) / 22.0f;
-      // The golden angle: each segment starts where the last left off, which is
-      // what makes a spiral rather than a wreath.
-      const float a0 = 2.399963f * float(i) + tsec * spin;
-      const float r0 = R * (0.12f + 0.88f * t);
-      const float r1 = R * (0.12f + 0.88f * (t + 0.07f));
-      const float a1 = a0 + 0.62f;
-      Stroke s;
-      s.x0 = vx + r0 * std::cos(a0);
-      s.y0 = vy + r0 * std::sin(a0);
-      s.x1 = vx + r1 * std::cos(a1);
-      s.y1 = vy + r1 * std::sin(a1);
-      s.w = std::max(1.5f, cell * (0.52f + 0.85f * t));
-      s.bulge = R * 0.06f * std::sin(a0 * 2.0f);
-      s.wob = (hash01(i, k) - 0.5f) * s.w * 0.3f;
-      s.wob2 = (hash01(k, i) - 0.5f) * s.w * 0.3f;
-      beginPath();
-      appendStroke(s);
-      fillColor(withAlpha(mix(cerulean(), cream(), 0.30f + 0.45f * t),
-                           62.0f + 30.0f * t));
-      fill();
+// Where a star sits, in slab-local pixels. Shared by the raster and the live
+// twinkle so the two cannot drift apart. Eleven of them: Van Gogh painted ten
+// stars and the moon.
+inline void starSlot(int i, float w, float h, float &sx, float &sy, float &rad) {
+  const float sc = std::min(w, h);
+  sx = w * (0.06f + 0.88f * hash01(i, 101));
+  sy = h * (0.05f + 0.34f * hash01(i, 202));
+  rad = sc * (0.013f + 0.024f * hash01(i, 303));
+}
+inline void moonSlot(float w, float h, float &mx, float &my, float &mr) {
+  mx = w * 0.86f;
+  my = h * 0.11f;
+  mr = std::min(w, h) * 0.045f;
+}
+
+static inline cv::Scalar rgbOf(const cv::Vec3b &c, int d = 0) {
+  const auto cl = [d](int v) { return uchar(std::clamp(v + d, 0, 255)); };
+  return cv::Scalar(cl(c[0]), cl(c[1]), cl(c[2]), 255);
+}
+
+// One tapered brush ribbon along a polyline: a wide dark body, a narrower mid,
+// and a thin bright ridge nudged along the normal, which is what a loaded
+// brush leaves. Opaque, like real paint -- the strokes overwrite each other.
+inline void skyRib(cv::Mat &img, const std::vector<cv::Point> &p,
+                   const cv::Vec3b &body, float w, float bright, int seed) {
+  if (p.size() < 2)
+    return;
+  cv::polylines(img, p, false, rgbOf(body), std::max(1.0, double(w)),
+                cv::LINE_AA);
+  if (w > 2.4f)
+    cv::polylines(img, p, false, rgbOf(body, int(12 + 14 * bright)),
+                  std::max(1.0, double(w * 0.45)), cv::LINE_AA);
+  const float dx = float(p.back().x - p.front().x);
+  const float dy = float(p.back().y - p.front().y);
+  const float m = std::sqrt(dx * dx + dy * dy) + 1e-4f;
+  const float nx = -dy / m, ny = dx / m;
+  const float off = (hash01(seed, 91) - 0.35f) * w * 0.5f;
+  std::vector<cv::Point> hp;
+  hp.reserve(p.size());
+  for (const cv::Point &q : p)
+    hp.push_back(cv::Point(cvRound(q.x + nx * off), cvRound(q.y + ny * off)));
+  cv::polylines(img, hp, false, rgbOf(body, int(40 + 52 * bright)),
+                std::max(1.0, double(w * 0.22)), cv::LINE_AA);
+}
+
+// A flow-combed layer of strokes over the whole slab. Seeds sit on a jittered
+// grid -- a regular grid reads as a printed hatch -- and each walks the sky's
+// flow for a few segments, so neighbouring strokes share a direction and the
+// field combs into the great swirls.
+inline void skyStrokeLayer(cv::Mat &img, int W, int H, float t, float spacing,
+                           float lenScale, int seedOff, SkyLayer layer) {
+  const auto &pal = skyPigments();
+  const int step = std::max(4, int(spacing));
+  for (int gy = -step; gy < H + step; gy += step) {
+    for (int gx = -step; gx < W + step; gx += step) {
+      const int sx = gx + seedOff, sy = gy + seedOff * 3;
+      const float x0 = gx + (hash01(sx, sy) - 0.5f) * float(step);
+      const float y0 = gy + (hash01(sy, sx) - 0.5f) * float(step);
+      float x = x0, y = y0;
+      const float u0 = std::clamp(x0 / W, 0.0f, 1.0f);
+      const float v0 = std::clamp(y0 / H, 0.0f, 1.0f);
+      const float len =
+          step * lenScale * (0.7f + 0.7f * hash01(sx + 7, sy + 3));
+      constexpr int kSeg = 6;
+      const float dl = len / float(kSeg);
+      std::vector<cv::Point> pts;
+      pts.reserve(kSeg + 1);
+      for (int i = 0; i <= kSeg; ++i) {
+        pts.push_back(cv::Point(cvRound(x), cvRound(y)));
+        const cv::Point2f f =
+            skyVel(std::clamp(x / W, 0.0f, 1.0f),
+                   std::clamp(y / H, 0.0f, 1.0f), t);
+        x += f.x * dl;
+        y += f.y * dl;
+      }
+      float q = (fbm2(u0 * 2.4f + 3.1f, v0 * 2.4f - 1.7f, 3) - 0.20f) / 0.52f;
+      const auto core = [&](float cx, float cy, float r) {
+        const float dx = u0 - cx, dy = v0 - cy;
+        return std::exp(-(dx * dx + dy * dy) / (2.0f * r * r));
+      };
+      q += 0.13f * core(0.36f, 0.44f, 0.24f) + 0.10f * core(0.66f, 0.26f, 0.18f);
+      q = std::clamp(q, 0.0f, 1.0f);
+      int idx = skyIndex(q);
+      if (layer == SkyLayer::HIGHLIGHT) {
+        // the light end of the palette only, sparser and thinner: the passages
+        // of pale blue and white that rim the swirls.
+        if (idx < 4)
+          continue;
+        idx = std::min(6, idx + 1);
+      } else if (idx > 5) {
+        idx = 5;
+      }
+      const float wdt = spacing * (0.30f + 0.28f * hash01(sx + 13, sy + 5)) *
+                        (layer == SkyLayer::HIGHLIGHT ? 0.6f : 1.0f);
+      skyRib(img, pts, cv::Vec3b(pal[idx].r, pal[idx].g, pal[idx].b),
+             std::max(1.5f, wdt), 0.6f + 0.7f * hash01(sx, sy + 17), sx + sy);
     }
   }
+}
 
-  // Eleven stars, each a core, a halo and seven rays.
+// The hillside, the village and the cypress: the dark land the sky sits over,
+// painted as opaque silhouettes with their own strokes so they hold up against
+// the swirl rather than reading as flat cut-outs.
+inline void skyPaintLand(cv::Mat &img, int W, int H) {
+  const auto ridgeY = [&](float v) {
+    return H * 0.80f + 0.055f * H * std::sin(v * 6.6f + 1.1f) +
+           0.028f * H * std::sin(v * 15.0f + 0.3f);
+  };
+  // the hillside
+  std::vector<cv::Point> hill;
+  hill.push_back(cv::Point(0, H));
+  for (int x = 0; x <= W; x += 3)
+    hill.push_back(cv::Point(x, int(ridgeY(float(x) / float(W)))));
+  hill.push_back(cv::Point(W, H));
+  cv::fillPoly(img, std::vector<std::vector<cv::Point>>{hill},
+               cv::Scalar(20, 34, 32, 255));
+  for (int x = 0; x <= W; x += 9) {
+    const float y = ridgeY(float(x) / float(W));
+    const float len = 22.0f + 30.0f * hash01(x, 3);
+    cv::line(img, cv::Point(x, int(y)), cv::Point(int(x + len), int(y - 6.0f)),
+             cv::Scalar(34, 58, 50, 255), 3, cv::LINE_AA);
+  }
+  // the village, along the ridge: rooftops, a few lit windows, a spire
+  const int baseY = int(H * 0.845f);
+  for (int i = 0; i < 26; ++i) {
+    const int x = int((0.30f + 0.42f * hash01(i, 11)) * W);
+    const int hw = 8 + int(16 * hash01(i, 21));
+    const int hh = 10 + int(22 * hash01(i, 31));
+    std::vector<cv::Point> house = {
+        cv::Point(x - hw, baseY), cv::Point(x + hw, baseY),
+        cv::Point(x + hw, baseY - hh), cv::Point(x, baseY - hh - hw / 2),
+        cv::Point(x - hw, baseY - hh)};
+    cv::fillPoly(img, std::vector<std::vector<cv::Point>>{house},
+                 cv::Scalar(16, 22, 40, 255));
+    if (hash01(i, 41) > 0.45f)
+      cv::rectangle(img, cv::Point(x - hw / 2, baseY - hh + 3),
+                    cv::Point(x - hw / 2 + 3, baseY - hh + 6),
+                    cv::Scalar(236, 196, 96, 255), -1);
+  }
+  const int cx = int(0.46f * W);
+  cv::fillPoly(img,
+               std::vector<std::vector<cv::Point>>{{cv::Point(cx - 7, baseY),
+                                                    cv::Point(cx + 7, baseY),
+                                                    cv::Point(cx, baseY - 62)}},
+               cv::Scalar(14, 18, 34, 255));
+  // the cypress, a flame of near-black green rising from the foreground
+  const float ccx = 0.075f * W, cbase = H * 0.995f, ctop = H * 0.05f;
+  std::vector<cv::Point> cyp;
+  constexpr int kN = 40;
+  for (int i = 0; i <= kN; ++i) {
+    const float k = float(i) / kN;
+    const float y = cbase + (ctop - cbase) * k;
+    const float half = (0.055f * W) * std::pow(1.0f - k, 0.8f) + 0.004f * W;
+    cyp.push_back(cv::Point(
+        int(ccx + half + (1.0f - k) * 0.012f * W * std::sin(k * 22.0f + 1.0f)),
+        int(y)));
+  }
+  for (int i = kN; i >= 0; --i) {
+    const float k = float(i) / kN;
+    const float y = cbase + (ctop - cbase) * k;
+    const float half = (0.055f * W) * std::pow(1.0f - k, 0.8f) + 0.004f * W;
+    cyp.push_back(cv::Point(
+        int(ccx - half + (1.0f - k) * 0.012f * W * std::sin(k * 19.0f + 3.0f)),
+        int(y)));
+  }
+  cv::fillPoly(img, std::vector<std::vector<cv::Point>>{cyp},
+               cv::Scalar(9, 18, 13, 255));
+  for (int i = 0; i < 340; ++i) {
+    const float k = std::pow(hash01(i, 7), 0.7f);
+    const float y = cbase + (ctop - cbase) * k;
+    const float half = (0.055f * W) * std::pow(1.0f - k, 0.8f) + 0.004f * W;
+    const float fx = ccx + (hash01(i, 13) - 0.5f) * 2.0f * half;
+    const float len = (0.03f + 0.06f * hash01(i, 19)) * H;
+    const float lean = (hash01(i, 23) - 0.5f) * 0.5f;
+    std::vector<cv::Point> pts = {
+        cv::Point(cvRound(fx), cvRound(y)),
+        cv::Point(cvRound(fx + lean * len * 0.5f), cvRound(y - len * 0.5f)),
+        cv::Point(cvRound(fx + lean * len), cvRound(y - len))};
+    const cv::Vec3b c(uchar(10 + int(18 * hash01(i, 29))),
+                      uchar(30 + int(38 * hash01(i, 31))),
+                      uchar(18 + int(20 * hash01(i, 37))));
+    cv::polylines(img, pts, false, rgbOf(c),
+                  2.0 + 2.0 * hash01(i, 41), cv::LINE_AA);
+  }
+}
+
+// Eleven halated stars and the crescent moon, painted into the raster. A star
+// is a loaded dab of warm yellow inside three rows of short curved strokes --
+// Van Gogh's halo is brushed, not printed -- and the moon is a cream disc with
+// a bite taken out of it by a second, sky-coloured disc.
+inline void skyPaintStars(cv::Mat &img, int W, int H) {
+  const float sc = float(std::min(W, H));
   for (int i = 0; i < 11; ++i) {
-    const float sx = x + w * (0.05f + 0.90f * hash01(i, 101));
-    const float sy = y + h * (0.04f + 0.38f * hash01(i, 202));
-    const float rad = cell * (4.5f + 9.0f * hash01(i, 303));
-    const float tw = 0.55f + 0.45f * std::sin(tsec * 1.6f + float(i) * 2.1f);
-    save();
-    globalCompositeOperation(NVG_LIGHTER);
-    glare(mix(cream(), cv::Scalar(30, 170, 235, 255), 0.45f), sx, sy, rad * 2.2f,
-          140.0f * tw);
-    glare(cream(), sx, sy, rad * 0.55f, 235.0f * tw);
-    constexpr int kRays = 7;
-    for (int k = 0; k < kRays; ++k) {
-      const float a = 6.2831853f * float(k) / float(kRays) + float(i);
-      Stroke s;
-      s.x0 = sx + std::cos(a) * rad * 0.5f;
-      s.y0 = sy + std::sin(a) * rad * 0.5f;
-      s.x1 = sx + std::cos(a) * rad * 1.9f;
-      s.y1 = sy + std::sin(a) * rad * 1.9f;
-      s.w = std::max(1.0f, rad * 0.16f);
-      s.bulge = 0.0f;
-      s.wob = 0.0f;
-      s.wob2 = 0.0f;
-      beginPath();
-      appendStroke(s);
-      fillColor(withAlpha(cream(), 110.0f * tw));
-      fill();
+    float sx, sy, rad;
+    starSlot(i, float(W), float(H), sx, sy, rad);
+    for (int ring = 3; ring >= 1; --ring) {
+      const float rr = rad * (0.95f + 0.55f * float(ring));
+      const int segs = 10 + ring * 4;
+      for (int s = 0; s < segs; ++s) {
+        const float a =
+            6.2831853f * (float(s) + 0.5f * hash01(i * 31 + s, ring)) / segs;
+        const float span = 0.14f + 0.20f * hash01(i * 7 + s, ring + 50);
+        const float rr2 = rr * (0.90f + 0.18f * hash01(i + s, ring + 9));
+        std::vector<cv::Point> arc;
+        for (int k = 0; k <= 5; ++k) {
+          const float aa =
+              a + (span * 6.2831853f) * (float(k) / 5.0f - 0.5f);
+          const float rk =
+              rr2 * (1.0f - 0.10f * std::sin(float(k) / 5.0f * 3.14159f));
+          arc.push_back(cv::Point(cvRound(sx + std::cos(aa) * rk),
+                                  cvRound(sy + std::sin(aa) * rk)));
+        }
+        const cv::Vec3b c =
+            (ring == 1) ? cv::Vec3b(244, 214, 138)
+                        : (ring == 2 ? cv::Vec3b(190, 202, 222)
+                                     : cv::Vec3b(140, 174, 212));
+        const float wid = sc * 0.0032f * (0.6f + 0.9f * hash01(i * 3 + s, ring + 77));
+        cv::polylines(img, arc, false, rgbOf(c), std::max(1.6, double(wid)),
+                      cv::LINE_AA);
+      }
     }
-    restore();
+    for (int s = 0; s < 6; ++s) {
+      const float a = 6.2831853f * float(s) / 6.0f + float(i) * 0.7f;
+      const float r0 = rad * (1.15f + 0.12f * hash01(i, s));
+      const float r1 = rad * (1.9f + 0.5f * hash01(i + 5, s + 9));
+      std::vector<cv::Point> ray = {
+          cv::Point(cvRound(sx + std::cos(a) * r0), cvRound(sy + std::sin(a) * r0)),
+          cv::Point(cvRound(sx + std::cos(a) * r1), cvRound(sy + std::sin(a) * r1))};
+      cv::polylines(img, ray, false, cv::Scalar(224, 216, 176, 255),
+                    std::max(1.6, sc * 0.0024), cv::LINE_AA);
+    }
+    cv::circle(img, cv::Point(int(sx), int(sy)), int(rad * 0.62),
+               cv::Scalar(244, 212, 120, 255), -1, cv::LINE_AA);
+    cv::circle(img, cv::Point(int(sx), int(sy)), int(rad * 0.36),
+               cv::Scalar(255, 244, 196, 255), -1, cv::LINE_AA);
   }
+  float mx, my, mr;
+  moonSlot(float(W), float(H), mx, my, mr);
+  for (int s = 0; s < 16; ++s) {
+    const float a = 6.2831853f * float(s) / 16.0f;
+    const float r0 = mr * 1.02f, r1 = mr * (1.25f + 0.22f * hash01(s, 5));
+    std::vector<cv::Point> ray = {
+        cv::Point(cvRound(mx + std::cos(a) * r0), cvRound(my + std::sin(a) * r0)),
+        cv::Point(cvRound(mx + std::cos(a) * r1), cvRound(my + std::sin(a) * r1))};
+    cv::polylines(img, ray, false, cv::Scalar(226, 210, 150, 255),
+                  std::max(2.0, double(sc * 0.0035)), cv::LINE_AA);
+  }
+  cv::circle(img, cv::Point(int(mx), int(my)), int(mr),
+             cv::Scalar(248, 228, 150, 255), -1, cv::LINE_AA);
+  cv::circle(img, cv::Point(int(mx - mr * 0.45f), int(my - mr * 0.30f)),
+             int(mr * 0.92), cv::Scalar(30, 44, 90, 255), -1, cv::LINE_AA);
+}
+
+// Paint the whole raster: ground, flow, hills, stars.
+inline cv::Mat buildSkyRaster(int W, int H, float t) {
+  cv::Mat img(H, W, CV_8UC4);
+  // the ground: a vertical wash, brighter across the middle band, sinking to
+  // near-black above the hills (that is the gradient the strokes sit on, and
+  // the parts of it the flow leaves uncovered are what make the sky breathe).
+  const cv::Vec3b top(26, 40, 82), mid(46, 80, 150), bot(12, 18, 42);
+  for (int y = 0; y < H; ++y) {
+    const float v = float(y) / float(std::max(1, H - 1));
+    cv::Vec3b c;
+    if (v < 0.45f) {
+      const float k = v / 0.45f;
+      c = cv::Vec3b(uchar(top[0] + (mid[0] - top[0]) * k),
+                    uchar(top[1] + (mid[1] - top[1]) * k),
+                    uchar(top[2] + (mid[2] - top[2]) * k));
+    } else {
+      const float k = (v - 0.45f) / 0.55f;
+      c = cv::Vec3b(uchar(mid[0] + (bot[0] - mid[0]) * k),
+                    uchar(mid[1] + (bot[1] - mid[1]) * k),
+                    uchar(mid[2] + (bot[2] - mid[2]) * k));
+    }
+    img.row(y).setTo(cv::Scalar(c[0], c[1], c[2], 255));
+  }
+  const float fine = std::max(6.0f, float(std::min(W, H)) / 95.0f);
+  const float coarse = std::max(9.0f, float(std::min(W, H)) / 38.0f);
+  skyStrokeLayer(img, W, H, t, fine, 2.4f, 0, SkyLayer::FIELD);
+  skyStrokeLayer(img, W, H, t, coarse, 1.7f, 1000, SkyLayer::HIGHLIGHT);
+  skyPaintLand(img, W, H);
+  skyPaintStars(img, W, H);
+  return img;
+}
+
+// The rasterised sky as a NanoVG image, regenerated only when the slab's pixel
+// size changes. thread_local for the same reason Batch is: with more than one
+// worker each has its own NanoVG context, and an image handle belongs to the
+// context that created it.
+inline int skyImage(int W, int H, float t) {
+  static thread_local int handle = -1;
+  static thread_local cv::Size size(0, 0);
+  if (handle >= 0 && size == cv::Size(W, H))
+    return handle;
+  if (handle >= 0)
+    cv::v4d::nvg::deleteImage(handle);
+  const cv::Mat img = buildSkyRaster(W, H, t);
+  handle = cv::v4d::nvg::createImageRGBA(W, H, 0, img.data);
+  size = cv::Size(W, H);
+  return handle;
+}
+
+// Draw the sky over the slab, then let the painted stars breathe: a slow
+// additive twinkle laid *over* the raster, which is the only part of the sky
+// that moves, and enough to keep it alive without re-painting the swirl.
+inline void paintSky(float x, float y, float w, float h, float tsec) {
+  using namespace cv::v4d::nvg;
+  if (w <= 0.0f || h <= 0.0f)
+    return;
+  const int W = std::max(1, int(w)), H = std::max(1, int(h));
+  const int img = skyImage(W, H, tsec);
+  if (img >= 0) {
+    beginPath();
+    rect(x, y, w, h);
+    fillPaint(imagePattern(x, y, x + w, y + h, 0.0f, img, 1.0f));
+    fill();
+  }
+  save();
+  globalCompositeOperation(NVG_LIGHTER);
+  for (int i = 0; i < 11; ++i) {
+    float sx, sy, rad;
+    starSlot(i, w, h, sx, sy, rad);
+    const float tw = 0.55f + 0.45f * std::sin(tsec * 1.6f + float(i) * 2.1f);
+    glare(mix(cream(), cv::Scalar(0, 190, 255, 255), 0.5f), x + sx, y + sy,
+          rad * 1.9f, 34.0f * tw);
+  }
+  {
+    float mx, my, mr;
+    moonSlot(w, h, mx, my, mr);
+    const float tw = 0.7f + 0.3f * std::sin(tsec * 0.9f);
+    glare(cream(), x + mx, y + my, mr * 1.5f, 30.0f * tw);
+  }
+  restore();
 }
 
 // ---- the varnish -----------------------------------------------------------

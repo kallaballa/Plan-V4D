@@ -185,10 +185,11 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
 
   // --- what the world is painted on, and over ------------------------------
   if (vg) {
-    // Starry Night, as the empty cells: the night is drawn first and the world
-    // is painted over it, so every pile hangs in a sky rather than on a tray.
+    // Starry Night, as the empty cells: the painted night is laid down first
+    // and the world is painted over it, so every pile hangs in a sky rather
+    // than on a tray.
     scissor(o.x, o.y, w, h);
-    vg::paintNight(o.x, o.y, w, h, cell, tsec);
+    vg::paintSky(o.x, o.y, w, h, tsec);
   } else {
     // The empty field, drawn once so the run pass only has to cover what is
     // actually occupied.
