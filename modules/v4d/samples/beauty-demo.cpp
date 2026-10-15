@@ -179,10 +179,17 @@ class FaceFeatureExtractor {
 public:
   FaceFeatureExtractor(const cv::Size &inputSize, const float &inputScale)
       : sz_(inputSize), scale_(inputScale) {
+    // YuNet runs through ONNX Runtime (FaceDetectorYN selects ENGINE_ORT), so the
+    // target picks the ORT execution provider: NNAPI on Android (there is no OpenCL
+    // EP there), OpenCL elsewhere.
+#ifdef __ANDROID__
+    const int dnnTarget = cv::dnn::DNN_TARGET_NPU;
+#else
+    const int dnnTarget = cv::dnn::DNN_TARGET_OPENCL;
+#endif
     detector_ = cv::FaceDetectorYN::create(
         cv::samples::findFile("models/face_detection_yunet_2023mar.onnx"), "",
-        inputSize, 0.9, 0.3, 5000, cv::dnn::DNN_BACKEND_OPENCV,
-        cv::dnn::DNN_TARGET_OPENCL);
+        inputSize, 0.9, 0.3, 5000, cv::dnn::DNN_BACKEND_OPENCV, dnnTarget);
     facemark_->loadModel(cv::samples::findFile("models/lbfmodel.yaml"));
   }
 

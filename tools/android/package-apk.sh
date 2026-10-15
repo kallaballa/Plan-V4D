@@ -26,6 +26,12 @@ DEMO="${V4D_ANDROID_DEMO:-font_rendering}"
 # otherwise.
 PACKAGE_ID="${V4D_ANDROID_PACKAGE:-}"
 STAGE_ROOT="${ANDROID_STAGE:-$REPO_DIR/build/android}"
+# Opt-in: mark the app <profileable android:shell="true"/>. A stock (non-root)
+# device refuses simpleperf --app and Perfetto app sampling unless the app is
+# profileable (API 29+) or debuggable, so an on-device profile of a demo needs
+# this. Off by default: it is a manifest change that shipping APKs should not
+# quietly carry.
+PROFILEABLE="${V4D_APK_PROFILEABLE:-0}"
 # --- signing key -----------------------------------------------------------
 # The test signing key is checked into the repository (tools/android/
 # v4d-debug.keystore), so the signing identity is stable across machines,
@@ -62,6 +68,7 @@ while [ $# -gt 0 ]; do
     --api-level) API_LEVEL="$2"; shift 2 ;;
     --package)   PACKAGE_ID="$2"; shift 2 ;;
     --keystore)  KEYSTORE="$2"; KEYSTORE_SET=1; shift 2 ;;
+    --profileable) PROFILEABLE=1; shift ;;
     -h|--help)   usage 0 ;;
     *) echo "unknown argument: $1" >&2; usage 1 ;;
   esac
@@ -262,6 +269,10 @@ CLASS_FILE="$CLASSES_DIR/org/opencv/v4d/V4DCameraActivity.class"
 # it asks for CAMERA and then lets NativeActivity load the library named in
 # <meta-data>, so the launch path is otherwise the one from before. hasCode is
 # "true" now, which is what a dex needs.
+# <profileable> (only with --profileable/V4D_APK_PROFILEABLE=1) is what lets
+# simpleperf --app and Perfetto sample this app's threads on a stock device.
+PROFILEABLE_XML=""
+[ "$PROFILEABLE" = 1 ] && PROFILEABLE_XML='    <profileable android:shell="true" />'
 cat > "$WORK/AndroidManifest.xml" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -276,6 +287,7 @@ cat > "$WORK/AndroidManifest.xml" <<EOF
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-feature android:name="android.hardware.camera.any" android:required="false" />
   <application android:label="V4D $DEMO" android:hasCode="true">
+$PROFILEABLE_XML
   <!-- OpenCL: the app bundles its own clvk libOpenCL.so (Vulkan-backed), so
        OpenCV's dlopen("libOpenCL.so") resolves inside the APK. uses-native-library
        additionally exposes a vendor ICD when one exists; the bundled copy still

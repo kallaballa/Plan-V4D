@@ -215,10 +215,17 @@ public:
                                  const std::string &poseModel)
       : detNet_(dnn::readNetFromONNX(detModel, dnn::ENGINE_ORT)),
         poseNet_(dnn::readNetFromONNX(poseModel, dnn::ENGINE_ORT)) {
+    // These nets run through ONNX Runtime (see ENGINE_ORT above), so the target
+    // picks the ORT execution provider: NNAPI on Android, OpenCL elsewhere.
+#ifdef __ANDROID__
+    const int dnnTarget = dnn::DNN_TARGET_NPU;
+#else
+    const int dnnTarget = dnn::DNN_TARGET_OPENCL;
+#endif
     detNet_.setPreferableBackend(dnn::DNN_BACKEND_OPENCV);
     poseNet_.setPreferableBackend(dnn::DNN_BACKEND_OPENCV);
-    detNet_.setPreferableTarget(dnn::DNN_TARGET_OPENCL);
-    poseNet_.setPreferableTarget(dnn::DNN_TARGET_OPENCL);
+    detNet_.setPreferableTarget(dnnTarget);
+    poseNet_.setPreferableTarget(dnnTarget);
   }
 
   [[nodiscard]] std::vector<Person>
