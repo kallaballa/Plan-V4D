@@ -86,9 +86,15 @@ public:
   int createFont(const char *name, const char *filename);
   int createFontMem(const char *name, unsigned char *data, int ndata,
                     int freeData);
+  int createFontAtIndex(const char *name, const char *filename,
+                        int fontIndex);
+  int createFontMemAtIndex(const char *name, unsigned char *data, int ndata,
+                           int freeData, int fontIndex);
   int findFont(const char *name);
   int addFallbackFontId(int baseFont, int fallbackFont);
   int addFallbackFont(const char *baseFont, const char *fallbackFont);
+  void resetFallbackFontsId(int baseFont);
+  void resetFallbackFonts(const char *baseFont);
   void fontSize(float size);
   void fontBlur(float blur);
   void textLetterSpacing(float spacing);
@@ -112,8 +118,17 @@ public:
   void save();
   void restore();
   void reset();
+  void shapeAntiAlias(int enabled);
 
-  //    void shapeAntiAlias(int enabled);
+  // Composite operations: how a shape mixes with what is already on the
+  // canvas. NVG_LIGHTER is additive blending, i.e. the operator behind glow
+  // and glare; the BlendFunc pair is the raw GL factor form. The
+  // NVGcompositeOperation / NVGblendFactor enumerators come with nanovg.h,
+  // which this header includes.
+  void globalCompositeOperation(int op);
+  void globalCompositeBlendFunc(int sfactor, int dfactor);
+  void globalCompositeBlendFuncSeparate(int srcRGB, int dstRGB, int srcAlpha,
+                                        int dstAlpha);
   void strokeColor(const cv::Scalar &bgra);
   void strokePaint(Paint paint);
   void fillColor(const cv::Scalar &bgra);
@@ -184,6 +199,10 @@ public:
   void scissor(float x, float y, float w, float h);
   void intersectScissor(float x, float y, float w, float h);
   void resetScissor();
+
+  // Dumps the internal path cache to stdout; a debugging aid, not a drawing
+  // operation.
+  void debugDumpPathCache();
 };
 } // namespace detail
 
@@ -199,6 +218,18 @@ CV_EXPORTS int createFont(const char *name, const char *filename);
 CV_EXPORTS int createFontMem(const char *name, unsigned char *data, int ndata,
                              int freeData);
 /*!
+ * A forward to nvgCreateFontAtIndex. See
+ * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
+ */
+CV_EXPORTS int createFontAtIndex(const char *name, const char *filename,
+                                 int fontIndex);
+/*!
+ * A forward to nvgCreateFontMemAtIndex. See
+ * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
+ */
+CV_EXPORTS int createFontMemAtIndex(const char *name, unsigned char *data,
+                                    int ndata, int freeData, int fontIndex);
+/*!
  * A forward to nvgFindFont. See
  * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
  */
@@ -213,6 +244,16 @@ CV_EXPORTS int addFallbackFontId(int baseFont, int fallbackFont);
  * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
  */
 CV_EXPORTS int addFallbackFont(const char *baseFont, const char *fallbackFont);
+/*!
+ * A forward to nvgResetFallbackFontsId. See
+ * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
+ */
+CV_EXPORTS void resetFallbackFontsId(int baseFont);
+/*!
+ * A forward to nvgResetFallbackFonts. See
+ * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
+ */
+CV_EXPORTS void resetFallbackFonts(const char *baseFont);
 /*!
  * A forward to nvgFontSize. See
  * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
@@ -305,11 +346,30 @@ CV_EXPORTS void restore();
  * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
  */
 CV_EXPORTS void reset();
-///*!
-// * A forward to nvgShapeAntiAlias. See
-// https://github.com/memononen/nanovg/blob/master/src/nanovg.h
-// */
-// CV_EXPORTS void shapeAntiAlias(int enabled);
+/*!
+ * A forward to nvgShapeAntiAlias. See
+ * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
+ */
+CV_EXPORTS void shapeAntiAlias(int enabled);
+/*!
+ * A forward to nvgGlobalCompositeOperation. The op parameter is one of
+ * NVGcompositeOperation; NVG_LIGHTER is additive blending (glow, glare).
+ * See https://github.com/memononen/nanovg/blob/master/src/nanovg.h
+ */
+CV_EXPORTS void globalCompositeOperation(int op);
+/*!
+ * A forward to nvgGlobalCompositeBlendFunc. The parameters are two of
+ * NVGblendFactor. See
+ * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
+ */
+CV_EXPORTS void globalCompositeBlendFunc(int sfactor, int dfactor);
+/*!
+ * A forward to nvgGlobalCompositeBlendFuncSeparate. The parameters are four
+ * of NVGblendFactor. See
+ * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
+ */
+CV_EXPORTS void globalCompositeBlendFuncSeparate(int srcRGB, int dstRGB,
+                                                 int srcAlpha, int dstAlpha);
 /*!
  * A forward to nvgStrokeColor. See
  * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
@@ -591,6 +651,13 @@ CV_EXPORTS void intersectScissor(float x, float y, float w, float h);
  * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
  */
 CV_EXPORTS void resetScissor();
+
+/*!
+ * A forward to nvgDebugDumpPathCache: prints the internal path cache to
+ * stdout. See
+ * https://github.com/memononen/nanovg/blob/master/src/nanovg.h
+ */
+CV_EXPORTS void debugDumpPathCache();
 
 CV_EXPORTS void clearScreen(const cv::Scalar &bgra = cv::Scalar(0, 0, 0, 255));
 } // namespace nvg

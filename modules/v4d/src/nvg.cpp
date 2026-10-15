@@ -36,6 +36,17 @@ int NVG::createFontMem(const char *name, unsigned char *data, int ndata,
   return nvgCreateFontMem(getContext(), name, data, ndata, freeData);
 }
 
+int NVG::createFontAtIndex(const char *name, const char *filename,
+                           int fontIndex) {
+  return nvgCreateFontAtIndex(getContext(), name, filename, fontIndex);
+}
+
+int NVG::createFontMemAtIndex(const char *name, unsigned char *data, int ndata,
+                              int freeData, int fontIndex) {
+  return nvgCreateFontMemAtIndex(getContext(), name, data, ndata, freeData,
+                                 fontIndex);
+}
+
 int NVG::findFont(const char *name) { return nvgFindFont(getContext(), name); }
 
 int NVG::addFallbackFontId(int baseFont, int fallbackFont) {
@@ -44,6 +55,14 @@ int NVG::addFallbackFontId(int baseFont, int fallbackFont) {
 
 int NVG::addFallbackFont(const char *baseFont, const char *fallbackFont) {
   return nvgAddFallbackFont(getContext(), baseFont, fallbackFont);
+}
+
+void NVG::resetFallbackFontsId(int baseFont) {
+  nvgResetFallbackFontsId(getContext(), baseFont);
+}
+
+void NVG::resetFallbackFonts(const char *baseFont) {
+  nvgResetFallbackFonts(getContext(), baseFont);
 }
 
 void NVG::fontSize(float size) { nvgFontSize(getContext(), size); }
@@ -106,9 +125,23 @@ void NVG::restore() { nvgRestore(getContext()); }
 
 void NVG::reset() { nvgReset(getContext()); }
 
-// void NVG::shapeAntiAlias(int enabled) {
-//     nvgShapeAntiAlias(getContext(), enabled);
-// }
+void NVG::shapeAntiAlias(int enabled) {
+  nvgShapeAntiAlias(getContext(), enabled);
+}
+
+void NVG::globalCompositeOperation(int op) {
+  nvgGlobalCompositeOperation(getContext(), op);
+}
+
+void NVG::globalCompositeBlendFunc(int sfactor, int dfactor) {
+  nvgGlobalCompositeBlendFunc(getContext(), sfactor, dfactor);
+}
+
+void NVG::globalCompositeBlendFuncSeparate(int srcRGB, int dstRGB,
+                                           int srcAlpha, int dstAlpha) {
+  nvgGlobalCompositeBlendFuncSeparate(getContext(), srcRGB, dstRGB, srcAlpha,
+                                      dstAlpha);
+}
 
 void NVG::strokeColor(const cv::Scalar &bgra) {
   nvgStrokeColor(getContext(), nvgRGBA(bgra[2], bgra[1], bgra[0], bgra[3]));
@@ -343,6 +376,8 @@ void NVG::intersectScissor(float x, float y, float w, float h) {
 }
 
 void NVG::resetScissor() { nvgResetScissor(getContext()); }
+
+void NVG::debugDumpPathCache() { nvgDebugDumpPathCache(getContext()); }
 } // namespace detail
 
 int createFont(const char *name, const char *filename) {
@@ -353,6 +388,17 @@ int createFontMem(const char *name, unsigned char *data, int ndata,
                   int freeData) {
   return detail::NVG::getCurrentContext()->createFontMem(name, data, ndata,
                                                          freeData);
+}
+
+int createFontAtIndex(const char *name, const char *filename, int fontIndex) {
+  return detail::NVG::getCurrentContext()->createFontAtIndex(name, filename,
+                                                             fontIndex);
+}
+
+int createFontMemAtIndex(const char *name, unsigned char *data, int ndata,
+                         int freeData, int fontIndex) {
+  return detail::NVG::getCurrentContext()->createFontMemAtIndex(
+      name, data, ndata, freeData, fontIndex);
 }
 
 int findFont(const char *name) {
@@ -366,6 +412,14 @@ int addFallbackFontId(int baseFont, int fallbackFont) {
 int addFallbackFont(const char *baseFont, const char *fallbackFont) {
   return detail::NVG::getCurrentContext()->addFallbackFont(baseFont,
                                                            fallbackFont);
+}
+
+void resetFallbackFontsId(int baseFont) {
+  detail::NVG::getCurrentContext()->resetFallbackFontsId(baseFont);
+}
+
+void resetFallbackFonts(const char *baseFont) {
+  detail::NVG::getCurrentContext()->resetFallbackFonts(baseFont);
 }
 
 void fontSize(float size) { detail::NVG::getCurrentContext()->fontSize(size); }
@@ -435,9 +489,23 @@ void restore() { detail::NVG::getCurrentContext()->restore(); }
 
 void reset() { detail::NVG::getCurrentContext()->reset(); }
 
-// void shapeAntiAlias(int enabled) {
-//     detail::NVG::getCurrentContext()->strokeColor(enabled);
-// }
+void shapeAntiAlias(int enabled) {
+  detail::NVG::getCurrentContext()->shapeAntiAlias(enabled);
+}
+
+void globalCompositeOperation(int op) {
+  detail::NVG::getCurrentContext()->globalCompositeOperation(op);
+}
+
+void globalCompositeBlendFunc(int sfactor, int dfactor) {
+  detail::NVG::getCurrentContext()->globalCompositeBlendFunc(sfactor, dfactor);
+}
+
+void globalCompositeBlendFuncSeparate(int srcRGB, int dstRGB, int srcAlpha,
+                                      int dstAlpha) {
+  detail::NVG::getCurrentContext()->globalCompositeBlendFuncSeparate(
+      srcRGB, dstRGB, srcAlpha, dstAlpha);
+}
 
 void strokeColor(const cv::Scalar &bgra) {
   detail::NVG::getCurrentContext()->strokeColor(bgra);
@@ -660,6 +728,10 @@ void intersectScissor(float x, float y, float w, float h) {
 }
 
 void resetScissor() { detail::NVG::getCurrentContext()->resetScissor(); }
+
+void debugDumpPathCache() {
+  detail::NVG::getCurrentContext()->debugDumpPathCache();
+}
 
 void clearScreen(const cv::Scalar &bgra) {
   const float &b = bgra[0] / 255.0f;
