@@ -155,37 +155,37 @@ private:
       c[t] = cv::Scalar(b, g, r, 255);
     };
     // inert
-    set(SAND, 238, 204, 128);
-    set(WALL, 100, 100, 100);
-    set(NIL, 60, 60, 60);
-    set(IRONWALL, 110, 110, 110);
-    set(TORCH, 139, 69, 19);
-    set(STOVE, 74, 74, 74);
-    set(ICE, 175, 238, 238);
-    set(PLANT, 0, 150, 0);
-    set(EMBER, 127, 25, 25);
-    set(RUST, 110, 40, 10);
+    set(SAND, 233, 194, 104);   // wheatfield: chrome yellow
+    set(WALL, 104, 118, 134);   // stable stone, a cool blue-grey
+    set(NIL, 46, 54, 86);       // void: deep ultramarine ink
+    set(IRONWALL, 92, 104, 124); // slate blue
+    set(TORCH, 214, 96, 40);    // vermilion flame
+    set(STOVE, 86, 70, 52);     // burnt umber iron
+    set(ICE, 178, 228, 214);    // pale veridian frost
+    set(PLANT, 46, 140, 84);    // viridian cypress
+    set(EMBER, 170, 58, 30);    // smouldering orange-red
+    set(RUST, 150, 80, 32);     // burnt sienna
     // elemental
-    set(WATER, 32, 32, 255);
-    set(DIRT, 205, 175, 149);
-    set(SALT, 255, 255, 255);
-    set(OIL, 128, 64, 64);
+    set(WATER, 40, 96, 205);    // cobalt / ultramarine
+    set(DIRT, 150, 116, 74);    // raw sienna ochre
+    set(SALT, 238, 232, 214);   // cream white
+    set(OIL, 130, 112, 54);     // olive-gold
     // combined
-    set(MUD, 139, 69, 19);
-    set(SALTWATER, 65, 105, 225);
-    set(STEAM, 95, 158, 160);
+    set(MUD, 126, 90, 56);      // wet umber
+    set(SALTWATER, 54, 132, 192); // teal
+    set(STEAM, 168, 206, 200);  // pale aqua vapour
     // extra
-    set(ACID, 173, 255, 47);
-    set(FIRE, 255, 50, 50);
-    set(ELEC, 255, 255, 0);
+    set(ACID, 188, 212, 64);    // chartreuse
+    set(FIRE, 255, 178, 48);    // sun-yellow, hot enough to bloom
+    set(ELEC, 255, 238, 96);    // electric chrome yellow
     // spouts
-    set(WATERSPOUT, 0, 0, 128);
-    set(SANDSPOUT, 240, 230, 140);
-    set(SALTSPOUT, 238, 233, 233);
-    set(OILSPOUT, 108, 44, 44);
-    // The empty cell is the background of the world rather than a material: a
-    // cold near-black that the panel chrome can sit on.
-    set(NOTHING, 14, 14, 20);
+    set(WATERSPOUT, 46, 62, 152);
+    set(SANDSPOUT, 240, 220, 148);
+    set(SALTSPOUT, 240, 234, 208);
+    set(OILSPOUT, 110, 94, 46);
+    // The empty cell is the "void" of the night sky the world is painted on: a
+    // deep cobalt that the Van Gogh backdrop shows through.
+    set(NOTHING, 22, 32, 64);
     return c;
   }();
 };
@@ -254,6 +254,21 @@ struct Sandbox {
   int width_ = 0;
   int height_ = 0;
   bool particleSwaps_ = true;
+
+  // --- the style ---
+  //
+  // Van Gogh is the default: NanoVG has no single way of putting a colour on
+  // the screen -- flat fills, gradients, images and additive composites all
+  // exist -- and a falling-sand world is exactly the kind of subject that begs
+  // to be painted rather than diagrammed. The flag is a runtime one so the
+  // original, honest-to-the-automaton rendering stays one checkbox away, and so
+  // the two can be compared without rebuilding.
+  bool vanGogh_ = true;
+  // How thickly the paint is laid on: the renderer scales the number of strokes
+  // it combs through every run of material with this. It exists so that a slow
+  // machine thins the paint instead of dropping frames -- Van Gogh with a
+  // lighter palette knife.
+  float impasto_ = 1.0f;
 
   // Brush
   ParticleType brush_ = SAND;
@@ -1006,6 +1021,844 @@ static Material materialOf(ParticleType t) {
   }
 }
 
+// ===========================================================================
+// The Van Gogh treatment -- where the palette becomes paint
+// ===========================================================================
+//
+// NanoVG has no single way of putting a colour on the screen: there are flat
+// fills, gradients, tileable images, additive composites and arbitrary paths,
+// and all of them are one call away. A flat fill per cell is what the original
+// did (one SDL pixel per particle). What follows is what an oil painter would
+// have done with the same primitives.
+//
+// Four ideas, all of them taken from the paintings rather than from a renderer:
+//
+//   * **A ground, then paint on top of it.** Every oil painting starts with a
+//     flat "imprimatura" that covers the canvas and only then receives strokes.
+//     Here the ground is one wavy rectangle per run of one material, so the
+//     pile is opaque and cheap to draw, and the strokes above it are pure
+//     texture. Without it, translucent strokes would let the night sky shine
+//     straight through a heap of sand.
+//   * **A stroke is a tapered, wobbly ribbon, not a capsule.** A bezier bulged
+//     belly with a ragged edge reads as a loaded brush; a capsule reads as a
+//     line. The geometry is two beziers out and two beziers back, with a
+//     constant half-width and a perpendicular wobble on each edge.
+//   * **Shadow, body, light, and one note of the complement.** Van Gogh almost
+//     never laid a colour next to itself: blue against orange, yellow against
+//     violet, with a thin stroke of the complementary hue as the last passage.
+//     Four passes per material is the whole trick.
+//   * **The brush flow is combed, and it is stable.** The strokes of a field
+//     run in two alternating directions, which is why "Wheatfield with Crows"
+//     reads as wind. The direction here is a hash of the cell deformed slowly
+//     by time, so it never re-rolls from frame to frame -- a field of dashes
+//     whose direction flickers reads as television static.
+//
+// Everything deterministic comes out of a private hash, never out of the
+// Sandbox's RNG: that stream belongs to the automaton, and a renderer that
+// consumed it would change the physics by looking at it.
+namespace vg {
+
+// ---- a stable hash ---------------------------------------------------------
+inline uint32_t hashBits(int a, int b) {
+  uint32_t h = (uint32_t(a) * 73856093u) ^ (uint32_t(b) * 19349663u);
+  h ^= h >> 15;
+  h *= 2246822519u;
+  h ^= h >> 13;
+  return h;
+}
+inline float hash01(int a, int b) {
+  return float(hashBits(a, b) & 0xFFFFu) / 65535.0f;
+}
+
+// ---- colour arithmetic, on cv::Scalar's BGRA channel order -----------------
+inline cv::Scalar mix(const cv::Scalar &a, const cv::Scalar &b, float t) {
+  return cv::Scalar(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t,
+                    a[2] + (b[2] - a[2]) * t, a[3]);
+}
+inline cv::Scalar withAlpha(const cv::Scalar &c, float a) {
+  return cv::Scalar(c[0], c[1], c[2], a);
+}
+// Lead white, gesso, the cream of a star: the colour reached for whenever
+// light itself is the subject.
+inline cv::Scalar cream() { return cv::Scalar(226, 240, 250, 255); }
+inline cv::Scalar cerulean() { return cv::Scalar(194, 144, 74, 255); }
+
+// ---- the pigments ----------------------------------------------------------
+// The palette Van Gogh actually worked from: chrome yellow, cadmium yellow and
+// orange, vermilion, emerald green, viridian, Prussian blue, cobalt blue,
+// ultramarine, cerulean, lead white, ivory black, burnt sienna and umber.
+// Every entry carries light, base and dark -- the three passages a stroke is
+// painted with -- and a complement, the thin accent that keeps a field of one
+// colour from reading as flat.
+struct Pigment {
+  cv::Scalar light, base, dark, comp;
+};
+
+static const std::array<Pigment, PARTICLE_TYPE_COUNT> &pigmentTable() {
+  static const std::array<Pigment, PARTICLE_TYPE_COUNT> table = [] {
+    std::array<Pigment, PARTICLE_TYPE_COUNT> p{};
+    const auto rgb = [](int r, int g, int b) { return cv::Scalar(b, g, r, 255); };
+    const auto set = [&p, &rgb](ParticleType t, int lr, int lg, int lb, int br,
+                                int bg, int bb, int dr, int dg, int db) {
+      const cv::Scalar base = rgb(br, bg, bb);
+      // The complement is the channel swap: blue turns to orange, chrome
+      // yellow to violet, vermilion to green. It is a crude complement, and at
+      // the weight it is used it is the right one.
+      p[t] = Pigment{rgb(lr, lg, lb), base, rgb(dr, dg, db),
+                     cv::Scalar(base[2], base[1], base[0], 255)};
+    };
+    // In the palette's own order, so the two tables can be diffed.
+    set(SAND, 245, 212, 97, 227, 169, 60, 162, 105, 31);    // chrome yellow, wheat
+    set(WATER, 127, 178, 232, 44, 95, 200, 22, 38, 94);     // cobalt into ultramarine
+    set(SALTWATER, 110, 159, 224, 36, 68, 158, 18, 30, 78);
+    set(OIL, 138, 106, 74, 74, 46, 30, 36, 20, 12);         // burnt umber
+    set(DIRT, 200, 162, 114, 139, 94, 52, 74, 48, 24);      // burnt sienna
+    set(MUD, 138, 106, 69, 90, 58, 32, 46, 30, 14);         // umber
+    set(SALT, 251, 246, 230, 232, 223, 198, 169, 156, 124); // lead white
+    set(ICE, 242, 251, 254, 191, 230, 240, 111, 168, 196);  // cerulean
+    set(PLANT, 143, 196, 106, 63, 122, 70, 30, 66, 39);     // viridian
+    set(WALL, 184, 180, 200, 110, 110, 136, 46, 48, 80);    // stone, blue shadow
+    set(IRONWALL, 159, 168, 200, 78, 88, 120, 35, 40, 66);  // slate, Prussian
+    set(RUST, 208, 128, 80, 154, 74, 32, 82, 36, 14);       // vermilion
+    set(TORCH, 255, 208, 138, 255, 138, 42, 176, 58, 14);   // cadmium orange
+    set(STOVE, 110, 106, 120, 58, 56, 70, 22, 22, 30);      // ivory black
+    set(EMBER, 255, 176, 96, 224, 74, 32, 122, 30, 10);
+    set(FIRE, 255, 224, 138, 255, 122, 30, 194, 42, 8);     // cadmium yellow -> orange
+    set(ELEC, 255, 255, 208, 255, 232, 58, 200, 168, 0);    // chrome yellow
+    set(STEAM, 234, 246, 255, 168, 200, 220, 94, 122, 140);
+    set(ACID, 232, 255, 138, 184, 232, 58, 94, 140, 30);    // a sickly chrome green
+    set(WATERSPOUT, 143, 192, 240, 46, 98, 168, 20, 46, 92);
+    set(SANDSPOUT, 248, 224, 144, 210, 160, 58, 126, 90, 22);
+    set(SALTSPOUT, 255, 255, 255, 220, 210, 188, 154, 140, 112);
+    set(OILSPOUT, 154, 122, 90, 90, 58, 36, 44, 26, 14);
+    set(NIL, 106, 106, 138, 42, 42, 62, 14, 14, 24);        // the void: violet-black
+    set(NOTHING, 40, 52, 96, 26, 34, 66, 14, 18, 40);       // the sky under the paint
+    return p;
+  }();
+  return table;
+}
+
+inline Pigment pigmentOf(ParticleType t) { return pigmentTable()[t]; }
+
+// ---- the flow of the brush -------------------------------------------------
+inline float flowAngle(int cx, int cy, float t) {
+  const bool flip = (hashBits(cx, cy) & 1u) != 0u;
+  const float dir = flip ? 0.28f : -0.28f;
+  return dir + 0.20f * std::sin(float(cy) * 0.050f + t * 0.21f) +
+         0.16f * std::cos(float(cx) * 0.041f - t * 0.17f);
+}
+
+// ---- one stroke ------------------------------------------------------------
+struct Stroke {
+  float x0, y0, x1, y1; // the axis of the brush
+  float w;              // the loaded width
+  float bulge;          // the belly, along the normal
+  float wob, wob2;      // the ragged edges, along the normal
+};
+
+// Appends a stroke to an already-open path as one closed sub-path.
+//
+// The direction is canonicalised first. NanoVG fills with a non-zero winding
+// rule, so two sub-paths of opposite orientation *subtract* where they overlap:
+// a heap of strokes that point both ways would punch holes in itself. Pointing
+// every stroke the same way is what makes a pass union instead.
+inline void appendStroke(const Stroke &s) {
+  using namespace cv::v4d::nvg;
+  float ax = s.x0, ay = s.y0, bx = s.x1, by = s.y1;
+  if (bx < ax || (bx == ax && by < ay))
+    std::swap(ax, bx), std::swap(ay, by);
+  const float dx = bx - ax, dy = by - ay;
+  const float len = std::sqrt(dx * dx + dy * dy) + 1e-4f;
+  const float nx = -dy / len, ny = dx / len;
+  const float hw = s.w * 0.5f;
+  // The control points sit a third of the way along the axis and are pushed
+  // along the normal by the belly, which is what bows the stroke.
+  const float c1x = ax + dx * 0.33f + nx * s.bulge;
+  const float c1y = ay + dy * 0.33f + ny * s.bulge;
+  const float c2x = bx - dx * 0.33f + nx * s.bulge;
+  const float c2y = by - dy * 0.33f + ny * s.bulge;
+  moveTo(ax - nx * hw + nx * s.wob, ay - ny * hw + ny * s.wob);
+  bezierTo(c1x - nx * hw, c1y - ny * hw, c2x - nx * hw, c2y - ny * hw,
+           bx - nx * hw + nx * s.wob2, by - ny * hw + ny * s.wob2);
+  bezierTo(c2x + nx * hw, c2y + ny * hw, c1x + nx * hw, c1y + ny * hw,
+           ax + nx * hw + nx * s.wob, ay + ny * hw + ny * s.wob);
+  closePath();
+}
+
+// ---- the four passes, batched ---------------------------------------------
+// The strokes of one material are collected and filled afterwards, one path
+// per (pass, variant). A heap of settled sand is a few thousand strokes, but
+// it is still only a handful of draw calls, because NanoVG fills every
+// sub-path of a path in one go -- and, with a non-zero winding, the strokes of
+// one pass do not darken each other where they overlap.
+enum Pass { SHADOW = 0, BODY = 1, LIGHT = 2, ACCENT = 3, kPasses = 4 };
+static constexpr int kVariants = 4;
+
+struct Batch {
+  std::array<std::array<std::vector<Stroke>, kVariants>, kPasses> pass{};
+  void clear() {
+    for (auto &p : pass)
+      for (auto &v : p)
+        v.clear();
+  }
+};
+
+// The same pigment, pushed four ways: as it is, towards the light, towards the
+// dark, and towards its own complement.
+inline cv::Scalar variantColor(const Pigment &pig, int variant) {
+  switch (variant) {
+  case 0:
+    return pig.base;
+  case 1:
+    return mix(pig.base, pig.light, 0.45f);
+  case 2:
+    return mix(pig.base, pig.dark, 0.45f);
+  default:
+    return mix(pig.base, pig.comp, 0.55f);
+  }
+}
+
+// How a material is brushed. The automaton decides where a material is; the
+// brush decides how it lies on the canvas.
+struct Brush {
+  float length = 5.0f;  // cells per stroke
+  float width = 0.75f;  // stroke width, in cells
+  float alpha = 250.0f; // body alpha
+  float flow = 1.0f;   // how tightly the flow field steers the strokes
+  float rise = 0.0f;   // extra vertical bias (fire climbs, steam drifts)
+  float ground = 250.0f; // the imprimata under the strokes
+};
+
+// ---- the painter -----------------------------------------------------------
+// One material, over its runs: the ground, then shadow, body, light and the
+// accent of the complement, all filled in that order.
+void paintMaterial(const Pigment &pig, const vector<Run> &runs, const View &v,
+                   float tsec, const Brush &brush, float impasto,
+                   Batch &batch) {
+  using namespace cv::v4d::nvg;
+  if (runs.empty())
+    return;
+  const float cell = v.cell_;
+  batch.clear();
+
+  // --- the ground: one wavy rectangle per run, opaque ----------------------
+  {
+    beginPath();
+    for (const Run &r : runs) {
+      const float x0 = v.origin_.x + r.x0_ * cell;
+      const float x1 = v.origin_.x + (r.x1_ + 1) * cell;
+      const float y0 = v.origin_.y + r.y_ * cell;
+      const float y1 = y0 + cell;
+      const float mid = (x0 + x1) * 0.5f;
+      const float a = hash01(r.x0_, r.y_ + 7) - 0.5f;
+      const float b = hash01(r.x0_ + 3, r.y_) - 0.5f;
+      moveTo(x0, y0 + cell * 0.12f * a);
+      quadTo(mid, y0 + cell * 0.24f * a, x1, y0 + cell * 0.12f * b);
+      lineTo(x1, y1 - cell * 0.12f * b);
+      quadTo(mid, y1 - cell * 0.22f * a, x0, y1 - cell * 0.12f * a);
+      closePath();
+    }
+    fillColor(withAlpha(pig.base, brush.ground));
+    fill();
+  }
+
+  // --- the strokes ---------------------------------------------------------
+  for (const Run &r : runs) {
+    const float x0 = v.origin_.x + r.x0_ * cell;
+    const float x1 = v.origin_.x + (r.x1_ + 1) * cell;
+    const float yc = v.origin_.y + (r.y_ + 0.5f) * cell;
+    const float len = x1 - x0;
+    if (len <= 0.25f)
+      continue;
+    const float cells = float(r.x1_ - r.x0_ + 1);
+    const float h = hash01(r.x0_, r.y_);
+    const float h2 = hash01(r.y_ + 11, r.x0_);
+    // A long run is combed into several strokes; a short one is a single dab.
+    const int strokes = std::clamp(
+        int(std::floor(len / (cell * brush.length) * impasto + 0.5f)), 1, 4);
+    const float w = cell * brush.width * (0.58f + 0.42f * h);
+    for (int s = 0; s < strokes; ++s) {
+      const float f0 = (float(s) + 0.18f) / float(strokes);
+      const float f1 = (float(s) + 0.82f) / float(strokes);
+      const float mid = x0 + len * (f0 + f1) * 0.5f;
+      const int cx = int(float(r.x0_) + cells * (f0 + f1) * 0.5f);
+      float ang = flowAngle(cx, r.y_, tsec) * brush.flow;
+      ang += brush.rise;
+      const float ca = std::cos(ang), sa = std::sin(ang);
+      const float nx = -sa, ny = ca;
+      const float half = std::max(len / float(strokes) * 0.42f, cell * 0.25f);
+      const Stroke axis{mid - ca * half, yc - sa * half, mid + ca * half,
+                        yc + sa * half, w, (h2 - 0.5f) * w * 1.4f,
+                        (h - 0.5f) * cell * 0.16f, (h2 - 0.5f) * cell * 0.16f};
+      const int variant =
+          int(hash01(r.x0_ + s * 31, r.y_ + 5) * float(kVariants + 1)) %
+          kVariants;
+
+      // The underpainting: the shadow the stroke throws on what is below it.
+      batch.pass[SHADOW][variant].push_back(
+          Stroke{axis.x0 + nx * cell * 0.20f, axis.y0 + ny * cell * 0.20f,
+                 axis.x1 + nx * cell * 0.20f, axis.y1 + ny * cell * 0.20f,
+                 w * 1.10f, axis.bulge, axis.wob, axis.wob2});
+      // The body.
+      batch.pass[BODY][variant].push_back(axis);
+      // The ridge of thick paint that catches the light.
+      batch.pass[LIGHT][variant].push_back(
+          Stroke{axis.x0 - nx * cell * 0.12f, axis.y0 - ny * cell * 0.12f,
+                 axis.x1 - nx * cell * 0.12f, axis.y1 - ny * cell * 0.12f,
+                 w * 0.40f, axis.bulge, axis.wob * 0.5f, axis.wob2 * 0.5f});
+      // And one thin note of the complement along the stroke's far edge, laid
+      // on only when there is paint to spare.
+      if (impasto >= 1.0f)
+        batch.pass[ACCENT][variant].push_back(
+            Stroke{axis.x0 + nx * cell * 0.32f, axis.y0 + ny * cell * 0.32f,
+                   axis.x1 + nx * cell * 0.32f, axis.y1 + ny * cell * 0.32f,
+                   cell * 0.16f, axis.bulge, 0.0f, 0.0f});
+    }
+  }
+
+  // --- fill the four passes, dark to light ---------------------------------
+  for (int pass = 0; pass < kPasses; ++pass) {
+    for (int variant = 0; variant < kVariants; ++variant) {
+      const auto &strokes = batch.pass[pass][variant];
+      if (strokes.empty())
+        continue;
+      cv::Scalar col = pig.base;
+      float alpha = brush.alpha;
+      switch (pass) {
+      case SHADOW:
+        col = mix(pig.dark, pig.comp, 0.22f);
+        alpha = 118.0f;
+        break;
+      case BODY:
+        col = variantColor(pig, variant);
+        alpha = brush.alpha;
+        break;
+      case LIGHT:
+        col = mix(pig.light, cream(), 0.35f);
+        alpha = 138.0f;
+        break;
+      default:
+        col = pig.comp;
+        alpha = 96.0f;
+        break;
+      }
+      beginPath();
+      for (const Stroke &s : strokes)
+        appendStroke(s);
+      fillColor(withAlpha(col, alpha));
+      fill();
+    }
+  }
+}
+
+// ---- the glare -------------------------------------------------------------
+// The other half of the look: light that does not merely reflect but blooms
+// out of the canvas. NanoVG's NVG_LIGHTER composites additively, which is
+// exactly what a lit oil surface does -- Van Gogh's fire has no edge.
+void glare(const cv::Scalar &col, float cx, float cy, float r, float alpha) {
+  using namespace cv::v4d::nvg;
+  if (r <= 0.0f || alpha <= 0.0f)
+    return;
+  beginPath();
+  circle(cx, cy, r);
+  fillPaint(radialGradient(cx, cy, 0.0f, r, withAlpha(col, alpha),
+                           cv::Scalar(0, 0, 0, 0)));
+  fill();
+}
+
+void glareRun(const cv::Scalar &col, const vector<Run> &runs, const View &v,
+              float radius, float alpha, float tsec) {
+  using namespace cv::v4d::nvg;
+  save();
+  globalCompositeOperation(NVG_LIGHTER);
+  for (const Run &r : runs) {
+    // A hash of the cell and the frame *quantum* rather than a re-roll every
+    // frame: fire flickers at 12 Hz, smoothly, instead of boiling.
+    const float phase = tsec * 12.0f;
+    const float q = std::floor(phase);
+    const float k = phase - q;
+    const float a = 0.72f + 0.28f * hash01(r.x0_ * 2 + int(q), r.y_);
+    const float b = 0.72f + 0.28f * hash01(r.x0_ * 2 + int(q) + 1, r.y_);
+    const float flick = a + (b - a) * k;
+    glare(col, v.origin_.x + (r.x0_ + r.x1_ + 1) * 0.5f * v.cell_,
+          v.origin_.y + (r.y_ + 0.5f) * v.cell_, radius, alpha * flick);
+  }
+  restore();
+}
+
+// ---- the canvas ------------------------------------------------------------
+// A tileable linen weave, generated once and uploaded as one NanoVG image:
+// two families of coarse thread running across each other, with the fibre
+// noise of real cloth. It is the difference between a painting on canvas and a
+// picture on a screen, and it costs one image fill.
+int weaveImage() {
+  // One per process. The node that reads it executes on a single worker
+  // thread, and the image lives in the NanoVG context, not in the CPU cache.
+  static int handle = -1;
+  if (handle < 0) {
+    constexpr int N = 256;
+    cv::Mat weave(N, N, CV_8UC4);
+    for (int y = 0; y < N; ++y) {
+      for (int x = 0; x < N; ++x) {
+        // Periods of 64 px, four times over the tile, so the weave repeats.
+        const float th = 0.5f + 0.5f * std::sin(float(y) * 0.0981748f);
+        const float tv = 0.5f + 0.5f * std::sin(float(x) * 0.0981748f + 1.7f);
+        // Fibre noise on a 16 px lattice, also periodic over the tile.
+        const float n = hash01(x & 15, y & 15);
+        const float shade = 0.30f * th + 0.30f * tv + 0.40f * n;
+        weave.at<cv::Vec4b>(y, x) =
+            cv::Vec4b(232, 224, 205, uint8_t(std::clamp(shade, 0.0f, 1.0f) *
+                                             150.0f));
+      }
+    }
+    handle = cv::v4d::nvg::createImageRGBA(
+        N, N, NVG_IMAGE_REPEATX | NVG_IMAGE_REPEATY, weave.data);
+  }
+  return handle;
+}
+
+// The canvas, over a rectangle: the weave at a given strength.
+void paintCanvas(float x, float y, float w, float h, float strength) {
+  using namespace cv::v4d::nvg;
+  if (w <= 0.0f || h <= 0.0f)
+    return;
+  const int img = weaveImage();
+  if (img < 0)
+    return;
+  beginPath();
+  rect(x, y, w, h);
+  fillPaint(imagePattern(x, y, x + w, y + h, 0.0f, img, strength));
+  fill();
+}
+
+// ---- the night -------------------------------------------------------------
+// Starry Night, as the empty cells of the world: a field of ultramarine with
+// three vortices rolled through it and eleven halated stars. Van Gogh painted
+// eleven -- ten stars and the moon -- so eleven it is.
+void paintNight(float x, float y, float w, float h, float cell, float tsec) {
+  using namespace cv::v4d::nvg;
+
+  // The field: a vertical wash from Prussian blue at the top of the slab to
+  // near-black at the bottom.
+  beginPath();
+  rect(x, y, w, h);
+  fillPaint(linearGradient(x, y, x, y + h, cv::Scalar(150, 104, 46, 255),
+                           cv::Scalar(40, 26, 12, 255)));
+  fill();
+
+  // Three vortices, rolled as short spiral ribbons of cerulean.
+  static const float kCol[3] = {0.24f, 0.62f, 0.86f};
+  static const float kRow[3] = {0.30f, 0.68f, 0.44f};
+  for (int k = 0; k < 3; ++k) {
+    const float vx = x + w * kCol[k], vy = y + h * kRow[k];
+    const float R = std::min(w, h) * (0.18f + 0.09f * k);
+    const float spin = 0.05f + 0.02f * float(k);
+    for (int i = 0; i < 18; ++i) {
+      const float t = float(i) / 18.0f;
+      // The golden angle: each segment starts where the last left off, which is
+      // what makes a spiral rather than a wreath.
+      const float a0 = 2.399963f * float(i) + tsec * spin;
+      const float r0 = R * (0.12f + 0.88f * t);
+      const float r1 = R * (0.12f + 0.88f * (t + 0.07f));
+      const float a1 = a0 + 0.62f;
+      Stroke s;
+      s.x0 = vx + r0 * std::cos(a0);
+      s.y0 = vy + r0 * std::sin(a0);
+      s.x1 = vx + r1 * std::cos(a1);
+      s.y1 = vy + r1 * std::sin(a1);
+      s.w = std::max(1.5f, cell * (0.45f + 0.75f * t));
+      s.bulge = R * 0.06f * std::sin(a0 * 2.0f);
+      s.wob = (hash01(i, k) - 0.5f) * s.w * 0.3f;
+      s.wob2 = (hash01(k, i) - 0.5f) * s.w * 0.3f;
+      beginPath();
+      appendStroke(s);
+      fillColor(withAlpha(mix(cerulean(), cream(), 0.30f + 0.45f * t),
+                          44.0f + 26.0f * t));
+      fill();
+    }
+  }
+
+  // Eleven stars, each a core, a halo and seven rays.
+  for (int i = 0; i < 11; ++i) {
+    const float sx = x + w * (0.05f + 0.90f * hash01(i, 101));
+    const float sy = y + h * (0.04f + 0.38f * hash01(i, 202));
+    const float rad = cell * (4.5f + 9.0f * hash01(i, 303));
+    const float tw = 0.55f + 0.45f * std::sin(tsec * 1.6f + float(i) * 2.1f);
+    save();
+    globalCompositeOperation(NVG_LIGHTER);
+    glare(mix(cream(), cv::Scalar(30, 170, 235, 255), 0.45f), sx, sy, rad * 2.2f,
+          140.0f * tw);
+    glare(cream(), sx, sy, rad * 0.55f, 235.0f * tw);
+    constexpr int kRays = 7;
+    for (int k = 0; k < kRays; ++k) {
+      const float a = 6.2831853f * float(k) / float(kRays) + float(i);
+      Stroke s;
+      s.x0 = sx + std::cos(a) * rad * 0.5f;
+      s.y0 = sy + std::sin(a) * rad * 0.5f;
+      s.x1 = sx + std::cos(a) * rad * 1.9f;
+      s.y1 = sy + std::sin(a) * rad * 1.9f;
+      s.w = std::max(1.0f, rad * 0.16f);
+      s.bulge = 0.0f;
+      s.wob = 0.0f;
+      s.wob2 = 0.0f;
+      beginPath();
+      appendStroke(s);
+      fillColor(withAlpha(cream(), 110.0f * tw));
+      fill();
+    }
+    restore();
+  }
+}
+
+// ---- the varnish -----------------------------------------------------------
+// The last thing on the canvas: a vignette, the way a painting darkens at the
+// edges where the light does not fall straight on it.
+void paintVignette(const cv::Size &sz, float strength) {
+  using namespace cv::v4d::nvg;
+  const float cx = sz.width * 0.5f, cy = sz.height * 0.5f;
+  const float r = std::sqrt(cx * cx + cy * cy) + 1.0f;
+  beginPath();
+  rect(0.0f, 0.0f, float(sz.width), float(sz.height));
+  fillPaint(radialGradient(cx, cy, r * 0.42f, r * 1.06f, cv::Scalar(0, 0, 0, 0),
+                           withAlpha(cv::Scalar(10, 7, 3, 255), strength)));
+  fill();
+}
+
+} // namespace vg
+
+// GL_CHECK in <v4d/util.hpp> wraps a *single* expression and chokes on the
+// commas of any multi-argument GL call (glDrawArrays, glVertexAttribPointer,
+// glTexImage2D, the glBlitFramebuffer ...). Redefine it here, variadic, so it
+// wraps calls of any arity while still checking for GL errors in debug builds.
+// Only VanGoghPost below uses GL_CHECK in this translation unit.
+#undef GL_CHECK
+#ifdef NDEBUG
+#define GL_CHECK(...) \
+  do {                \
+    __VA_ARGS__;      \
+  } while (0)
+#else
+#define GL_CHECK(...)                                                     \
+  do {                                                                    \
+    __VA_ARGS__;                                                          \
+    cv::v4d::gl_check_error(__FILE__, __LINE__, #__VA_ARGS__);            \
+  } while (0)
+#endif
+
+// ===========================================================================
+// VanGoghPost -- the varnish and the light, done in raw GL (never fb())
+// ===========================================================================
+//
+// The painting is drawn with nvg() into the framebuffer; this node then reads
+// that framebuffer back, lets luminous paint bloom out of it, softens the whole
+// into velvety impasto with a living swirl, and lays a lit-from-the-room
+// vignette over it -- and never touches fb(). The trick is that a gl() node
+// runs against the same texture-backed framebuffer nvg() just filled, so
+// discovering it with glGetIntegerv(GL_FRAMEBUFFER_BINDING), blitting it into a
+// texture of our own, and painting a full-screen quad back into it is all plain
+// GL: correct on desktop GL 3.2 core and on the OpenGL ES 3.0 path, where the
+// shader below compiles unchanged (the #version line is prepended by
+// cv::v4d::init_shaders for whichever backend is in use).
+struct VanGoghPost {
+  GLuint quadVAO_ = 0;
+  GLuint quadVBO_ = 0;
+  GLuint program_ = 0;
+  GLuint sceneFBO_ = 0;
+  GLuint sceneTex_ = 0;
+  cv::Size texSize_;
+  GLint uTex_ = -1, uRes_ = -1, uTexel_ = -1, uTime_ = -1, uPaint_ = -1,
+        uGlow_ = -1, uBrush_ = -1, uSwirl_ = -1, uVig_ = -1, uGrade_ = -1;
+
+  // A full-screen triangle-strip. The UV layout matches the runtime's own blit
+  // quad, so sampling and writing are a 1:1 texel copy of whatever the nvg()
+  // base left behind -- the effect never rotates or mirrors the painting.
+  static constexpr float kQuad_[16] = {// pos       uv
+                                       -1.0f, 1.0f,  0.0f, 1.0f, -1.0f, -1.0f,
+                                       0.0f,  0.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+                                       1.0f,  -1.0f, 1.0f, 0.0f};
+
+  static const char *vertSrc() {
+    return R"(
+			precision highp float;
+			layout(location = 0) in vec2 aPos;
+			layout(location = 1) in vec2 aUV;
+			out vec2 vUV;
+			void main() {
+				vUV = aUV;
+				gl_Position = vec4(aPos, 0.0, 1.0);
+			}
+		)";
+  }
+
+  static const char *fragSrc() {
+    return R"(
+			precision highp float;
+
+			in vec2 vUV;
+			out vec4 fragColor;
+
+			uniform sampler2D uTex;
+			uniform vec2  uResolution;
+			uniform vec2  uTexel;
+			uniform float uTime;
+			uniform float uPaint;
+			uniform float uGlow;
+			uniform float uBrush;
+			uniform float uSwirl;
+			uniform float uVignette;
+			uniform vec3  uGrade;
+
+			float hash21(vec2 p) {
+				p = fract(p * vec2(123.34, 456.21));
+				p += dot(p, p + 45.32);
+				return fract(p.x * p.y);
+			}
+
+			float vnoise(vec2 p) {
+				vec2 i = floor(p);
+				vec2 f = fract(p);
+				float a = hash21(i);
+				float b = hash21(i + vec2(1.0, 0.0));
+				float c = hash21(i + vec2(0.0, 1.0));
+				float d = hash21(i + vec2(1.0, 1.0));
+				vec2 u = f * f * (3.0 - 2.0 * f);
+				return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+			}
+
+			float fbm(vec2 p) {
+				float s = 0.0;
+				float a = 0.5;
+				for (int i = 0; i < 4; ++i) {
+					s += a * vnoise(p);
+					p *= 2.03;
+					a *= 0.5;
+				}
+				return s;
+			}
+
+			// Anisotropic-Kuwahara-style soften: over a 3x3 neighbourhood take the
+			// corner quadrant with the least colour variance, so interiors melt
+			// into velvety paint while the brightest edges stay put. Used gently,
+			// it is a varnish that unifies the strokes rather than erases them.
+			vec3 oilPaint(vec2 uv) {
+				vec2 t = uTexel;
+				vec3 sum[4];
+				vec3 sumSq[4];
+				for (int q = 0; q < 4; ++q) {
+					vec2 corner = (q == 0) ? vec2(-1.0, 1.0) :
+					               (q == 1) ? vec2(1.0, 1.0) :
+					               (q == 2) ? vec2(-1.0, -1.0) : vec2(1.0, -1.0);
+					vec2 base = corner * t;
+					vec3 s = vec3(0.0);
+					vec3 sq = vec3(0.0);
+					for (int j = 0; j < 2; ++j) {
+						for (int k = 0; k < 2; ++k) {
+							vec3 c = texture(uTex, uv + base + vec2(float(j) * t.x, float(k) * t.y)).rgb;
+							s += c;
+							sq += c * c;
+						}
+					}
+					sum[q] = s / 4.0;
+					sumSq[q] = sq / 4.0;
+				}
+				float bestVar = 1.0e9;
+				vec3 best = sum[0];
+				for (int q = 0; q < 4; ++q) {
+					vec3 v = max(sumSq[q] - sum[q] * sum[q], vec3(0.0));
+					float var = v.x + v.y + v.z;
+					if (var < bestVar) { bestVar = var; best = sum[q]; }
+				}
+				return best;
+			}
+
+			// The light that does not stop at the edge of a material: two offset
+			// rings weighted by luminance, so fire, sparks and the painted stars
+			// throw out the halo Van Gogh gave them across the whole painting.
+			vec3 bloom(vec2 uv) {
+				vec3 acc = vec3(0.0);
+				float weight = 0.0;
+				for (int i = 0; i < 8; ++i) {
+					float ang = 6.2831853 * float(i) / 8.0;
+					vec3 c = texture(uTex, uv + vec2(cos(ang), sin(ang)) * uTexel * 4.0).rgb;
+					float lum = dot(c, vec3(0.299, 0.587, 0.114));
+					float w = smoothstep(0.55, 1.0, lum);
+					acc += c * w; weight += w;
+				}
+				for (int i = 0; i < 8; ++i) {
+					float ang = 6.2831853 * float(i) / 8.0 + 0.4;
+					vec3 c = texture(uTex, uv + vec2(cos(ang), sin(ang)) * uTexel * 11.0).rgb;
+					float lum = dot(c, vec3(0.299, 0.587, 0.114));
+					float w = smoothstep(0.48, 1.0, lum) * 0.7;
+					acc += c * w; weight += w;
+				}
+				return acc / max(weight, 1.0e-3);
+			}
+
+			void main() {
+				vec2 uv = vUV;
+
+				// living paint: a slow swirl drifts the sample along a noise field
+				vec2 flow = vec2(fbm(uv * 3.0 + vec2(uTime * 0.03, 0.0)),
+				                 fbm(uv * 3.0 + vec2(0.0, uTime * 0.03) + 17.3)) - 0.5;
+				uv += flow * uSwirl;
+
+				vec3 col = texture(uTex, uv).rgb;
+				col = mix(col, oilPaint(uv), clamp(uPaint, 0.0, 1.0));
+				col += bloom(uv) * uGlow;
+
+				// a faint bristle sheen along the flow, as if raked light crossed
+				// the ridges of the paint
+				float bristle = fbm(vec2((uv.x + flow.x * 0.15) * (uResolution.x * 0.08),
+				                         uv.y * 4.0));
+				col *= mix(1.0, 0.93 + 0.14 * bristle, uBrush);
+
+				// warm Van Gogh grade, then a lit-from-the-room vignette
+				col *= uGrade;
+				col = pow(max(col, vec3(0.0)), vec3(0.96, 1.0, 1.06));
+				vec2 d = uv - 0.5;
+				col *= clamp(1.0 - uVignette * dot(d, d) * 1.6, 0.0, 1.0);
+
+				fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+			}
+		)";
+  }
+
+  void makeProgram() {
+    unsigned int handles[3];
+    cv::v4d::init_shaders(handles, vertSrc(), fragSrc(), "fragColor");
+    program_ = handles[0];
+    uTex_ = glGetUniformLocation(program_, "uTex");
+    uRes_ = glGetUniformLocation(program_, "uResolution");
+    uTexel_ = glGetUniformLocation(program_, "uTexel");
+    uTime_ = glGetUniformLocation(program_, "uTime");
+    uPaint_ = glGetUniformLocation(program_, "uPaint");
+    uGlow_ = glGetUniformLocation(program_, "uGlow");
+    uBrush_ = glGetUniformLocation(program_, "uBrush");
+    uSwirl_ = glGetUniformLocation(program_, "uSwirl");
+    uVig_ = glGetUniformLocation(program_, "uVignette");
+    uGrade_ = glGetUniformLocation(program_, "uGrade");
+  }
+
+  // Create the offscreen texture + FBO when first needed and on every resize.
+  void ensureSize(int w, int h) {
+    if (sceneFBO_ != 0 && texSize_ == cv::Size(w, h))
+      return;
+    if (sceneTex_) {
+      glDeleteTextures(1, &sceneTex_);
+      sceneTex_ = 0;
+    }
+    if (sceneFBO_) {
+      glDeleteFramebuffers(1, &sceneFBO_);
+      sceneFBO_ = 0;
+    }
+    texSize_ = cv::Size(w, h);
+    GL_CHECK(glGenTextures(1, &sceneTex_));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, sceneTex_));
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, nullptr));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+    GL_CHECK(glGenFramebuffers(1, &sceneFBO_));
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO_));
+    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                    GL_TEXTURE_2D, sceneTex_, 0));
+  }
+
+  // Runs inside a gl() node on the worker's own GL context.
+  void process() {
+    GLint prevFBO = 0;
+    GL_CHECK(glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO));
+    GLint vp[4] = {0, 0, 0, 0};
+    GL_CHECK(glGetIntegerv(GL_VIEWPORT, vp));
+    const int W = vp[2], H = vp[3];
+    if (W <= 0 || H <= 0)
+      return;
+    ensureSize(W, H);
+
+    // Capture the base nvg left behind into our own texture (a plain colour
+    // blit, no fb()).
+    GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevFBO));
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sceneFBO_));
+    GL_CHECK(
+        glBlitFramebuffer(0, 0, W, H, 0, 0, W, H, GL_COLOR_BUFFER_BIT,
+                          GL_NEAREST));
+
+    // Paint the treated image back into the same framebuffer in one quad.
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFBO));
+    GL_CHECK(glViewport(0, 0, W, H));
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+
+    GL_CHECK(glUseProgram(program_));
+    GL_CHECK(glUniform1i(uTex_, 0));
+    GL_CHECK(glUniform2f(uRes_, (float)W, (float)H));
+    GL_CHECK(glUniform2f(uTexel_, 1.0f / (float)W, 1.0f / (float)H));
+    GL_CHECK(glUniform1f(uTime_, (float)cv::v4d::seconds()));
+    GL_CHECK(glUniform1f(uPaint_, 0.42f));
+    GL_CHECK(glUniform1f(uGlow_, 0.95f));
+    GL_CHECK(glUniform1f(uBrush_, 0.5f));
+    GL_CHECK(glUniform1f(uSwirl_, 0.0045f));
+    GL_CHECK(glUniform1f(uVig_, 0.55f));
+    GL_CHECK(glUniform3f(uGrade_, 1.03f, 1.0f, 0.94f));
+    GL_CHECK(glActiveTexture(GL_TEXTURE0));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, sceneTex_));
+    GL_CHECK(glBindVertexArray(quadVAO_));
+    GL_CHECK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
+
+    // Leave GL the way we found it; the overlay nvg node sets its own state.
+    GL_CHECK(glBindVertexArray(0));
+    GL_CHECK(glUseProgram(0));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFBO));
+    glEnable(GL_BLEND);
+  }
+
+  void init() {
+    GL_CHECK(glGenVertexArrays(1, &quadVAO_));
+    GL_CHECK(glGenBuffers(1, &quadVBO_));
+    GL_CHECK(glBindVertexArray(quadVAO_));
+    GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, quadVBO_));
+    GL_CHECK(glBufferData(GL_ARRAY_BUFFER, sizeof(kQuad_), kQuad_,
+                          GL_STATIC_DRAW));
+    GL_CHECK(glEnableVertexAttribArray(0));
+    GL_CHECK(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                                   (void *)0));
+    GL_CHECK(glEnableVertexAttribArray(1));
+    GL_CHECK(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                                   (void *)(2 * sizeof(float))));
+    GL_CHECK(glBindVertexArray(0));
+    GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, 0));
+    makeProgram();
+  }
+
+  void destroy() {
+    if (sceneTex_) {
+      glDeleteTextures(1, &sceneTex_);
+      sceneTex_ = 0;
+    }
+    if (sceneFBO_) {
+      glDeleteFramebuffers(1, &sceneFBO_);
+      sceneFBO_ = 0;
+    }
+    if (program_) {
+      glDeleteProgram(program_);
+      program_ = 0;
+    }
+    if (quadVBO_) {
+      glDeleteBuffers(1, &quadVBO_);
+      quadVBO_ = 0;
+    }
+    if (quadVAO_) {
+      glDeleteVertexArrays(1, &quadVAO_);
+      quadVAO_ = 0;
+    }
+    texSize_ = cv::Size();
+  }
+};
+
 // A brighter, warmer version of a colour -- the lit top face of a grain.
 static cv::Scalar litFace(cv::Scalar c, float amount) {
   const auto lift = [amount](double v) {
@@ -1035,14 +1888,89 @@ static ImVec4 contrastOn(const cv::Scalar &bgra) {
   return lum > 140.0 ? ImVec4(0, 0, 0, 1) : ImVec4(1, 1, 1, 1);
 }
 
+// The brush a material is laid on with, in Van Gogh's hand: how long a stroke
+// runs, how wide it is loaded, how tightly it follows the field, and how much
+// it leans out of the horizontal. Solids are combed into the field; liquids
+// are laid in long horizontal dashes; fire and steam are steep and hot; acid
+// is a stain rather than a body.
+static vg::Brush brushOf(ParticleType type) {
+  switch (materialOf(type)) {
+  case Material::EMBERISH:
+    return {3.5f, 0.55f, 255.0f, 0.6f, 1.25f, 250.0f};
+  case Material::VAPOUR:
+    return {3.0f, 0.60f, 150.0f, 0.8f, 1.10f, 70.0f};
+  case Material::LIQUID:
+    return {7.0f, 0.80f, 210.0f, 1.0f, 0.0f, 240.0f};
+  case Material::DISSOLVE:
+    return {4.5f, 0.70f, 225.0f, 0.7f, 0.0f, 130.0f};
+  default:
+    return {5.0f, 0.75f, 250.0f, 1.0f, 0.0f, 250.0f};
+  }
+}
+
 static void drawMaterial(const Palette &pal, ParticleType type,
                          const vector<Run> &runs, const View &v,
-                         float timeSec) {
+                         float timeSec, bool vanGogh, float impasto) {
   using namespace cv::v4d::nvg;
   if (runs.empty())
     return;
   const cv::Scalar base = pal[type];
   const float cell = v.cell_;
+
+  // --- the painter's path ---------------------------------------------------
+  //
+  // Below roughly two and a half pixels a cell there is no room for a stroke:
+  // the brush becomes a smear and the world becomes mud. Small windows
+  // therefore fall through to the band renderer below, which still paints in
+  // the pigments rather than the palette.
+  if (vanGogh && cell >= 2.6f) {
+    static thread_local vg::Batch batch;
+    const vg::Pigment pig = vg::pigmentOf(type);
+    const vg::Brush brush = brushOf(type);
+
+    vg::paintMaterial(pig, runs, v, timeSec, brush, impasto, batch);
+
+    switch (materialOf(type)) {
+    case Material::EMBERISH:
+      // Fire, embers, electricity and torches: light that does not stop at the
+      // edge of the material. Additive, and flickering at 12 Hz -- a hash of
+      // the cell and the frame quantum, so the flame lives without boiling.
+      vg::glareRun(vg::mix(pig.light, vg::cream(), 0.25f), runs, v, cell * 1.7f,
+                   96.0f, timeSec);
+      break;
+    case Material::LIQUID: {
+      // The surface of Van Gogh's water is not one colour but a field of small
+      // bright dashes laid over the blue and drifting with the current.
+      save();
+      globalCompositeOperation(NVG_LIGHTER);
+      beginPath();
+      for (const Run &r : runs) {
+        const float len = (r.x1_ - r.x0_ + 1) * cell;
+        if (len < cell * 1.5f)
+          continue;
+        const int n = std::clamp(int(len / (cell * 3.0f)), 1, 8);
+        for (int k = 0; k < n; ++k) {
+          const float f = (float(k) + 0.5f) / float(n);
+          const float drift = std::sin(timeSec * 1.3f + float(r.y_) * 0.7f +
+                                       f * 6.2831853f) * cell * 0.25f;
+          const float cx =
+              v.origin_.x + (float(r.x0_) + (r.x1_ - r.x0_ + 1) * f) * cell;
+          const float cy = v.origin_.y + (r.y_ + 0.38f) * cell + drift;
+          vg::appendStroke(vg::Stroke{cx - cell * 0.55f, cy, cx + cell * 0.55f,
+                                      cy, std::max(1.0f, cell * 0.18f), 0.0f,
+                                      0.0f, 0.0f});
+        }
+      }
+      fillColor(vg::withAlpha(vg::mix(pig.light, vg::cream(), 0.55f), 150.0f));
+      fill();
+      restore();
+      break;
+    }
+    default:
+      break;
+    }
+    return;
+  }
 
   switch (materialOf(type)) {
   case Material::EMBERISH: {
@@ -1170,6 +2098,13 @@ static void drawMaterial(const Palette &pal, ParticleType type,
 // The world slab, the emitters and the in-world annotations. Everything is in
 // framebuffer pixels derived from the fitted cell size, so it is correct at any
 // window size.
+//
+// Two styles, one function. The band path is the original: it is where small
+// windows fall back to (below ~2.6 px a cell there is no room for a stroke),
+// and where the panel's checkbox returns to. The painter's path stages the
+// scene instead -- linen on the studio wall, a gilded frame, a night the world
+// hangs in, the world as strokes over the stars, the canvas weave once more
+// over the paint and the varnish last.
 static void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
                       const cv::Size &sz, double timeSec) {
   using namespace cv::v4d::nvg;
@@ -1177,6 +2112,17 @@ static void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
   const float w = cell * v.width_;
   const float h = cell * v.height_;
   const cv::Point2f o = v.origin_;
+  const bool vg = sb.vanGogh_;
+  const float tsec = float(timeSec);
+  const cv::Scalar cream = vg::cream();
+
+  // ---- the studio wall -----------------------------------------------------
+  if (vg) {
+    // Linen over the whole window, well under the paint: it should be felt
+    // rather than seen, and a weave that competes with the brushwork is a
+    // texture, not a canvas.
+    vg::paintCanvas(0.0f, 0.0f, float(sz.width), float(sz.height), 0.055f);
+  }
 
   // The slab the world sits in: a rounded frame over a soft shadow, so the
   // automaton reads as an object on the window rather than as the window.
@@ -1189,24 +2135,46 @@ static void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
     fillPaint(shadow);
     fill();
 
-    beginPath();
-    roundedRect(o.x - 2.0f, o.y - 2.0f, w + 4.0f, h + 4.0f, 6.0f);
-    fillColor(cv::Scalar(30, 30, 38, 255));
-    fill();
+    if (vg) {
+      // A frame, not a tray: an ivory-black ground under three passes of the
+      // chrome yellow the painting itself is made of, so the line reads as
+      // gilding laid on with a knife rather than printed around the edge.
+      beginPath();
+      roundedRect(o.x - 7.0f, o.y - 7.0f, w + 14.0f, h + 14.0f, 8.0f);
+      fillColor(cv::Scalar(16, 12, 6, 255));
+      fill();
 
-    beginPath();
-    roundedRect(o.x - 2.0f, o.y - 2.0f, w + 4.0f, h + 4.0f, 6.0f);
-    strokeColor(cv::Scalar(90, 90, 110, 255));
-    strokeWidth(1.5f);
-    stroke();
+      const cv::Scalar gold(60, 169, 231, 255);
+      beginPath();
+      roundedRect(o.x - 4.5f, o.y - 4.5f, w + 9.0f, h + 9.0f, 6.0f);
+      strokeColor(vg::withAlpha(gold, 90.0f));
+      strokeWidth(3.2f);
+      stroke();
+
+      beginPath();
+      roundedRect(o.x - 3.5f, o.y - 3.5f, w + 7.0f, h + 7.0f, 5.0f);
+      strokeColor(vg::withAlpha(gold, 170.0f));
+      strokeWidth(1.4f);
+      stroke();
+
+      beginPath();
+      roundedRect(o.x - 2.0f, o.y - 2.0f, w + 4.0f, h + 4.0f, 6.0f);
+      strokeColor(vg::withAlpha(vg::mix(gold, cream, 0.25f), 215.0f));
+      strokeWidth(1.0f);
+      stroke();
+    } else {
+      beginPath();
+      roundedRect(o.x - 2.0f, o.y - 2.0f, w + 4.0f, h + 4.0f, 6.0f);
+      fillColor(cv::Scalar(30, 30, 38, 255));
+      fill();
+
+      beginPath();
+      roundedRect(o.x - 2.0f, o.y - 2.0f, w + 4.0f, h + 4.0f, 6.0f);
+      strokeColor(cv::Scalar(90, 90, 110, 255));
+      strokeWidth(1.5f);
+      stroke();
+    }
   }
-
-  // The empty field, drawn once so the run pass only has to cover what is
-  // actually occupied.
-  beginPath();
-  rect(o.x, o.y, w, h);
-  fillColor(cv::Scalar(16, 16, 22, 255));
-  fill();
 
   // --- the emitters, as nozzles above the play area ---
   //
@@ -1224,24 +2192,48 @@ static void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
     const float cy = o.y - 8.0f;
     const cv::Scalar col = pal[e.type];
 
-    beginPath();
-    moveTo(cx - cell * 0.8f, cy - cell * 1.1f);
-    lineTo(cx + cell * 0.8f, cy - cell * 1.1f);
-    lineTo(cx + cell * 0.45f, cy);
-    lineTo(cx - cell * 0.45f, cy);
-    closePath();
-    fillColor(e.on ? col : cv::Scalar(50, 50, 58, 255));
-    fill();
-
-    if (e.on) {
-      const float glow = 0.5f + 0.5f * std::sin(timeSec * 4.0f + float(i));
-      cv::Scalar g = col;
-      g[3] = 70.0f + 60.0f * glow;
-      const float gy = cy - cell * 0.55f;
+    if (vg) {
+      // The nozzle as a loaded brush: one flat dab for the stem, one for the
+      // tip, and a halo of the light pouring out of it.
+      const vg::Pigment pig = vg::pigmentOf(e.type);
+      const vg::Stroke stem{cx - cell * 0.8f, cy - cell * 1.05f, cx + cell * 0.8f,
+                            cy - cell * 1.05f, cell * 0.85f, 0.0f, 0.0f, 0.0f};
+      const vg::Stroke tip{cx - cell * 0.44f, cy + cell * 0.02f,
+                           cx + cell * 0.44f, cy + cell * 0.02f, cell * 0.55f,
+                           0.0f, 0.0f, 0.0f};
       beginPath();
-      circle(cx, gy, cell * 1.0f);
-      fillPaint(radialGradient(cx, gy, 0.0f, cell * 1.0f, g, cv::Scalar(0, 0, 0, 0)));
+      vg::appendStroke(stem);
+      fillColor(vg::withAlpha(pig.dark, 235.0f));
       fill();
+      beginPath();
+      vg::appendStroke(tip);
+      fillColor(vg::withAlpha(e.on ? pig.base : pig.dark, 245.0f));
+      fill();
+      if (e.on) {
+        const float glow = 0.5f + 0.5f * std::sin(tsec * 4.0f + float(i));
+        vg::glare(vg::mix(pig.light, cream, 0.40f), cx, cy - cell * 0.5f,
+                  cell * 1.4f, 64.0f + 56.0f * glow);
+      }
+    } else {
+      beginPath();
+      moveTo(cx - cell * 0.8f, cy - cell * 1.1f);
+      lineTo(cx + cell * 0.8f, cy - cell * 1.1f);
+      lineTo(cx + cell * 0.45f, cy);
+      lineTo(cx - cell * 0.45f, cy);
+      closePath();
+      fillColor(e.on ? col : cv::Scalar(50, 50, 58, 255));
+      fill();
+
+      if (e.on) {
+        const float glow = 0.5f + 0.5f * std::sin(timeSec * 4.0f + float(i));
+        cv::Scalar g = col;
+        g[3] = 70.0f + 60.0f * glow;
+        const float gy = cy - cell * 0.55f;
+        beginPath();
+        circle(cx, gy, cell * 1.0f);
+        fillPaint(radialGradient(cx, gy, 0.0f, cell * 1.0f, g, cv::Scalar(0, 0, 0, 0)));
+        fill();
+      }
     }
 
     // The name goes clear of the nozzle rather than on top of it: the nozzle
@@ -1249,8 +2241,27 @@ static void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
     // above that or the two overlap at small cell sizes.
     cv::Scalar label = col;
     label[3] = e.on ? 230.0f : 90.0f;
-    fillColor(label);
+    if (vg)
+      fillColor(vg::withAlpha(e.on ? cream : vg::mix(cream, label, 0.4f),
+                              e.on ? 235.0f : 110.0f));
+    else
+      fillColor(label);
     text(cx, cy - cell * 1.1f - 3.0f, e.name, e.name + std::strlen(e.name));
+  }
+
+  // --- what the world is painted on, and over ------------------------------
+  if (vg) {
+    // Starry Night, as the empty cells: the night is drawn first and the world
+    // is painted over it, so every pile hangs in a sky rather than on a tray.
+    scissor(o.x, o.y, w, h);
+    vg::paintNight(o.x, o.y, w, h, cell, tsec);
+  } else {
+    // The empty field, drawn once so the run pass only has to cover what is
+    // actually occupied.
+    beginPath();
+    rect(o.x, o.y, w, h);
+    fillColor(cv::Scalar(16, 16, 22, 255));
+    fill();
   }
 
   // --- the grid ---
@@ -1278,7 +2289,29 @@ static void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
       // the glowing and dissolving ones last, so they sit on top of everything
       STEAM,  FIRE,     EMBER,     ELEC,     ACID};
   for (ParticleType t : kPaintOrder)
-    drawMaterial(pal, t, runs[t], v, float(timeSec));
+    drawMaterial(pal, t, runs[t], v, tsec, vg, sb.impasto_);
+
+  if (vg) {
+    // The canvas the world was painted on: the weave once more, over the slab
+    // only, where the paint is. A painting shows its cloth most where the
+    // paint is thickest, and at a higher strength than on the studio wall.
+    vg::paintCanvas(o.x, o.y, w, h, 0.11f);
+    resetScissor();
+  }
+}
+
+// The chrome that stays crisp: the brush ring and the HUD. It is drawn on top
+// of the finished painting -- after the gl() varnish pass -- so the cursor and
+// the readouts stay legible over the paint rather than melting into it.
+static void drawChrome(const Palette &pal, Sandbox &sb, const View &v,
+                       const cv::Size &sz) {
+  using namespace cv::v4d::nvg;
+  const float cell = v.cell_;
+  const float w = cell * v.width_;
+  const float h = cell * v.height_;
+  const cv::Point2f o = v.origin_;
+  const bool vg = sb.vanGogh_;
+  const cv::Scalar cream = vg::cream();
 
   // --- the brush ring ---
   if (sb.penCell_.x >= 0.0 && cell > 0.75f) {
@@ -1286,17 +2319,42 @@ static void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
     const float cx = o.x + (sb.penCell_.x + 0.5f) * cell;
     const float cy = o.y + (sb.penCell_.y + 0.5f) * cell;
     const cv::Scalar col = pal[sb.brush_];
-    cv::Scalar halo = col;
-    halo[3] = 60.0f;
-    beginPath();
-    circle(cx, cy, r);
-    fillPaint(radialGradient(cx, cy, r * 0.6f, r, halo, cv::Scalar(0, 0, 0, 0)));
-    fill();
-    beginPath();
-    circle(cx, cy, r);
-    strokeColor(col);
-    strokeWidth(std::max(1.0f, cell * 0.10f));
-    stroke();
+    if (vg) {
+      const vg::Pigment pig = vg::pigmentOf(sb.brush_);
+      vg::glare(vg::mix(pig.base, cream, 0.20f), cx, cy, r * 1.7f, 56.0f);
+      // A painted ring, not a drawn one: the circle stippled into short
+      // arc-strokes, a dark one underneath and a cream one on top, so the
+      // cursor has the same hand-made edge as everything else in the scene.
+      const int segs = 16;
+      lineCap(NVG_ROUND);
+      for (int passI = 0; passI < 2; ++passI) {
+        const bool under = passI == 0;
+        beginPath();
+        for (int i = 0; i < segs; ++i) {
+          const float a0 = 6.2831853f * float(i) / float(segs);
+          const float a1 = a0 + 6.2831853f * 0.60f / float(segs);
+          moveTo(cx + std::cos(a0) * r, cy + std::sin(a0) * r);
+          arc(cx, cy, r, a0, a1, NVG_CW);
+        }
+        strokeColor(under ? vg::withAlpha(vg::pigmentOf(NIL).dark, 195.0f)
+                          : vg::withAlpha(cream, 215.0f));
+        strokeWidth(under ? std::max(2.6f, cell * 0.16f)
+                          : std::max(1.2f, cell * 0.07f));
+        stroke();
+      }
+    } else {
+      cv::Scalar halo = col;
+      halo[3] = 60.0f;
+      beginPath();
+      circle(cx, cy, r);
+      fillPaint(radialGradient(cx, cy, r * 0.6f, r, halo, cv::Scalar(0, 0, 0, 0)));
+      fill();
+      beginPath();
+      circle(cx, cy, r);
+      strokeColor(col);
+      strokeWidth(std::max(1.0f, cell * 0.10f));
+      stroke();
+    }
   }
 
   // --- the HUD, in the framebuffer's own coordinates and in the footer band ---
@@ -1306,28 +2364,43 @@ static void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
   // placed a constant distance under it lands outside the framebuffer on any
   // window short enough that the fit leaves less room than that distance.
   const float hudTop = o.y + h + 6.0f;
+  // Cream over umber, with a dark passage a pixel underneath: the same trick as
+  // the brush ring. A flat fill over a weave is unreadable at this size.
+  const auto paintText = [&](const char *s, const char *e, float x, float y,
+                             const cv::Scalar &col) {
+    if (vg) {
+      fillColor(vg::withAlpha(vg::pigmentOf(NIL).dark, 205.0f));
+      text(x + 1.0f, y + 1.0f, s, e);
+    }
+    fillColor(col);
+    text(x, y, s, e);
+  };
   fontFace("sans-bold");
   fontSize(16.0f);
   textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
-  fillColor(cv::Scalar(225, 225, 240, 235));
   const string title = "Sandcraft";
-  text(o.x, hudTop, title.c_str(), title.c_str() + title.size());
+  paintText(title.c_str(), title.c_str() + title.size(), o.x, hudTop,
+            vg ? cream : cv::Scalar(225, 225, 240, 235));
 
   fontFace("sans");
   fontSize(12.5f);
-  fillColor(cv::Scalar(150, 150, 170, 230));
   char stats[256];
   std::snprintf(stats, sizeof(stats),
                 "%d particles   %.0f fps   %dx%d cells   %s, size %d",
                 sb.particleCount_, sb.fps_, sb.width_, sb.height_,
                 brushName(sb.brush_), sb.penSize_);
-  text(o.x, hudTop + 20.0f, stats, stats + std::strlen(stats));
+  paintText(stats, stats + std::strlen(stats), o.x, hudTop + 20.0f,
+            vg ? vg::withAlpha(cream, 215.0f) : cv::Scalar(150, 150, 170, 230));
 
   textAlign(NVG_ALIGN_RIGHT | NVG_ALIGN_TOP);
   constexpr const char *kHint =
       "drag to paint   wheel: brush   SHIFT+wheel: pen   DELETE: clear";
-  fillColor(cv::Scalar(120, 120, 140, 200));
-  text(sz.width - o.x, hudTop + 20.0f, kHint, kHint + std::strlen(kHint));
+  paintText(kHint, kHint + std::strlen(kHint), sz.width - o.x, hudTop + 20.0f,
+            vg ? vg::withAlpha(cream, 165.0f) : cv::Scalar(120, 120, 140, 200));
+
+  // The varnish -- the lit-from-the-room vignette -- is not chrome: the gl()
+  // node lays it over the painting, under this overlay, so it darkens the paint
+  // and not the readouts.
 }
 
 // ===========================================================================
@@ -1581,7 +2654,12 @@ public:
   static void draw(Sandbox &sb, const cv::Size &sz, double timeSec) {
     using namespace cv::v4d::nvg;
     const Palette pal;
-    clearScreen(cv::Scalar(10, 10, 14, 255));
+    // The colour the window is cleared to. In Van Gogh mode the studio is a
+    // warm umber; otherwise it is the near-black it always was. The painter
+    // covers the whole framebuffer either way -- the slab is drawn over this,
+    // and around the slab the weave is laid directly onto the clear colour --
+    // but what is left at the edges has to belong to the same painting.
+    clearScreen(sb.vanGogh_ ? cv::Scalar(24, 17, 9, 255) : cv::Scalar(10, 10, 14, 255));
     const View v = fitView(sz, sb.width_, sb.height_);
 
     // An exponential average over the frame interval. `seconds()` is the
@@ -1617,6 +2695,12 @@ class SandcraftPlan : public V4DPlan {
   cv::Ptr<SandInputPlan> input_;
   cv::Ptr<SandSimulationPlan> sim_;
   cv::Ptr<SandRenderPlan> render_;
+  // The oil-paint surface. It is owned per plan instance and touched only by
+  // this plan's gl() nodes on this instance's GL context, so -- like CubeScene's
+  // scene_ -- it is never shared and needs no mutex.
+  VanGoghPost post_;
+
+  Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
 
 public:
   SandcraftPlan() {
@@ -1679,6 +2763,44 @@ public:
         [](Sandbox &sb) {
           using namespace ImGui;
           const Palette pal;
+
+          // ---- the studio: the panel dresses as the painting does -----------
+          //
+          // Prussian blue ground, chrome-yellow rules, cream lettering, and
+          // selection in the yellow of the wheat. The module's own NanoVG
+          // context is where the world is painted; the panel is ImGui and
+          // therefore styled through the style stack, pushed once for the
+          // duration of both windows and popped after the last End().
+          const bool styled = sb.vanGogh_;
+          int pushedColors = 0;
+          int pushedVars = 0;
+          if (styled) {
+            const auto push = [&](ImGuiCol_ idx, ImVec4 c) {
+              PushStyleColor(idx, c);
+              ++pushedColors;
+            };
+            push(ImGuiCol_WindowBg, ImVec4(0.055f, 0.075f, 0.145f, 0.955f));
+            push(ImGuiCol_Border, ImVec4(0.91f, 0.66f, 0.14f, 0.55f));
+            push(ImGuiCol_TitleBg, ImVec4(0.040f, 0.055f, 0.110f, 1.0f));
+            push(ImGuiCol_TitleBgActive, ImVec4(0.11f, 0.14f, 0.30f, 1.0f));
+            push(ImGuiCol_Text, ImVec4(0.93f, 0.90f, 0.82f, 1.0f));
+            push(ImGuiCol_TextDisabled, ImVec4(0.58f, 0.60f, 0.70f, 1.0f));
+            push(ImGuiCol_FrameBg, ImVec4(0.09f, 0.11f, 0.22f, 1.0f));
+            push(ImGuiCol_FrameBgHovered, ImVec4(0.16f, 0.19f, 0.36f, 1.0f));
+            push(ImGuiCol_FrameBgActive, ImVec4(0.22f, 0.26f, 0.46f, 1.0f));
+            push(ImGuiCol_Button, ImVec4(0.11f, 0.14f, 0.28f, 1.0f));
+            push(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.24f, 0.44f, 1.0f));
+            push(ImGuiCol_ButtonActive, ImVec4(0.28f, 0.33f, 0.56f, 1.0f));
+            push(ImGuiCol_SliderGrab, ImVec4(0.89f, 0.66f, 0.16f, 1.0f));
+            push(ImGuiCol_SliderGrabActive, ImVec4(1.00f, 0.78f, 0.28f, 1.0f));
+            push(ImGuiCol_CheckMark, ImVec4(0.91f, 0.66f, 0.14f, 1.0f));
+            push(ImGuiCol_Separator, ImVec4(0.45f, 0.42f, 0.30f, 0.60f));
+            push(ImGuiCol_Header, ImVec4(0.16f, 0.19f, 0.36f, 1.0f));
+            PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
+            PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+            PushStyleVar(ImGuiStyleVar_GrabRounding, 3.0f);
+            pushedVars += 3; // style vars, popped on their own stack below
+          }
 
           // ---- the material palette: agar's button strip, as swatches ----
           //
@@ -1792,6 +2914,21 @@ public:
             SameLine();
             if (Button("About##about"))
               sb.helpOpen_ = true;
+
+            Separator();
+            Text("Style");
+            Checkbox("Van Gogh##style", &sb.vanGogh_);
+            if (sb.vanGogh_) {
+              SliderFloat("Impasto##impasto", &sb.impasto_, 0.4f, 2.0f);
+              TextDisabled("  how thickly the paint is laid on");
+              TextDisabled(
+                  "  on: fields of brush strokes, a night sky with eleven stars,");
+              TextDisabled("  glare on the fire and the water, and the weave of the");
+              TextDisabled("  canvas under all of it.");
+            } else {
+              TextDisabled("  the automaton as a diagram: banded cells, one colour");
+              TextDisabled("  per material, lit from above");
+            }
           }
           End();
 
@@ -1834,6 +2971,16 @@ public:
             End();
           }
 
+          // Pop the studio's style now that both windows are closed -- after the
+          // last End(), so the About dialog is styled too. Style colours and
+          // style vars sit on two separate ImGui stacks, so each is popped with
+          // its own count; an imbalance here raises a 'Missing PopStyle*' assert
+          // every single frame.
+          if (styled) {
+            PopStyleColor(pushedColors);
+            PopStyleVar(pushedVars);
+          }
+
           // Mirror ImGui's capture flags and modifiers for the worker: the
           // ImGui context only exists on this thread, so the input node cannot
           // ask ImGui itself.
@@ -1847,20 +2994,45 @@ public:
         RWS(sandbox_));
   }
 
+  // Between the two nvg() passes: read the painting back and lay the varnish,
+  // the bloom, the living-paint swirl and the impasto sheen over it -- in raw
+  // GL, never fb(). Only in Van Gogh mode; the diagram mode keeps its flat cells.
+  static void postProcess(Sandbox &sb, VanGoghPost &post) {
+    if (sb.vanGogh_)
+      post.process();
+  }
+
+  // The second nvg() pass: the crisp chrome (brush ring + HUD), laid on top of
+  // the finished painting so the cursor and the readouts stay legible.
+  static void overlayDraw(Sandbox &sb, const cv::Size &sz) {
+    const Palette pal;
+    const View v = fitView(sz, sb.width_, sb.height_);
+    drawChrome(pal, sb, v, sz);
+  }
+
   void setup() override {
     set(GlobalState::Keys::SHOW_FRAME_TIME, V(false));
+    // The offscreen texture + composite shader for the gl() pass, created once
+    // per instance in this instance's GL context (the CubeScene pattern).
+    gl(&VanGoghPost::init, RW(post_));
     std::cerr << "sandcraft: fb=" << V4D::get<cv::Size>(V4D::Keys::SIZE)
               << " win=" << V4D::get<cv::Size>(V4D::Keys::WINDOW_SIZE)
               << std::endl;
   }
 
+  void teardown() override { gl(&VanGoghPost::destroy, RW(post_)); }
+
   void infer() override {
     set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(10, 10, 14, 255)));
-    // Input, then simulate, then draw: the graph is the pipeline, and the
-    // order is the order the sub-plans are spliced in.
+    // Input, then simulate, then draw: the graph is the pipeline, and the order
+    // is the order the sub-plans are spliced in. The whole painting is drawn
+    // with nvg() (render_), varnished and set glowing by a gl() pass, and the
+    // crisp chrome is laid over it with a second nvg().
     subInfer(input_);
     subInfer(sim_);
-    subInfer(render_);
+    subInfer(render_);                                          // nvg: the painting
+    gl(&SandcraftPlan::postProcess, RWS(sandbox_), RW(post_));  // gl: varnish + glow
+    nvg(&SandcraftPlan::overlayDraw, RWS(sandbox_), size_);      // nvg: crisp chrome
   }
 };
 
