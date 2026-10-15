@@ -27,25 +27,32 @@ DEMO="${V4D_ANDROID_DEMO:-font_rendering}"
 PACKAGE_ID="${V4D_ANDROID_PACKAGE:-}"
 STAGE_ROOT="${ANDROID_STAGE:-$REPO_DIR/build/android}"
 # --- signing key -----------------------------------------------------------
-# A checked-in debug key would be a real signing key in the repository, so this
-# one is generated on demand and never leaves the machine -- but it must also
-# outlive the *build tree*. It is therefore kept outside $STAGE_ROOT
-# (build/android) and outside the repository: '--rebuild'/'clean', wiping build/
-# or 'git clean -xdf' would otherwise delete it, and a regenerated key is a
-# different identity. The package manager then refuses to install over the
-# already-installed APK ("signatures do not match; uninstall first"), which is
-# exactly what the reuse below is meant to avoid.
+# The test signing key is checked into the repository (tools/android/
+# v4d-debug.keystore), so the signing identity is stable across machines,
+# checkouts and clean builds. Keeping it fixed is what lets a rebuild be
+# installed *over* an already-installed APK without uninstalling first: a
+# regenerated key is a different identity and the package manager refuses the
+# in-place update ("signatures do not match; uninstall first").
 #
-# Android itself keeps its debug key in ~/.android, so the key lives there too,
-# under a dedicated name so it never collides with the SDK's own debug.keystore.
-# Override the location with V4D_KEYSTORE (or V4D_ANDROID_KEYSTORE_DIR) or a
-# --keystore argument.
-KEYSTORE_DIR="${V4D_ANDROID_KEYSTORE_DIR:-${HOME:-$REPO_DIR}/.android}"
-KEYSTORE="${V4D_KEYSTORE:-$KEYSTORE_DIR/v4d-debug.keystore}"
-# Where earlier builds put it (an in-tree key); adopted below if present, so an
-# existing APK can still be replaced in place.
-LEGACY_KEYSTORE="$STAGE_ROOT/debug.keystore"
+# It is only a *test* key -- storepass/keypass "android", alias "v4d", self-
+# signed, valid 10000 days -- good for local development APKs and nothing that
+# is published. It lives in the repository rather than in $STAGE_ROOT
+# (build/android) or ~/.android precisely because '--rebuild'/'clean', wiping
+# build/ or 'git clean -xdf' would otherwise delete it.
+#
+# Override the location with V4D_KEYSTORE, or a --keystore argument. If the
+# checked-in key is absent (e.g. a source tarball stripped it), an existing key
+# from a previous layout is adopted first, and only as a last resort is a fresh
+# one generated.
+KEYSTORE="${V4D_KEYSTORE:-$SCRIPT_DIR/v4d-debug.keystore}"
 KEYSTORE_SET=0
+if [ -n "${V4D_KEYSTORE:-}" ]; then KEYSTORE_SET=1; fi
+# Where earlier builds kept it; adopted below (when present) so an already-
+# installed APK keeps the same signing identity.
+LEGACY_KEYSTORES=(
+  "$STAGE_ROOT/debug.keystore"                 # in-tree, before the move
+  "${HOME:-}/.android/v4d-debug.keystore"      # per-user, generated on demand
+)
 KEY_ALIAS="${V4D_KEY_ALIAS:-v4d}"
 usage() { sed -n '2,18p' "$0"; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
@@ -60,13 +67,18 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Adopt a key left behind by an older build in the build tree, so the signing
-# identity (and therefore in-place updates of already-installed APKs) survives
-# the move. Only when the caller did not name a keystore explicitly.
-if [ "$KEYSTORE_SET" = 0 ] && [ ! -f "$KEYSTORE" ] && [ -f "$LEGACY_KEYSTORE" ]; then
-  echo "==> Adopted existing signing key: $LEGACY_KEYSTORE -> $KEYSTORE"
-  mkdir -p "$(dirname "$KEYSTORE")"
-  cp -p "$LEGACY_KEYSTORE" "$KEYSTORE"
+# Adopt a key left behind by an older layout, so the signing identity (and
+# therefore in-place updates of already-installed APKs) survives. Only when the
+# caller did not name a keystore explicitly.
+if [ "$KEYSTORE_SET" = 0 ] && [ ! -f "$KEYSTORE" ]; then
+  for legacy in "${LEGACY_KEYSTORES[@]}"; do
+    if [ -f "$legacy" ]; then
+      echo "==> Adopted existing signing key: $legacy -> $KEYSTORE"
+      mkdir -p "$(dirname "$KEYSTORE")"
+      cp -p "$legacy" "$KEYSTORE"
+      break
+    fi
+  done
 fi
 
 # Derived after parsing, so --demo and --package both take effect.
@@ -155,8 +167,10 @@ rm -rf "$WORK"
 mkdir -p "$WORK"
 
 # --- signature -------------------------------------------------------------
-# Generated once and reused, so a rebuild can be installed over the previous one
-# without uninstalling (a changed key would refuse to replace it).
+# The checked-in test key is used as-is. Generating a fresh one is the last
+# resort (see the signing key block above) and only happens when the repo copy
+# and every legacy location are missing; a rebuild must reuse the same key to
+# be installable over the previous APK.
 if [ ! -f "$KEYSTORE" ]; then
   echo "==> Generating $KEYSTORE"
   mkdir -p "$(dirname "$KEYSTORE")"
