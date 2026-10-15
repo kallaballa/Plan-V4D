@@ -258,7 +258,7 @@ below, or add them to an existing OpenCV build via `OPENCV_EXTRA_MODULES_PATH`
 | `configure`               | Configure the build directory, nothing else           |
 | `build`                   | Compile an already-configured build directory         |
 | `test`                    | Run the plan test and perf binaries                   |
-| `install`                 | Build (if needed) and install a built tree (`sudo make install`) |
+| `install`                 | Build (if needed) and install a built tree            |
 | `clean`                   | Remove the build directory                            |
 
 `./build.sh --help` is the authoritative list. The options are `-t/--target`,

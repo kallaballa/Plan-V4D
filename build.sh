@@ -55,7 +55,7 @@ Commands:
   configure       Configure the build directory, nothing else
   build           Compile an already-configured build directory
   test            Run the plan test and perf binaries
-  install         Install a built tree with 'sudo make install'
+  install         Install a built tree
   clean           Remove the build directory
 
 Options:
@@ -646,8 +646,7 @@ do_test() {
 }
 
 do_make_install() {
-  cd "$BUILD_DIR"
-  sudo make install
+  sudo /usr/bin/make -C "$BUILD_DIR" install
 }
 
 # 'install' stands on its own: the tree may be configured but not yet built, and
