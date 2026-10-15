@@ -381,7 +381,7 @@ public:
     // makes "the world is allocated and seeded exactly once" a property of the
     // code rather than a property of the runtime's construction order.
     //
-    // r20x180 is the original's 640x360 at half the resolution; nothing in the
+    // 320x180 is the original's 640x360 at half the resolution; nothing in the
     // automaton depends on it, and the renderer fits whatever it is given to
     // the viewport.
     if (sandbox_.cells_.empty()) {
