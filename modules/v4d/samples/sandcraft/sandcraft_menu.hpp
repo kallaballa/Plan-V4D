@@ -113,12 +113,13 @@ inline void drawStartupMenu(Sandbox &sb) {
   SetNextWindowPos(GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
                    ImVec2(0.5f, 0.5f));
   // No close button: the player has to make a choice (single-player is one
-  // button away, so nothing is forced). NoEscape likewise: letting Escape
-  // dismiss the popup would leave menu_.open set with no popup on screen, and
-  // the process stuck in "menu" mode with no role and no way back.
+  // button away, so nothing is forced). Escape cannot dismiss it either:
+  // BeginPopupModal() marks the window ImGuiWindowFlags_Modal, and ImGui only
+  // closes *non-modal* popups on Escape (NavUpdateCancelRequest), so
+  // menu_.open is only cleared by a committed choice -- the process can never
+  // be left in "menu" mode with no popup on screen and no role.
   if (!BeginPopupModal(kStartupPopup, nullptr,
-                       ImGuiWindowFlags_AlwaysAutoResize |
-                           ImGuiWindowFlags_NoEscape))
+                       ImGuiWindowFlags_AlwaysAutoResize))
     return;
 
   if (sb.menu_.page == 0) {

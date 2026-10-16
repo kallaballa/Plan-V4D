@@ -143,8 +143,14 @@ fi
 # clspv's fetch_sources.py checks the llvm-project commit out of deps.json into
 # external/clspv/third_party/llvm. This is .git-ignored by clspv and not a
 # submodule, so it is fetched exactly as clvk's own CI does.
-CLSPV_LLVM_DIR="$CLVK_DIR/external/clspv/third_party/llvm/llvm"
-if [ ! -d "$CLSPV_LLVM_DIR/.git" ]; then
+CLSPV_LLVM_ROOT="$CLVK_DIR/external/clspv/third_party/llvm"
+CLSPV_LLVM_DIR="$CLSPV_LLVM_ROOT/llvm"
+# The monorepo root (deps.json "subdir": "third_party/llvm") is where the .git
+# lives; .../llvm/llvm is merely the monorepo's llvm/ subproject and never has a
+# .git of its own. Guarding on the subproject made this always true, so the
+# multi-GB checkout -- and its git index, which needs index.lock -- was redone on
+# every build and any leftover lock aborted the whole Android build.
+if [ ! -d "$CLSPV_LLVM_ROOT/.git" ]; then
   echo "==> fetch_sources.py: downloading clspv's LLVM pin (this is a big checkout)"
   (cd "$CLVK_DIR" && python3 external/clspv/utils/fetch_sources.py --shallow --deps llvm)
 fi
