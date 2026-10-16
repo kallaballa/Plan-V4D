@@ -78,20 +78,20 @@ therefore goes through sway + `headless_input`. Two defects in that path were fo
   privileges, no daemon, and `motion_absolute` removes the tracked-cursor desync that relative-only
   `wlrctl` movement suffers from.
 
-Rebuild recipe (needs only `wayland-client`, `wayland-scanner`, `gcc`, `pkg-config`):
+The helper source, the protocol XML and the build script are **committed** under
+[`netplay/tests/`](tests/): `wlr-pointer.c`, `wlr-virtual-pointer-unstable-v1.xml`, and
+`build-wlr-pointer.sh`. Build it (needs only `wayland-client`, `wayland-scanner`, `gcc`,
+`pkg-config`); it defaults to `$HOME/.local/bin/wlr-pointer`:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/swaywm/wlroots/master/protocol/wlr-virtual-pointer-unstable-v1.xml -o vp.xml
-wayland-scanner client-header vp.xml wlr-virtual-pointer-unstable-v1-client-protocol.h
-wayland-scanner private-code  vp.xml wlr-virtual-pointer-unstable-v1-protocol.c
-gcc -O2 -o ~/.local/bin/wlr-pointer wlr-pointer.c wlr-virtual-pointer-unstable-v1-protocol.c \
-    -I. $(pkg-config --cflags --libs wayland-client)
+modules/v4d/samples/sandcraft/netplay/tests/build-wlr-pointer.sh [output-path]
 ```
+
+The XML is vendored (not fetched) so the build is offline-reproducible; `wayland-scanner` generates
+the two bindings into a throwaway directory.
 
 The helper reads a line script on stdin:
 `abs X Y | move DX DY | down [BTN] | up [BTN] | click [BTN] | scroll DY [DX] | sleep MS`.
-**Follow-up:** the helper source must be committed under `netplay/tests/` — it currently lives only
-under `/tmp/opencode/tmp-scripts/`, which is not durable.
 
 Temporary orchestration scripts (running two processes, timing, diffing) MUST live under
 `/tmp/opencode/tmp-scripts/`. Reusable test scripts SHOULD be committed under
