@@ -16,3 +16,6 @@
 [submodule "modules/v4d/third/clvk"]
 	path = modules/v4d/third/clvk
 	url = https://github.com/kpet/clvk.git
+[submodule "modules/v4d/third/zstd"]
+	path = modules/v4d/third/zstd
+	url = https://github.com/facebook/zstd.git
