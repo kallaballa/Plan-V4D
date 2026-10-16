@@ -203,7 +203,7 @@ struct WorldState {                    // host-authoritative, sim-affecting
 };
 
 struct LocalState {                    // never networked
-  bool   vanGogh   = true;
+  bool   vanGogh   = false;
   float  impasto   = 1.0f;
   bool   panelOpen = true;
   bool   helpOpen  = false;

@@ -115,29 +115,29 @@ using netplay::MSG_INPUT;
 class LocalInputPlan : public V4DPlan {
 public:
   Sandbox &sb_;
-  bool &hostMode_;
-  LocalInputPlan(Sandbox &sb, bool &hostMode) : sb_(sb), hostMode_(hostMode) {
-    _shared(sb_);
-    _shared(hostMode_);
-  }
+  explicit LocalInputPlan(Sandbox &sb) : sb_(sb) { _shared(sb_); }
 
   void infer() override {
-    plain([this](Sandbox &sb, const bool &hostMode, const cv::Size &fbSz,
-                 const cv::Size &winSz, const Mouse::List &press,
-                 const Mouse::List &drag, const Mouse::List &scroll,
-                 const Keyboard::List &keys, const Mouse::List &move) {
-            apply(sb, hostMode, fbSz, winSz, press, drag, scroll, keys, move);
+    plain([this](Sandbox &sb, const cv::Size &fbSz, const cv::Size &winSz,
+                 const Mouse::List &press, const Mouse::List &drag,
+                 const Mouse::List &scroll, const Keyboard::List &keys,
+                 const Mouse::List &move) {
+            apply(sb, fbSz, winSz, press, drag, scroll, keys, move);
           },
-          RWS(sb_), RS(hostMode_), size_, windowSize_, press_, drag_, scroll_,
-          keys_, move_);
+          RWS(sb_), size_, windowSize_, press_, drag_, scroll_, keys_, move_);
   }
 
   // The pointer and the view have to agree, so the view is recomputed here
   // from the same size_ the renderer uses.
-  void apply(Sandbox &sb, const bool &hostMode, const cv::Size &fbSz,
-             const cv::Size &winSz, const Mouse::List &press,
-             const Mouse::List &drag, const Mouse::List &scroll,
-             const Keyboard::List &keys, const Mouse::List &move) {
+  void apply(Sandbox &sb, const cv::Size &fbSz, const cv::Size &winSz,
+             const Mouse::List &press, const Mouse::List &drag,
+             const Mouse::List &scroll, const Keyboard::List &keys,
+             const Mouse::List &move) {
+    // The role is a property of the *world*, not of this plan instance: the
+    // startup dialog runs on the display thread and commits onto the shared
+    // sandbox, so it is read here (under the same lock RWS(sb_) took) rather
+    // than bound as a constructor reference (spec §16.4).
+    const bool hostMode = sb.hostMode_;
     const View v = fitView(fbSz, sb.width_, sb.height_);
 
     // Where the pointer is, for the brush ring to follow. The move events
@@ -530,13 +530,14 @@ class SandcraftPlan : public V4DPlan {
   // contending on the *same* mutex rather than on two.
   static Sandbox sandbox_;
 
-  // Which side of the star this process is (spec §5, §16.4). It is fixed for
-  // the process lifetime and set from the NetRuntime before the first frame, so
-  // it is read (not written) by the graph; `RS` is the correct accessor for a
-  // `_shared` variable (spec §16.4 wrote `R`; see the M2 log for why that is
-  // amended). It is a plain member, not a static: each plan instance evaluates
-  // the branch for itself, and every instance holds the same value.
-  bool hostMode_ = true;
+  // Which side of the star this process is (spec §5, §16.4) now lives on the
+  // shared sandbox as sandbox_.hostMode_, not on a plan member: the display
+  // thread (which runs the startup dialog) and the compute worker (which
+  // evaluates the branch) are two different plan instances, so only an object
+  // with one process-wide address and one mutex can carry the choice between
+  // them. The constructor seeds it from the NetRuntime (the command-line role);
+  // the startup dialog may flip it afterwards, and the per-frame branch below
+  // sees that on the next frame.
 
   cv::Ptr<LocalInputPlan> input_;
   cv::Ptr<SandSimulationPlan> sim_;
@@ -552,12 +553,14 @@ class SandcraftPlan : public V4DPlan {
 public:
   SandcraftPlan() {
     _shared(sandbox_);
-    _shared(hostMode_);
 
     // The role is a process-wide decision (NetRuntime, spec §16.6), made once
-    // from argv before the first frame. Reading it here, in the constructor,
-    // means the branch below is decided before the graph is recorded.
-    hostMode_ = netplay::netRuntime().host();
+    // from argv before the first frame -- or, when no role was given, made
+    // later by the startup dialog (sandcraft_menu.hpp), which commits onto the
+    // same shared sandbox_. Seeding it here means an explicit --host/--connect
+    // (or --single-player) is in force before the graph is recorded; the dialog
+    // then flips sandbox_.hostMode_ at runtime and the branch follows.
+    sandbox_.hostMode_ = netplay::netRuntime().host();
 
     // The runtime builds one plan instance per compute worker *and* one for the
     // display thread, so this constructor runs more than once per process (with
@@ -578,7 +581,7 @@ public:
     // what puts it in the roster a joining client receives.
     sandbox_.players_[0].active = true;
 
-    input_ = _sub<LocalInputPlan>(this, sandbox_, hostMode_);
+    input_ = _sub<LocalInputPlan>(this, sandbox_);
     sim_ = _sub<SandSimulationPlan>(this, sandbox_);
     netApply_ = _sub<NetApplyPlan>(this, sandbox_);
     render_ = _sub<SandRenderPlan>(this, sandbox_);
@@ -655,10 +658,12 @@ public:
     // The role split (spec §16.4): exactly one of SandSimulationPlan (the
     // authority steps the automaton) or NetApplyPlan (a guest applies the
     // authority's keyframes/deltas) runs. The two are mutually exclusive, so a
-    // guest can never step the automaton (spec Rule A1, §7.6). `hostMode_` is
-    // fixed for the process lifetime, so this branch always takes the same arm.
+    // guest can never step the automaton (spec Rule A1, §7.6). The predicate is
+    // re-evaluated every frame, so the startup dialog can commit host or client
+    // after the graph was recorded and the worker takes the matching arm on the
+    // next frame; on an explicit --host/--connect it never changes.
     subInfer(input_);
-    branch(RS(hostMode_))
+    branch(RS(sandbox_.hostMode_))
         ->subInfer(sim_)
     ->elseBranch()
         ->subInfer(netApply_)
@@ -704,14 +709,18 @@ V4D_DEMO_MAIN(int argc, char **argv) {
   }
 
   // Apply the role before any plan instance exists (spec §16.6). SandcraftPlan
-  // reads the singleton in its constructor to choose the graph branch, so the
-  // configure() has to precede V4D::init(); without it the singleton keeps its
-  // default (Host) and the client arm is unreachable.
+  // reads the singleton in its constructor to seed the graph branch, so the
+  // configure() has to precede V4D::init(). With no role argument this is the
+  // offline default (Host, no socket); the startup dialog then commits the
+  // player's choice at runtime by reconfiguring the same singleton and flipping
+  // the shared sandbox flag.
   netplay::netRuntime().configure(net);
 
-  // Start the net thread only when the process was asked to network (opt-in,
-  // spec §16.6). A no-argument run opens no socket and skips the per-tick
-  // snapshot copy entirely (§4.3).
+  // Start the net thread only when the process was asked to network *up front*
+  // (opt-in, spec §16.6). A no-argument run -- which opens the startup dialog --
+  // opens no socket here; the dialog starts it if the player picks host or join.
+  // A no-menu run opens nothing at all and skips the per-tick snapshot copy
+  // entirely (§4.3).
   if (net.enabled) {
     std::string err;
     if (!netplay::netRuntime().start(err))
@@ -726,6 +735,8 @@ V4D_DEMO_MAIN(int argc, char **argv) {
               << netplay::endpointPort(net);
   else if (net.enabled)
     std::cerr << " listening=" << netplay::netRuntime().boundPort();
+  else if (net.menu)
+    std::cerr << " (startup menu)";
   else
     std::cerr << " (single player)";
   std::cerr << " name=" << net.name << std::endl;

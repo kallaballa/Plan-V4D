@@ -25,6 +25,7 @@
 #include "imgui.h"
 
 #include "sandcraft_materials.hpp"
+#include "sandcraft_menu.hpp"
 #include "sandcraft_sandbox.hpp"
 #include "netplay/net_runtime.hpp"
 
@@ -54,6 +55,14 @@ inline ImVec4 contrastOn(const cv::Scalar &bgra) {
 inline void drawPanel(Sandbox &sb) {
   using namespace ImGui;
   const Palette pal;
+
+  // The startup dialog comes first and, while it is up, is the only thing the
+  // player can touch: a modal popup blocks every widget behind it. The panel is
+  // still drawn underneath so the world readouts keep updating and, crucially,
+  // so the input-mirroring at the end of this function still runs -- a bare
+  // `return` here would leave guiWantsMouse_ stale for the worker.
+  drawStartupMenu(sb);
+
   // The panel drives the local player (always player 0). On a client this writes
   // the replica's player-0 brush/pen, which the net layer forwards as SET_BRUSH/
   // SET_PEN (spec §9.5); on the host it is the authority's own player.
@@ -236,7 +245,8 @@ inline void drawPanel(Sandbox &sb) {
       netplay::NetRuntime &net = netplay::netRuntime();
       if (!net.active()) {
         TextDisabled("  single player: no socket");
-        TextDisabled("  start with --host, or --connect HOST to join");
+        TextDisabled("  choose host/join in the startup dialog,");
+        TextDisabled("  or start with --host / --connect HOST");
       } else {
         const netplay::NetStats ns = net.stats();
         Text("%s", net.host() ? "host (authoritative)" : "client (replica)");

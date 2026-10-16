@@ -54,6 +54,11 @@ struct NetConfig {
   bool selfTest = false;    // --net-selftest: in-process host==client (M2)
   bool tcpSelfTest = false; // --net-tcp-selftest: in-process host+client over TCP (M3)
   bool netStats = false;    // --net-stats: one "net-stats:" line per second
+  // Show the startup dialog (single-player / multiplayer / host / join). On by
+  // default so a bare run asks; any argument that already states a role
+  // (--host, --connect, --single-player) or that runs headless (the self-tests)
+  // turns it off, which keeps the old no-menu CLI behaviour for scripts.
+  bool menu = true;
   bool help = false;        // --help: print usage and leave
 };
 
@@ -98,10 +103,22 @@ inline NetConfig parseArgs(int argc, char **argv) {
     if (a == "--host") {
       cfg.role = Role::Host;
       cfg.enabled = true;
+      cfg.menu = false;
     } else if (a == "--serve" || a == "--connect") {
       cfg.role = Role::Client;
       cfg.enabled = true;
       cfg.connect = next("");
+      cfg.menu = false;
+    } else if (a == "--single-player") {
+      // Explicitly the offline demo: no socket and no startup dialog.
+      cfg.role = Role::Host;
+      cfg.enabled = false;
+      cfg.connect.clear();
+      cfg.menu = false;
+    } else if (a == "--no-menu") {
+      // Keep the dialog out of the way; the role stays whatever the rest of
+      // the command line says (Host/single-player by default).
+      cfg.menu = false;
     } else if (a == "--port") {
       const std::string v = next("");
       try {
@@ -116,8 +133,10 @@ inline NetConfig parseArgs(int argc, char **argv) {
       cfg.token = next("");
     } else if (a == "--net-selftest") {
       cfg.selfTest = true;
+      cfg.menu = false;
     } else if (a == "--net-tcp-selftest") {
       cfg.tcpSelfTest = true;
+      cfg.menu = false;
     } else if (a == "--net-stats") {
       cfg.netStats = true;
     } else if (a == "--help" || a == "-h") {
@@ -147,8 +166,11 @@ inline uint16_t endpointPort(const NetConfig &cfg) {
 
 inline const char *usageText() {
   return "Sandcraft netplay options:\n"
-         "  --host                 run as the authoritative host and listen (default role)\n"
-         "  --connect HOST[:PORT]  run as a client and dial HOST\n"
+         "  (no argument)          show the startup dialog: single-player, host, or join\n"
+         "  --single-player        offline single-player, no socket and no dialog\n"
+         "  --host                 run as the authoritative host and listen (no dialog)\n"
+         "  --connect HOST[:PORT]  run as a client and dial HOST (no dialog)\n"
+         "  --no-menu              do not show the startup dialog\n"
          "  --port N               host listen port (default 45454)\n"
          "  --name NAME            player name shown in the roster\n"
          "  --token TOKEN          shared join token (empty => open; unused in v1)\n"
@@ -157,8 +179,9 @@ inline const char *usageText() {
          "  --net-tcp-selftest     in-process host+client self test over TCP (M3)\n"
          "  -h, --help             this message\n"
          "\n"
-         "With no network argument the demo runs as it always has: host role,\n"
-         "player 0, and no socket (spec §4.3, §16.6).\n";
+         "With no argument the demo opens the startup dialog and only starts a\n"
+         "socket once the player chooses host or join; choosing single-player (or\n"
+         "passing --single-player) runs exactly the offline demo (spec §4.3, §16.6).\n";
 }
 
 } // namespace netplay

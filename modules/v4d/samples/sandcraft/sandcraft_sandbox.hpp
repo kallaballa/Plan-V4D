@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstdint>
 #include <random>
+#include <string>
 #include <vector>
 
 #include <opencv2/core.hpp>
@@ -74,13 +75,32 @@ struct WorldState {
 // Purely local, never networked (spec §6, §7.2): the style, the panel/help
 // windows and the HUD counters are each instance's own business. A client's
 // Van Gogh toggle must not travel to the host, and neither must its fps.
+//
+// Van Gogh is off by default: the demo opens on the plain diagram (banded
+// cells, one colour per material) and the oil-paint post pass only engages once
+// the Style checkbox is ticked. The Weave/pigment path is the expensive one, so
+// starting without it also keeps the first frames cheap on modest GPUs.
 struct LocalState {
-  bool vanGogh = true;
+  bool vanGogh = false;
   float impasto = 1.0f;
   bool panelOpen = true;
   bool helpOpen = false;
   double fps = 0.0;
   double lastFrameTime = 0.0;
+};
+
+// The startup dialog's state (see sandcraft_menu.hpp). It lives on the shared
+// sandbox so it survives across frames, and because the choice the player makes
+// has to reach the worker that owns the graph branch. Only the display thread
+// reads or writes it, inside the imgui() transaction, so the shared mutex is
+// the only synchronisation it needs.
+struct MenuState {
+  bool open = true;             // the modal is up until a choice is committed
+  bool openPopupRequested = true; // OpenPopup() must precede the first Begin
+  int page = 0;                 // 0 = single/multiplayer, 1 = host/join
+  bool focusHost = false;       // focus the host field when page 1 appears
+  char host[256] = "127.0.0.1"; // hostname[:port] a client dials
+  std::string error;            // set when the net runtime refuses to start
 };
 
 // A client-local, not-yet-acknowledged painted segment (spec §10). Owned by the
@@ -103,6 +123,16 @@ struct Sandbox {
   std::array<PlayerState, 4> players_;
   WorldState world_;
   LocalState local_;
+  // The startup dialog (sandcraft_menu.hpp) and the role the graph branch keys
+  // on. hostMode_ used to be a plain member of SandcraftPlan, but the display
+  // thread (which draws the dialog) and the compute worker (which evaluates the
+  // branch) are *different plan instances*, so a per-instance member could not
+  // carry the choice from one to the other. On the process-wide sandbox it is
+  // one object with one mutex -- the dialog writes it under RWS(sandbox_) and
+  // the branch reads it under RS(sandbox_.hostMode_) -- so a commit is visible
+  // to the worker on the next frame (spec §16.4).
+  MenuState menu_;
+  bool hostMode_ = true;
   // Client-only optimistic strokes (spec §10); always empty on the authority.
   std::vector<PredictedSegment> predicted_;
 
