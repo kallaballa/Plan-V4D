@@ -370,7 +370,8 @@ D25).
   last transmitted state; `WELCOME`/`REJECT`. **Landed.**
 * Client: `NetApplyPlan` applies keyframe/delta; renders the replica. **Landed** (M2; M3 exercises it
   over the socket).
-* `sandcraft_panel.hpp` — a minimal "Network" section: role, local endpoint, peer, tick, bytes/s.
+* `sandcraft_panel.hpp` — a minimal "Network" section: role, local endpoint, peer, tick, cumulative
+  bytes in/out.
   **Landed** (role-appropriate keyframe/delta counters added in this pass — see the log).
 * Capture/instrumentation: a `--net-stats` log line per second (tick, peers, bytes out/in, delta
   ratio, drops). **Landed.**
