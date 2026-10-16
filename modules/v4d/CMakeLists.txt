@@ -106,7 +106,10 @@ if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.git" AND NOT DEFINED
   endif()
 endif()
 
-set(V4D_THIRD_PARTY_DEPS imgui nanovg)
+# zstd is vendored for the sandcraft netplay delta codec (samples/sandcraft/netplay).
+# It is a submodule like the others, so it belongs in the existence check even
+# though only one sample links it.
+set(V4D_THIRD_PARTY_DEPS imgui nanovg zstd)
 if(OPENCV_V4D_ANDROID_GLFW)
   # The Android replacement is in-tree rather than a submodule, so it is always
   # there; see third/glfw-android/CMakeLists.txt.
@@ -118,6 +121,35 @@ foreach(dep ${V4D_THIRD_PARTY_DEPS})
     message(FATAL_ERROR "The submodule 'third/${dep}' was not downloaded! GIT_SUBMODULE was turned off or failed. Please update submodules and try again.")
   endif()
 endforeach()
+
+# zstd (facebook/zstd, pinned to a release tag) built as a static library for the
+# sandcraft netplay codec (specification.md §14). Only the library is wanted:
+# the CLI, the test suite, the contrib code and the legacy frame formats are all
+# off, which also keeps zstd from calling enable_testing()/include(CTest) and
+# clashing with OpenCV's own test setup. zstd's CMake project lives under
+# build/cmake, not the repository root.
+#
+# EXCLUDE_FROM_ALL keeps zstd's install rules from firing with OpenCV's -- it is
+# built because example_v4d_sandcraft links it, and nothing else. The target is
+# `libzstd_static`; the `zstd::libzstd_*` aliases only exist in the exported
+# package config, which is not used in-tree.
+#
+# ZSTD_MULTITHREAD_SUPPORT is off: the net thread is single-threaded (spec §15.1)
+# and the option is off for Android by default anyway, so leaving it off on every
+# target keeps the two configurations identical.
+if(NOT TARGET libzstd_static)
+  set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+  set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(ZSTD_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+  set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
+  set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  set(ZSTD_LEGACY_SUPPORT OFF CACHE BOOL "" FORCE)
+  set(ZSTD_MULTITHREAD_SUPPORT OFF CACHE BOOL "" FORCE)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third/zstd/build/cmake"
+                   "${CMAKE_CURRENT_BINARY_DIR}/zstd" EXCLUDE_FROM_ALL)
+  # Vendored third-party code: its warnings are not ours to fix.
+  target_compile_options(libzstd_static PRIVATE -w)
+endif()
 
 # GLFW. The vendored copy in third/glfw is a submodule and is built together with
 # this module, so a checkout needs no GLFW development package. Configure with
@@ -670,6 +702,38 @@ if(NOT (TARGET ${the_module}))
     add_binary_sample(example_v4d_shadertoy-editor samples/shadertoy-editor.cpp)
     add_binary_sample(example_v4d_dock-demo samples/dock-demo.cpp)
     add_binary_sample(example_v4d_sandcraft samples/sandcraft.cpp)
+    # The netplay delta codec (specification.md §14.4). Only this sample needs
+    # zstd, so it is linked here rather than in _v4d_add_host_sample(). The
+    # libzstd_static target carries third/zstd/lib as an INTERFACE include
+    # directory, which is what puts <zstd.h> on the sample's include path.
+    if(TARGET example_v4d_sandcraft AND TARGET libzstd_static)
+      target_link_libraries(example_v4d_sandcraft PRIVATE libzstd_static)
+    endif()
+
+    # The netplay codec self-test (roadmap M1). It links zstd and the netplay
+    # headers and nothing from V4D or OpenCV, which is the point: the codec is
+    # proven without sockets or a GL context. It is a plain executable rather
+    # than an OpenCV gtest target because the plan-only build has V4D off and
+    # cannot see the sample tree at all; the milestone log records the check
+    # this replaces the roadmap's original `plan --gtest_filter` recipe with.
+    if(TARGET libzstd_static)
+      ocv_add_executable(sandcraft_netplay_tests
+        samples/sandcraft/netplay/tests/test_netplay_codec.cpp)
+      target_include_directories(sandcraft_netplay_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/samples/sandcraft/netplay")
+      target_link_libraries(sandcraft_netplay_tests PRIVATE libzstd_static)
+      target_compile_features(sandcraft_netplay_tests PRIVATE cxx_std_20)
+    endif()
+    # The wire-protocol self-test (roadmap M2). It needs nothing but the netplay
+    # headers -- no zstd, no V4D, no OpenCV -- so unlike the codec test above it
+    # is not gated on the vendored library. Proving the framing and the message
+    # catalog in isolation is roadmap guiding principle 2 ("the protocol without
+    # a second process").
+    ocv_add_executable(sandcraft_netplay_protocol_tests
+      samples/sandcraft/netplay/tests/test_netplay_protocol.cpp)
+    target_include_directories(sandcraft_netplay_protocol_tests PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/samples/sandcraft/netplay")
+    target_compile_features(sandcraft_netplay_protocol_tests PRIVATE cxx_std_20)
     # The code pane is a vendored ImGui widget (ImGuiColorTextEdit, MIT) rather
     # than part of libv4d: only this sample edits code, and TextEditor.cpp is a
     # third-party translation unit that no other target should have to compile.

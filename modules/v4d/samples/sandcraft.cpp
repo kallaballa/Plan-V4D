@@ -63,6 +63,14 @@
 #include "sandcraft/sandcraft_sandbox.hpp"
 #include "sandcraft/sandcraft_scene.hpp"
 #include "sandcraft/sandcraft_view.hpp"
+#include "sandcraft/netplay/input_apply.hpp"
+#include "sandcraft/netplay/net_glue.hpp"
+#include "sandcraft/netplay/net_runtime.hpp"
+#include "sandcraft/netplay/netplay.hpp"
+#include "sandcraft/netplay/netqueues.hpp"
+#include "sandcraft/netplay/protocol.hpp"
+#include "sandcraft/netplay/replication.hpp"
+#include "sandcraft/netplay/selftest.hpp"
 
 using namespace cv;
 using namespace cv::v4d;
@@ -70,30 +78,64 @@ using namespace cv::v4d::event;
 
 namespace sandcraft {
 
+// The sub-plans talk to the netplay subsystem directly, so its small vocabulary
+// of wire names is pulled in here rather than qualified at every use site.
+using netplay::CMD_CLEAR;
+using netplay::CMD_EMITTER_DENSITY;
+using netplay::CMD_EMITTER_TOGGLE;
+using netplay::CMD_PAUSE_TOGGLE;
+using netplay::CMD_RANDOMIZE;
+using netplay::EV_COMMAND;
+using netplay::EV_DRAG;
+using netplay::EV_MOVE;
+using netplay::EV_PRESS;
+using netplay::EV_RELEASE;
+using netplay::EV_SET_BRUSH;
+using netplay::EV_SET_PEN;
+using netplay::InputBatchMsg;
+using netplay::InputEnvelope;
+using netplay::InputEventWire;
+using netplay::MSG_INPUT;
+
 // ===========================================================================
 // The sub-plans
 // ===========================================================================
 
-// Stage 1 -- read the pointer and the keyboard into the sandbox.
+// Stage 1 -- read the pointer and the keyboard, and turn them into input
+// *events* (spec §9) rather than writing the grid directly.
 //
-// A plain() node rather than an nvg() one: input has nothing to do with the
-// graphics context, and the event edges live on the worker.
-class SandInputPlan : public V4DPlan {
+// The events are the demo's one pointer/keyboard model: the host pushes its own
+// into the loopback queue (so its own painting takes the identical path a
+// peer's does -- spec Rule S2), and a guest frames them into INPUT batches for
+// the wire. The conversion pointer->cell happens here, with the sender's own
+// fitView, because the authority cannot reconstruct a peer's view (spec §9.1);
+// the shared cellAt keeps it identical to the old SandInputPlan.
+class LocalInputPlan : public V4DPlan {
 public:
   Sandbox &sb_;
-  SandInputPlan(Sandbox &sb) : sb_(sb) { _shared(sb_); }
+  bool &hostMode_;
+  LocalInputPlan(Sandbox &sb, bool &hostMode) : sb_(sb), hostMode_(hostMode) {
+    _shared(sb_);
+    _shared(hostMode_);
+  }
 
   void infer() override {
-    plain(&SandInputPlan::apply, RWS(sb_), size_, windowSize_, press_, drag_,
-          scroll_, keys_, move_);
+    plain([this](Sandbox &sb, const bool &hostMode, const cv::Size &fbSz,
+                 const cv::Size &winSz, const Mouse::List &press,
+                 const Mouse::List &drag, const Mouse::List &scroll,
+                 const Keyboard::List &keys, const Mouse::List &move) {
+            apply(sb, hostMode, fbSz, winSz, press, drag, scroll, keys, move);
+          },
+          RWS(sb_), RS(hostMode_), size_, windowSize_, press_, drag_, scroll_,
+          keys_, move_);
   }
 
   // The pointer and the view have to agree, so the view is recomputed here
   // from the same size_ the renderer uses.
-  static void apply(Sandbox &sb, const cv::Size &fbSz, const cv::Size &winSz,
-                    const Mouse::List &press, const Mouse::List &drag,
-                    const Mouse::List &scroll, const Keyboard::List &keys,
-                    const Mouse::List &move) {
+  void apply(Sandbox &sb, const bool &hostMode, const cv::Size &fbSz,
+             const cv::Size &winSz, const Mouse::List &press,
+             const Mouse::List &drag, const Mouse::List &scroll,
+             const Keyboard::List &keys, const Mouse::List &move) {
     const View v = fitView(fbSz, sb.width_, sb.height_);
 
     // Where the pointer is, for the brush ring to follow. The move events
@@ -107,29 +149,64 @@ public:
     for (const auto &e : press)
       windowPt = cv::Point2d(e->position().x, e->position().y);
 
+    // A frame-local shadow of the local player's brush/pen: several wheel
+    // steps or key presses in one frame must accumulate exactly as the old
+    // in-place mutations did (spec §9.5). Painting is emitted first, so it uses
+    // the frame-start brush, exactly as before.
+    PlayerState shadow = sb.players_[0];
+
+    std::vector<InputEventWire> events;
+    auto event = [&](uint8_t kind, int x, int y) {
+      InputEventWire e{};
+      e.kind = kind;
+      e.x = int16_t(x);
+      e.y = int16_t(y);
+      e.brush = uint8_t(shadow.brush);
+      e.penSize = uint8_t(std::clamp(shadow.penSize, 1, 32));
+      e.seq = seq_++;
+      return e;
+    };
+    auto setBrush = [&](ParticleType b) {
+      shadow.brush = b;
+      InputEventWire e = event(EV_SET_BRUSH, -1, -1);
+      e.brush = uint8_t(b);
+      events.push_back(e);
+    };
+    auto setPen = [&](int pen) {
+      shadow.penSize = std::clamp(pen, 1, 32);
+      InputEventWire e = event(EV_SET_PEN, -1, -1);
+      e.penSize = uint8_t(shadow.penSize);
+      events.push_back(e);
+    };
+    auto command = [&](uint8_t cmd, uint8_t idx, int16_t dx) {
+      InputEventWire e = event(EV_COMMAND, -1, -1);
+      e.flags = cmd;
+      e.brush = idx;
+      e.dx = dx;
+      events.push_back(e);
+    };
+    // Slots::previous/next_particle() in event form. The original searches the
+    // button table from the end and keeps the brush where it is when the
+    // current one is not in the table at all; here an unknown brush starts the
+    // cycle at the first entry, which is one more step from the same place.
+    auto cycleBrush = [&](int delta) {
+      int cur = 0;
+      for (size_t i = 0; i < kBrushes.size(); ++i)
+        if (kBrushes[i].type == shadow.brush)
+          cur = int(i);
+      cur = (cur + delta + int(kBrushes.size())) % int(kBrushes.size());
+      setBrush(kBrushes[size_t(cur)].type);
+    };
+
     // --- painting ---
     //
     // A stroke is the polyline through this frame's stroke positions: the
-    // press that starts it and every drag that continues it. Nothing else
-    // paints, so moving the pointer over the world -- with the button up, which
-    // is what a MOVE event is -- changes nothing at all.
-    //
-    // The trigger is therefore "a press or a drag arrived", and nothing else.
-    // Treating the *absence* of drags as the trigger instead (as an earlier
-    // reading of "there is no drag event when the pointer is at rest" did) is
-    // the same condition with the sense inverted, and it paints on every frame
-    // the pointer rests inside the world: the brush follows the cursor and
-    // leaves a trail without a click ever happening.
-    //
-    // sb.paintCell_ is where the stroke currently is, so consecutive frames
-    // join up instead of stamping a disc; it is cleared as soon as the button
-    // comes up, so the next press starts a fresh stroke rather than ruling a
-    // line across the world from wherever the cursor was parked.
-    if (sb.guiWantsMouse_) {
-      // ImGui owns the pointer; a drag that started over a panel must not
-      // paint, and neither must the stroke it interrupted.
-      sb.paintCell_ = {-1.0, -1.0};
-    } else {
+    // press that starts it and every drag that continues it. The first point is
+    // a disc (EV_PRESS -> strokeBegin) and the rest are segments (EV_DRAG ->
+    // strokeExtend), which is exactly what the authority used to do in place.
+    // Nothing else paints: a MOVE only moves the cursor.
+    bool stroked = false;
+    if (!sb.guiWantsMouse_) {
       std::vector<cv::Point2d> stroke;
       stroke.reserve(press.size() + drag.size());
       const auto at = [](const cv::Point &p) {
@@ -139,74 +216,81 @@ public:
         stroke.push_back(at(e->position()));
       for (const auto &e : drag)
         stroke.push_back(at(e->position()));
-
+      stroked = !stroke.empty();
+      bool head = true;
       for (const cv::Point2d &p : stroke) {
         const cv::Point2d c = cellAt(v, sb, p, winSz);
         if (c.x < 0.0)
-          continue; // dragged off the world; the stroke resumes on re-entry
-        // The first point of a stroke is a disc rather than a segment: there is
-        // no previous cell to come from, and drawing a zero-length line would
-        // leave the head of the stroke unmarked.
-        const bool cont = sb.paintCell_.x >= 0.0 && sb.paintCell_.y >= 0.0;
-        drawLine(sb, int(c.x), int(c.y), cont ? int(sb.paintCell_.x) : int(c.x),
-                 cont ? int(sb.paintCell_.y) : int(c.y), sb.brush_, sb.penSize_);
-        sb.paintCell_ = c;
+          continue; // off the world; the authority's stroke ignores it too
+        events.push_back(event(head ? EV_PRESS : EV_DRAG, int(c.x), int(c.y)));
+        head = false;
       }
-      if (stroke.empty())
-        sb.paintCell_ = {-1.0, -1.0}; // the button is up: the stroke is over
     }
-    // The ring follows the pointer whether or not it is painting.
-    sb.penCell_ = sb.guiWantsMouse_ ? cv::Point2d(-1.0, -1.0)
-                                    : cellAt(v, sb, windowPt, winSz);
+    // The old node ended the stroke on every frame with no press/drag; the
+    // authority does the same, but end it only when a stroke was open, so no
+    // empty RELEASEs reach the wire.
+    if (stroked)
+      painting_ = true;
+    else if (painting_) {
+      events.push_back(event(EV_RELEASE, -1, -1));
+      painting_ = false;
+    }
+
+    // --- the hover cell ---
+    // The ring follows the pointer whether or not it is painting; the cell is
+    // recomputed and sent every frame, so the authority's cursorCell tracks the
+    // sender exactly as the old in-place assignment did.
+    {
+      const cv::Point2d c = sb.guiWantsMouse_ ? cv::Point2d(-1.0, -1.0)
+                                              : cellAt(v, sb, windowPt, winSz);
+      events.push_back(event(EV_MOVE, int(c.x), int(c.y)));
+    }
 
     // --- keys: the keymap from the original help window ---
     if (!sb.guiWantsKeyboard_) {
       for (const auto &e : keys) {
         switch (e->key()) {
         case Keyboard::DELETE:
-          sb.clearRequested_ = true;
+          command(CMD_CLEAR, 0, 0);
           break;
         case Keyboard::LEFT:
-          cycleBrush(sb, -1);
+          cycleBrush(-1);
           break;
         case Keyboard::RIGHT:
-          cycleBrush(sb, +1);
+          cycleBrush(+1);
           break;
         case Keyboard::DOWN:
-          sb.penSize_ = std::max(1, sb.penSize_ / 2);
+          setPen(std::max(1, shadow.penSize / 2));
           break;
         case Keyboard::UP:
-          sb.penSize_ = std::min(32, sb.penSize_ * 2);
+          setPen(std::min(32, shadow.penSize * 2));
           break;
         case Keyboard::ENTER:
-          for (Emitter &em : sb.emitters_)
-            em.on = !em.on;
+          for (uint8_t i = 0; i < 4; ++i) command(CMD_EMITTER_TOGGLE, i, 0);
           break;
         case Keyboard::BACKSPACE:
-          sb.brush_ = NOTHING;
+          setBrush(NOTHING);
           break;
         case Keyboard::MINUS:
-          for (Emitter &em : sb.emitters_)
-            em.density = std::max(0.05f, em.density - 0.05f);
+          for (uint8_t i = 0; i < 4; ++i) command(CMD_EMITTER_DENSITY, i, -50);
           break;
         // '+' and '=' are the same physical key on a US layout.
         case Keyboard::EQUAL:
         case Keyboard::KP_ADD:
-          for (Emitter &em : sb.emitters_)
-            em.density = std::min(1.0f, em.density + 0.05f);
+          for (uint8_t i = 0; i < 4; ++i) command(CMD_EMITTER_DENSITY, i, +50);
           break;
         case Keyboard::R:
-          sb.randomizeRequested_ = true;
+          command(CMD_RANDOMIZE, 0, 0);
           break;
         case Keyboard::SPACE:
-          sb.paused_ = !sb.paused_;
+          command(CMD_PAUSE_TOGGLE, 0, 0);
           break;
         // Slots::toggle_tools(): the original's TAB showed and hid the whole
         // dashboard. Here the dashboard is the panel below, so it is the panel
         // that toggles -- and it is the only way back once it is closed, since
-        // the close button is on the panel itself.
+        // the close button is on the panel itself. Local, never networked.
         case Keyboard::TAB:
-          sb.panelOpen_ = !sb.panelOpen_;
+          sb.local_.panelOpen = !sb.local_.panelOpen;
           break;
         default:
           break;
@@ -224,33 +308,42 @@ public:
     for (const auto &e : scroll) {
       const float dy = e->data().y > 0 ? 1.0f : -1.0f;
       if (sb.shiftDown_) {
-        sb.penSize_ =
-            std::clamp(int(sb.penSize_ * (dy > 0 ? 2.0f : 0.5f)), 1, 32);
+        setPen(std::clamp(int(shadow.penSize * (dy > 0 ? 2.0f : 0.5f)), 1, 32));
       } else if (sb.ctrlDown_) {
-        for (Emitter &em : sb.emitters_)
-          em.density = std::clamp(em.density + 0.05f * dy, 0.05f, 1.0f);
+        for (uint8_t i = 0; i < 4; ++i)
+          command(CMD_EMITTER_DENSITY, i, dy > 0 ? int16_t(50) : int16_t(-50));
       } else if (sb.altDown_) {
         // Slots::toggle_emit() on ALT+wheel, before the brush fallback.
-        for (Emitter &em : sb.emitters_)
-          em.on = !em.on;
+        for (uint8_t i = 0; i < 4; ++i) command(CMD_EMITTER_TOGGLE, i, 0);
       } else {
-        cycleBrush(sb, dy > 0 ? -1 : +1);
+        cycleBrush(dy > 0 ? -1 : +1);
       }
     }
-  }
 
-  // Slots::previous/next_particle(). Note that the original searches the
-  // button table from the end and keeps the brush where it is when the current
-  // one is not in the table at all; here an unknown brush simply starts the
-  // cycle at the first entry, which is the same place the original would land
-  // after one more step.
-  static void cycleBrush(Sandbox &sb, int delta) {
-    int cur = 0;
-    for (size_t i = 0; i < kBrushes.size(); ++i)
-      if (kBrushes[i].type == sb.brush_)
-        cur = int(i);
-    cur = (cur + delta + int(kBrushes.size())) % int(kBrushes.size());
-    sb.brush_ = kBrushes[size_t(cur)].type;
+    // --- dispatch ---
+    if (hostMode) {
+      // The authority's own input takes the loopback path so that it cannot
+      // diverge from a peer's (spec §16.4, Rule S2); the simulation drains it
+      // in this same tick.
+      for (const InputEventWire &ev : events)
+        netplay::netQueues().pushInput({uint8_t(0), ev});
+    } else {
+      // The guest sends every event to the authority (no rate limiting, no
+      // coalescing -- spec §9.3) and mirrors its own cursor locally for the
+      // ring. The replica itself belongs to the authority.
+      if (!events.empty()) {
+        netplay::InputBatchMsg batch;
+        batch.b.batchTimeMs = netplay::nowMillis();
+        batch.b.firstSeq = events.front().seq;
+        batch.b.count = uint16_t(events.size());
+        batch.events = events;
+        netplay::netQueues().pushOutbound(netplay::frame(
+            netplay::MSG_INPUT, ++msgSeq_, netplay::encodePayload(batch)));
+      }
+      for (const InputEventWire &ev : events)
+        if (ev.kind == netplay::EV_MOVE)
+          sb.players_[0].cursorCell = cv::Point2d(ev.x, ev.y);
+    }
   }
 
 private:
@@ -261,6 +354,12 @@ private:
   Event<Mouse> scroll_ = E<Mouse>(Mouse::SCROLL);
   Event<Mouse> move_ = E<Mouse>(Mouse::MOVE);
   Event<Keyboard> keys_ = E<Keyboard>(Keyboard::PRESS);
+  // Per-emitter monotonic input sequence (spec §9.4), the stroke state the old
+  // in-place painter kept implicitly in paintCell, and the guest's own message
+  // counter for the frames it sends.
+  uint32_t seq_ = 0;
+  bool painting_ = false;
+  uint32_t msgSeq_ = 0;
 };
 
 // Stage 2 -- the automaton. One plain() node; the heavy work of the frame.
@@ -272,21 +371,37 @@ public:
   void infer() override { plain(&SandSimulationPlan::step, RWS(sb_)); }
 
   static void step(Sandbox &sb) {
+    // The authority's tick drains every input event queued since the last tick
+    // and applies it in arrival order (spec §11 steps 1-4). Its own input
+    // arrives through the same loopback queue a peer's does (Rule S2), so there
+    // is exactly one apply path; the sender id travels with the event.
+    {
+      std::vector<netplay::InputEnvelope> input;
+      netplay::netQueues().drainInput(input);
+      for (const netplay::InputEnvelope &env : input)
+        netplay::applyInputEvent(sb, env.player, env.event);
+    }
+
     // The one-shot commands from the GUI, consumed here so that the ImGui node
-    // never has to touch the grid.
-    if (sb.clearRequested_) {
+    // never has to touch the grid. They live on the world state because they
+    // are world effects (spec Rule S1); on a client this whole node is replaced
+    // by the delta application (spec §16.4).
+    if (sb.world_.clearRequested) {
       sb.clear();
-      sb.clearRequested_ = false;
+      sb.world_.clearRequested = false;
+      ++sb.world_.epoch;
     }
-    if (sb.randomizeRequested_) {
-      doRandomLines(sb, sb.brush_);
-      sb.randomizeRequested_ = false;
+    if (sb.world_.randomizeRequested) {
+      PlayerState &me = sb.players_[0];
+      doRandomLines(sb, me.brush, me.penSize);
+      sb.world_.randomizeRequested = false;
+      ++sb.world_.epoch;
     }
-    if (sb.paused_)
+    if (sb.world_.paused)
       return;
 
-    for (size_t i = 0; i < sb.emitters_.size(); ++i) {
-      const Emitter &e = sb.emitters_[i];
+    for (size_t i = 0; i < sb.world_.emitters.size(); ++i) {
+      const Emitter &e = sb.world_.emitters[i];
       if (e.on)
         emit(sb, emitterColumn(sb.width_, i), 20, e.type, e.density);
     }
@@ -300,8 +415,60 @@ public:
     }
 
     updateVirtualScreen(sb);
+    // The authoritative state for this tick is the *settled* grid (spec §7.4,
+    // Rule A4). Settling here, not during drawing, is what makes the published
+    // state render-independent: a replica that never draws still converges.
+    settleGrid(sb);
     ++sb.simFrames_;
+
+    // Publish the settled grid for the network thread (spec §16.3). Only when a
+    // session is live: the 230 KB snapshot copy is skipped entirely in
+    // single-player, so the no-argument demo pays nothing for netplay.
+    if (netplay::netActive())
+      netplay::netQueues().publishSnapshot(std::make_shared<netplay::GridSnapshot>(
+          netplay::makeSnapshot(sb, uint64_t(sb.simFrames_))));
   }
+};
+
+// Stage 2b (guest only) -- apply the authority's frames to the replica
+// (spec §12, §16.4). The host branch of the graph never runs this; on a guest
+// it replaces SandSimulationPlan, which is why a guest can never step the
+// automaton on its own (spec §7.6, Rule A1). Until a session is live its
+// inbound queue is empty, so a client boots on the seeded grid and simply waits
+// for a keyframe.
+class NetApplyPlan : public V4DPlan {
+public:
+  Sandbox &sb_;
+  NetApplyPlan(Sandbox &sb) : sb_(sb) { _shared(sb_); }
+
+  void infer() override {
+    plain([this](Sandbox &sb) { apply(sb); }, RWS(sb_));
+  }
+
+  void apply(Sandbox &sb) {
+    std::vector<std::vector<uint8_t>> replies;
+    netplay::Frame f;
+    while (netplay::netQueues().popInbound(f)) {
+      if (f.oversize)
+        continue;
+      replies.clear();
+      const netplay::ApplyResult r = client_.apply(f, &replies);
+      // A checksum mismatch or a base gap means the replica cannot trust its
+      // history: ask for a fresh keyframe and keep rendering the last good grid
+      // (spec §12.3, §18.2).
+      if (r == netplay::ApplyResult::Desync)
+        replies.push_back(client_.resync());
+      for (std::vector<uint8_t> &reply : replies)
+        netplay::netQueues().pushOutbound(std::move(reply));
+    }
+    if (client_.haveState()) {
+      netplay::gridToSandbox(client_.grid(), sb);
+      netplay::applyWorldWire(client_.world(), sb.world_);
+    }
+  }
+
+private:
+  netplay::ClientReplicator client_;
 };
 
 // Stage 3 -- draw, with nvg().
@@ -326,7 +493,8 @@ public:
     // covers the whole framebuffer either way -- the slab is drawn over this,
     // and around the slab the weave is laid directly onto the clear colour --
     // but what is left at the edges has to belong to the same painting.
-    clearScreen(sb.vanGogh_ ? cv::Scalar(24, 17, 9, 255) : cv::Scalar(10, 10, 14, 255));
+    clearScreen(sb.local_.vanGogh ? cv::Scalar(24, 17, 9, 255)
+                                  : cv::Scalar(10, 10, 14, 255));
     const View v = fitView(sz, sb.width_, sb.height_);
 
     // An exponential average over the frame interval. `seconds()` is the
@@ -335,11 +503,12 @@ public:
     // function-local static: a static here would be one variable shared by
     // every worker rendering this plan, so with more than one worker each
     // would compute the interval against the other's frame.
-    if (sb.lastFrameTime_ > 0.0 && timeSec > sb.lastFrameTime_) {
-      const double instant = 1.0 / (timeSec - sb.lastFrameTime_);
-      sb.fps_ = sb.fps_ > 0.0 ? sb.fps_ * 0.9 + instant * 0.1 : instant;
+    if (sb.local_.lastFrameTime > 0.0 && timeSec > sb.local_.lastFrameTime) {
+      const double instant = 1.0 / (timeSec - sb.local_.lastFrameTime);
+      sb.local_.fps = sb.local_.fps > 0.0 ? sb.local_.fps * 0.9 + instant * 0.1
+                                          : instant;
     }
-    sb.lastFrameTime_ = timeSec;
+    sb.local_.lastFrameTime = timeSec;
 
     drawWorld(pal, sb, v, sz, timeSec);
   }
@@ -359,8 +528,17 @@ class SandcraftPlan : public V4DPlan {
   // contending on the *same* mutex rather than on two.
   static Sandbox sandbox_;
 
-  cv::Ptr<SandInputPlan> input_;
+  // Which side of the star this process is (spec §5, §16.4). It is fixed for
+  // the process lifetime and set from the NetRuntime before the first frame, so
+  // it is read (not written) by the graph; `RS` is the correct accessor for a
+  // `_shared` variable (spec §16.4 wrote `R`; see the M2 log for why that is
+  // amended). It is a plain member, not a static: each plan instance evaluates
+  // the branch for itself, and every instance holds the same value.
+  bool hostMode_ = true;
+
+  cv::Ptr<LocalInputPlan> input_;
   cv::Ptr<SandSimulationPlan> sim_;
+  cv::Ptr<NetApplyPlan> netApply_;
   cv::Ptr<SandRenderPlan> render_;
   // The oil-paint surface. It is owned per plan instance and touched only by
   // this plan's gl() nodes on this instance's GL context, so -- like CubeScene's
@@ -372,6 +550,12 @@ class SandcraftPlan : public V4DPlan {
 public:
   SandcraftPlan() {
     _shared(sandbox_);
+    _shared(hostMode_);
+
+    // The role is a process-wide decision (NetRuntime, spec §16.6), made once
+    // from argv before the first frame. Reading it here, in the constructor,
+    // means the branch below is decided before the graph is recorded.
+    hostMode_ = netplay::netRuntime().host();
 
     // The runtime builds one plan instance per compute worker *and* one for the
     // display thread, so this constructor runs more than once per process (with
@@ -388,9 +572,13 @@ public:
       sandbox_.allocate(640, 360);
       seed();
     }
+    // Player 0 is the local player and always present (spec §5); the flag is
+    // what puts it in the roster a joining client receives.
+    sandbox_.players_[0].active = true;
 
-    input_ = _sub<SandInputPlan>(this, sandbox_);
+    input_ = _sub<LocalInputPlan>(this, sandbox_, hostMode_);
     sim_ = _sub<SandSimulationPlan>(this, sandbox_);
+    netApply_ = _sub<NetApplyPlan>(this, sandbox_);
     render_ = _sub<SandRenderPlan>(this, sandbox_);
   }
 
@@ -431,7 +619,7 @@ public:
   // the bloom, the living-paint swirl and the impasto sheen over it -- in raw
   // GL, never fb(). Only in Van Gogh mode; the diagram mode keeps its flat cells.
   static void postProcess(Sandbox &sb, VanGoghPost &post) {
-    if (sb.vanGogh_)
+    if (sb.local_.vanGogh)
       post.process();
   }
 
@@ -457,12 +645,22 @@ public:
 
   void infer() override {
     set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(10, 10, 14, 255)));
-    // Input, then simulate, then draw: the graph is the pipeline, and the order
-    // is the order the sub-plans are spliced in. The whole painting is drawn
-    // with nvg() (render_), varnished and set glowing by a gl() pass, and the
-    // crisp chrome is laid over it with a second nvg().
+    // Input, then (host) simulate or (guest) apply, then draw: the graph is the
+    // pipeline, and the order is the order the sub-plans are spliced in. The
+    // whole painting is drawn with nvg() (render_), varnished and set glowing by
+    // a gl() pass, and the crisp chrome is laid over it with a second nvg().
+    //
+    // The role split (spec §16.4): exactly one of SandSimulationPlan (the
+    // authority steps the automaton) or NetApplyPlan (a guest applies the
+    // authority's keyframes/deltas) runs. The two are mutually exclusive, so a
+    // guest can never step the automaton (spec Rule A1, §7.6). `hostMode_` is
+    // fixed for the process lifetime, so this branch always takes the same arm.
     subInfer(input_);
-    subInfer(sim_);
+    branch(RS(hostMode_))
+        ->subInfer(sim_)
+    ->elseBranch()
+        ->subInfer(netApply_)
+    ->endBranch();
     subInfer(render_);                                          // nvg: the painting
     gl(&SandcraftPlan::postProcess, RWS(sandbox_), RW(post_));  // gl: varnish + glow
     nvg(&SandcraftPlan::overlayDraw, RWS(sandbox_), size_);      // nvg: crisp chrome
@@ -473,6 +671,35 @@ Sandbox SandcraftPlan::sandbox_;
 
 V4D_DEMO_MAIN(int argc, char **argv) {
   cv::v4d::add_asset_search_paths();
+
+  // The netplay command line (spec §16.6); M0 parses and reports it, and later
+  // milestones branch the graph on the role behind this same config. With no
+  // arguments the role is Host and the sample behaves exactly as it always did
+  // (spec §4.3). Args are null on Android, where the default is host.
+  const netplay::NetConfig net = netplay::parseArgs(argc, argv);
+  if (net.help) {
+    std::cout << netplay::usageText();
+    return 0;
+  }
+
+  // The in-process host==client self-test (roadmap M2, spec §15.3 rung 0). It
+  // runs the whole replication and input pipeline over the loopback transport
+  // before any window exists, so it is a headless run that ends in an exit code
+  // -- which is exactly how the toolkit judges it. Nothing below this line runs
+  // when it is asked for.
+  if (net.selfTest) {
+    const netplay::SelfTestStats st = netplay::runSelfTest(net, std::cerr);
+    return st.failures == 0 ? 0 : 1;
+  }
+  std::cerr << "sandcraft: net role="
+            << (net.role == netplay::Role::Host ? "host" : "client")
+            << " proto=" << int(netplay::PROTOCOL_VERSION);
+  if (net.role == netplay::Role::Client)
+    std::cerr << " connect=" << netplay::endpointHost(net) << ":"
+              << netplay::endpointPort(net);
+  else
+    std::cerr << " port=" << net.port;
+  std::cerr << " name=" << net.name << std::endl;
 
   // The Van Gogh brush path only engages above ~2.6 px/cell, so a 640x360 grid
   // needs a large window to keep the ~3.4 px/cell stroke scale the demo was
