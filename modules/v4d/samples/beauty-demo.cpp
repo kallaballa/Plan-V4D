@@ -412,8 +412,9 @@ public:
             ->branch(!F(&FaceFeatureExtractor::extract, RW(extractor_),
                     R(frames_.down_), RWS(features_)))
         // Set a shared state that will be displayed on-screen.
-            ->assign(RWS(params_.state_), V(Params::NOT_DETECTED))
-            ->plain(compose_result, RW(frames_), CS(params_))
+                ->assign(RWS(params_.state_), V(Params::NOT_DETECTED))
+                ->plain(compose_result, RW(frames_), CS(params_))
+	     ->endBranch()
         ->endBranch()
     ->endBranch();
 
