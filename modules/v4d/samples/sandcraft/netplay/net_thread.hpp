@@ -86,7 +86,14 @@ inline constexpr size_t OUT_BUFFER_CAP = 16u * 1024 * 1024;
 struct NetStats {
   uint64_t bytesIn = 0, bytesOut = 0;
   uint64_t framesIn = 0, framesOut = 0;
+  // Keyframes and deltas are produced in one direction only: the host sends
+  // them, the client receives them. The *Out counters are therefore the host's
+  // contribution and the *In counters the client's, and a `--net-stats` line
+  // prints whichever pair belongs to the role so a guest does not read as
+  // `kf=0 dl=0` while it is being replicated to every tick (they used to: the
+  // counters were out-only).
   uint64_t keyframesOut = 0, deltasOut = 0;
+  uint64_t keyframesIn = 0, deltasIn = 0;
   uint64_t inputEventsIn = 0;
   uint64_t drops = 0;
   uint64_t tick = 0;
@@ -199,6 +206,8 @@ public:
     s.framesOut = framesOut_.load();
     s.keyframesOut = keyframesOut_.load();
     s.deltasOut = deltasOut_.load();
+    s.keyframesIn = keyframesIn_.load();
+    s.deltasIn = deltasIn_.load();
     s.inputEventsIn = inputEventsIn_.load();
     s.drops = q_ ? q_->drops.load() : 0;
     s.tick = tick_.load();
@@ -703,9 +712,33 @@ private:
       closeClientConn();
       break;
     }
+    case MSG_KEYFRAME: {
+      // Read only the header's leading tick, so the stats/HUD have a tick to
+      // show; the compressed grid is left untouched for the apply node, which
+      // owns the ClientReplicator (the net thread only moves bytes, spec §16.2).
+      ByteReader r(f.payload);
+      const uint64_t t = r.u64();
+      if (r.ok()) {
+        keyframesIn_.fetch_add(1);
+        tick_.store(t);
+      }
+      q_->pushInbound(f);
+      break;
+    }
+    case MSG_DELTA: {
+      ByteReader r(f.payload);
+      r.u64(); // baseTick
+      const uint64_t t = r.u64();
+      if (r.ok()) {
+        deltasIn_.fetch_add(1);
+        tick_.store(t);
+      }
+      q_->pushInbound(f);
+      break;
+    }
     default:
-      // KEYFRAME/DELTA/WORLD/PING/BYE go to the apply node, which owns the
-      // ClientReplicator: the net thread only moves bytes.
+      // WORLD/PING/BYE go to the apply node, which owns the ClientReplicator:
+      // the net thread only moves bytes.
       q_->pushInbound(f);
       break;
     }
@@ -744,7 +777,12 @@ private:
               << " player=" << int(s.playerId)
               << " connected=" << (s.connected ? 1 : 0)
               << " handshake=" << (s.handshakeDone ? 1 : 0)
-              << " kf=" << s.keyframesOut << " dl=" << s.deltasOut
+              // The host produces keyframes/deltas and the client consumes them,
+              // so print the pair that belongs to the role: a host reads `kf`/
+              // `dl` (sent) and a client `kfIn`/`dlIn` (received). A single
+              // `kf=`/`dl=` pair that was out-only made every client look idle.
+              << (isHost_ ? " kf=" : " kfIn=") << (isHost_ ? s.keyframesOut : s.keyframesIn)
+              << (isHost_ ? " dl=" : " dlIn=") << (isHost_ ? s.deltasOut : s.deltasIn)
               << " events=" << s.inputEventsIn
               << " in=" << s.bytesIn << " out=" << s.bytesOut
               << " frames=" << s.framesIn << "/" << s.framesOut
@@ -782,6 +820,7 @@ private:
   std::atomic<uint64_t> bytesIn_{0}, bytesOut_{0};
   std::atomic<uint64_t> framesIn_{0}, framesOut_{0};
   std::atomic<uint64_t> keyframesOut_{0}, deltasOut_{0};
+  std::atomic<uint64_t> keyframesIn_{0}, deltasIn_{0};
   std::atomic<uint64_t> inputEventsIn_{0};
   std::atomic<uint64_t> tick_{0};
   std::atomic<int> peersCount_{0};

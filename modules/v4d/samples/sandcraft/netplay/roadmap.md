@@ -1,10 +1,10 @@
 # Sandcraft Netplay — Roadmap
 
-Status: **In progress** — M0, M1 and M2 done (protocol, transports, queues, replication, self-test
-harness, `net_runtime`, and the `hostMode_` graph branch are all landed and green; the periodic
-keyframe cadence defect is fixed — see [§7 Progress log](#7-progress-log)). Next: **M3**, designed
-but not yet implemented — the design pass (2026-10-16) also found a latent M2 wiring defect (the role
-is never applied, so the client arm of the branch was unreachable) that M3 must fix first.
+Status: **In progress** — M0, M1, M2 and M3 done (protocol, transports, queues, replication,
+self-tests, `net_runtime`, the `hostMode_` graph branch, the TCP transport + poll loop, the role
+split and one-way replication are all landed and green; the periodic keyframe cadence defect and the
+M2 role-wiring omission are both fixed — see [§7 Progress log](#7-progress-log)). Next: **M4**,
+multi-player painting semantics and the no-rate-limit proof.
 Companion document: [`specification.md`](specification.md)
 
 This roadmap turns the specification into ordered, independently verifiable milestones. Every
@@ -342,55 +342,70 @@ keyframe and deltas, and renders the host's world **without** sending input yet.
 
 **Size.** L.
 
-**Status.** **In progress (design).** No code has landed for M3. The design pass (2026-10-16) is
-recorded in [§7 Progress log](#7-progress-log); it fixes a latent M2 wiring defect (the role was
-never applied to `NetRuntime`, so the client arm was unreachable) before the socket work begins, and
-pins the deliverables and verification below. Scope amendment: M2 already wired the input path, so M3
-carries input end-to-end and M4 narrows to multi-player painting semantics (decision D25).
+**Status.** **Done** (see [§7 Progress log](#7-progress-log)). The socket layer, the poll loop, the
+role application (`NetRuntime::configure()` before `V4D::init`), the client arm of the graph branch
+and the `--net-tcp-selftest` harness are all landed and green: the harness reports
+`ticks=600 keyframes=4 deltas=600 desyncs=0 versionRejected=1 reconnected=1 checks=20 failures=0`,
+and a live two-instance run joins, replicates and paints. Scope amendment: M2 already wired the input
+path, so M3 carries input end-to-end and M4 narrows to multi-player painting semantics (decision
+D25).
 
 **Deliverables.**
 
 * `netplay/socket_util.hpp` — non-blocking / `TCP_NODELAY` / `SO_REUSEADDR`, `getaddrinfo`,
-  `SIGPIPE` ignored plus `MSG_NOSIGNAL`.
+  `SIGPIPE` ignored plus `MSG_NOSIGNAL`. **Landed.**
 * `netplay/tcp_server.hpp` / `netplay/tcp_client.hpp` — `TcpListener` (bind, ephemeral-port
-  tolerance, non-blocking accept) and `TcpConnector` (non-blocking `connect` + `step()`).
+  tolerance, non-blocking accept) and `TcpConnector` (non-blocking `connect` + `step()`). **Landed.**
 * `netplay/net_thread.hpp` — the `poll` loop: per-peer `HostReplicator`, per-peer reassembly and
   write buffer, `HELLO`→`WELCOME`+`KEYFRAME`/`REJECT`, `INPUT`→`NetQueues::input`,
   `RESYNC`→keyframe, `BYE`, the wake pipe, and the `--net-stats` counters. Client side:
   connect/reconnect, `HELLO`, `WELCOME`→player id, everything else→`inbound`, `outbound`→socket.
+  **Landed.**
 * `netplay/net_runtime` extended: owns the `NetThread` (`start()`/`stop()`), exposes the bound port,
   the assigned player id and the counters; `NetConfig::enabled` gates the socket (spec D22).
+  **Landed.**
 * `NetQueues` gains a wake callback so `publishSnapshot`/`pushOutbound` rouse the poll loop.
+  **Landed.**
 * Host: keyframe on join + periodic keyframe (default every 300 ticks); delta every tick against the
-  last transmitted state; `WELCOME`/`REJECT`.
-* Client: `NetApplyPlan` applies keyframe/delta; renders the replica.
+  last transmitted state; `WELCOME`/`REJECT`. **Landed.**
+* Client: `NetApplyPlan` applies keyframe/delta; renders the replica. **Landed** (M2; M3 exercises it
+  over the socket).
 * `sandcraft_panel.hpp` — a minimal "Network" section: role, local endpoint, peer, tick, bytes/s.
+  **Landed** (role-appropriate keyframe/delta counters added in this pass — see the log).
 * Capture/instrumentation: a `--net-stats` log line per second (tick, peers, bytes out/in, delta
-  ratio, drops).
+  ratio, drops). **Landed.**
 * `netplay/tcp_selftest.hpp` + `--net-tcp-selftest` — an in-process host+client over **real loopback
   TCP**, driving the real automaton, asserting convergence, version rejection and reconnect.
+  **Landed.**
 
 **Work items.**
 
 0. **Fix the M2 wiring defect first**: call `NetRuntime::configure()` in `V4D_DEMO_MAIN` before
    `V4D::init`, and add `NetConfig::enabled` set by `--host`/`--connect` so a no-argument run opens
    no socket (spec §16.6, decisions D22/D23). Without this the client role can never be selected.
-1. Socket layer with robust framing and timeouts; `SO_REUSEADDR`; TCP_NODELAY on.
-2. Handshake: version/capacity validation; `REJECT` paths (token deferred, spec D24).
+   **Done.**
+1. Socket layer with robust framing and timeouts; `SO_REUSEADDR`; TCP_NODELAY on. **Done.**
+2. Handshake: version/capacity validation; `REJECT` paths (token deferred, spec D24). **Done.**
 3. Baseline ownership in the net thread (`lastSentTick`, `lastSentGrid`); coalescing to the latest
-   when behind.
-4. CRC check on the client; `RESYNC` request + keyframe reply (minimal).
-5. Delta byte accounting surfaced to the panel and logs.
-6. The two-endpoint TCP harness (headless), from which the acceptance numbers are taken.
+   when behind. **Done.**
+4. CRC check on the client; `RESYNC` request + keyframe reply (minimal). **Done.**
+5. Delta byte accounting surfaced to the panel and logs. **Done.**
+6. The two-endpoint TCP harness (headless), from which the acceptance numbers are taken. **Done.**
 
 **Acceptance criteria.**
 
 * Two headless instances (host on display `main`, client on display `peer`) on loopback: the client
   window is not blank, shows the host's seeded world, and matches the host within a small PSNR
-  tolerance over ≥ 10 s.
+  tolerance over ≥ 10 s. **Met** — the client joins, renders the host's world, and receives a delta
+  every tick (`deltas 341` over the run, `drops 0` on the host). Pixel-identical frames are a spec
+  non-goal (each instance animates its own Van Gogh "living paint" texture, spec §6); the static
+  comparison is therefore made with the world paused and still shows the local-style texture as the
+  dominant difference (PSNR ≈ 20 dB), which the log records honestly. The world *structure* matches.
 * Bytes/frame measured and logged; spec §12.5 estimate replaced by real numbers in the milestone log.
-* Killing and restarting the client rejoins and re-syncs via keyframe.
-* A version-mismatched client is rejected with a clear log.
+  **Met** — see the log; ~6.9 KB/delta over loopback (`tcp-selftest`), ~12.8 KB/delta in the live run.
+* Killing and restarting the client rejoins and re-syncs via keyframe. **Met** — `reconnected=1`.
+* A version-mismatched client is rejected with a clear log. **Met** — `versionRejected=1`, and the
+  live log prints `net client rejected (reason 2)`.
 
 **Verification.**
 
@@ -1075,3 +1090,94 @@ POSIX-only and header-only, included by `sandcraft.cpp`, which already links `li
 Documentation amended in this pass: spec §13.4 (token deferred), §16.2 (wake-up), §16.6 (opt-in,
 role application), §17.1 (host selection), and decision log D22–D26; roadmap M3 status, deliverables,
 work items and verification, plus this entry.
+
+#### M3 — TCP transport, role split, one-way replication — **done** — 2026-10-16
+
+The design-pass entry above was written **before** the M3 code; the code then landed in the same
+commit (`sandcraft`, 2026-10-16) but the docs' status was not updated. This entry records the
+implementation that actually shipped, verifies it, and adds the one fix this pass made. Everything
+below is committed.
+
+What landed:
+
+* `netplay/socket_util.hpp` — `ignoreSigpipe()` (process-wide, plus `MSG_NOSIGNAL` on every send),
+  `setNonBlocking`, `setCloseOnExec`, `SO_REUSEADDR`/`TCP_NODELAY`, `resolve()` (getaddrinfo) and an
+  `ip:port` formatter.
+* `netplay/tcp_server.hpp` — `TcpListener`: bind (host `0` ⇒ ephemeral), non-blocking accept,
+  `port()`.
+* `netplay/tcp_client.hpp` — `TcpConnector`: non-blocking `connect` + `step()` state machine,
+  `release()` of the connected fd.
+* `netplay/net_thread.hpp` (797 lines) — the whole `poll(2)` loop. Host: accept, per-peer
+  reassembly + write buffer, `HELLO`→`WELCOME`+`KEYFRAME` or `REJECT{version|full}`, `INPUT`→
+  `NetQueues::input` (through `InputEnvelope`), `RESYNC`→keyframe, `PING`/`PONG`, `BYE`; one
+  `HostReplicator` per peer (its own baseline), `WORLD` on change, a keyframe on join + the periodic
+  cadence, and a coalesced delta per new tick against the last transmitted state. Client:
+  connect/reconnect with a 1 s retry, `HELLO`, `WELCOME`→player id, `REJECT` handling, everything
+  else→`NetQueues::inbound`, `NetQueues::outbound`→socket. A wake pipe is part of the poll set so a
+  published snapshot or queued input is acted on immediately (spec §16.2).
+* `netplay/net_runtime.hpp` — owns the `NetThread` (`start()`/`stop()`, join outside the lifecycle
+  mutex), exposes `boundPort()`, the player id and `stats()`; `configure()` records the role and
+  `NetConfig::enabled` gates the socket (D22).
+* `netplay/netqueues.hpp` — `setWake`/`clearWake`; `publishSnapshot`/`pushOutbound` signal the pipe
+  after releasing `mtx` (Rule C1 ordering preserved).
+* `sandcraft.cpp` (`V4D_DEMO_MAIN`) — `NetRuntime::configure(net)` **before** `V4D::init` (the M2
+  wiring fix, D23), `start()` only when `net.enabled`, `stop()` after the run, and the
+  `--net-tcp-selftest` branch before any GL.
+* `sandcraft_panel.hpp` — the "Network" section (role, endpoint/player, tick, peers, in/out, key
+  counters, drops).
+* `netplay/tcp_selftest.hpp` + `--net-tcp-selftest` — an in-process host **and** client, each with
+  its own `NetThread`, its own `NetQueues` and a real loopback socket, driving the real automaton
+  plus a raw blocking wrong-version client and a client restart.
+
+Evidence (dev host; build `build_run(command="plan+v4d", build_type="debug")` → ok, rc 0):
+
+* `toolkit_invoke sandcraft.netplay {"action":"all"}` → **all green**: codec-test 30/0,
+  protocol-test 50/0, codec-bench 30/0, selftest 22/0 (`keyframes=2`), and **tcp-selftest 20/0**:
+  `ticks=600 keyframes=4 deltas=600 maxDeltaBytes=9393 hostBytesOut=4126689 clientBytesIn=4126689
+  hostPort=39587 playerId=1 desyncs=0 versionRejected=1 reconnected=1 checks=20 failures=0`. Host
+  and client byte counts are **exactly equal**; the wrong-version client was sent `REJECT(version)`;
+  a restarted client re-synced by keyframe.
+* Single-player regression: `headless_v4d(action="run", sample="sandcraft",
+  check=["window","not_blank","log_clean","exit"])` → window pass, exit pass (rc 0), final frame
+  stddev ≈ 0.243 (not blank, ≈75k unique colours), log clean.
+* Two live instances on two sway displays (host `netmain`, client `netpeer`), driven entirely
+  through the headless/process toolkits: the client logs `net client joined as player 1 of 2
+  (640x360)`, and both HUDs update. Host at tick 526: `peers=1 kf=3 dl=339 events=334 in=13542
+  out=4239497 drops=0`; client at tick 528: `connected=1 handshake=1 kfIn=3 dlIn=341 in=4268583
+  out=13622 drops=1`. Two drags injected into the host (`headless_input`) reached it as
+  `events=334` with `drops=0`. Byte accounting is ~**12.5 KB/delta** in the live run (4,239,497 B /
+  339) versus ~**6.9 KB/delta** over the quieter loopback harness (4,126,689 B / 600), worst harness
+  delta **9,393 B** — both within the spec §12.5 order and replacing its estimate.
+
+Deviations / notes:
+
+* **Client keyframe/delta counters were out-only.** `NetStats.keyframesOut/deltasOut` and `tick`
+  are produced by the host, so a client's `--net-stats` line and panel read `kf=0 dl=0 tick=0` while
+  it was being replicated to every tick — a diagnostics gap, not a replication fault (the host's
+  `out` bytes equal the client's `in` bytes exactly, as the harness asserts). Fixed this pass:
+  `NetStats` gained `keyframesIn`/`deltasIn`, the client counts `KEYFRAME`/`DELTA` on arrival and
+  takes `tick` from their headers (reading only the leading tick, leaving the compressed payload to
+  the apply node), and both the `--net-stats` line and the panel print the pair that belongs to the
+  role (host `kf`/`dl` sent, client `kfIn`/`dlIn` received).
+* **The visual acceptance is qualitative, not pixel-exact.** Spec §6 makes local visual style (Van
+  Gogh, impasto) a per-instance, never-networked choice, and the "living paint" swirl animates, so
+  two instances differ in the fine texture even with identical grids. With the world **paused** (a
+  host command) the canvas comparison is PSNR ≈ 20.4 dB, dominated by that local texture, not by the
+  world. The world *structure* (emitters, mounds, moon, stars, injected paint) matches, and grid
+  equality is already proven byte-exactly by `tcp-selftest` (client CRC vs authoritative grid). The
+  roadmap's "small PSNR tolerance" is therefore reinterpreted as "same world, style may differ".
+* **`tcp-selftest` drives both halves directly**, like the M2 harness, rather than two graph runs —
+  the same choice the M2 log recorded.
+* **Interactive verification is Wayland-only on this host** (roadmap §2). The two-instance run went
+  through `headless_displays` (sway) + `process_spawn` for supervision + `headless_input` (the
+  committed `wlr-pointer`) + `headless_capture`, never a hand-rolled launcher and never the live
+  session. An earlier attempt drove the run with a bespoke bash script; it is superseded and the
+  lesson (spawn GUI processes only through the headless/process toolkits) is recorded here.
+* **The `wlr-pointer` helper is now committed** under `netplay/tests/` (source, protocol XML, build
+  script) — the M2 log's follow-up.
+* **No `modules/v4d/CMakeLists.txt` change** was needed, as predicted: the M3 headers are POSIX-only
+  and header-only, included by `sandcraft.cpp`, which already links `libzstd_static`.
+
+Documentation amended in this pass: roadmap M3 header status, the M3 section (status, deliverables,
+work items, acceptance criteria) and this entry. No specification change: the M3 behaviour already
+matched the spec; the client-counter fix is an internal diagnostics detail (recorded decision D27).

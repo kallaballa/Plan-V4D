@@ -250,9 +250,11 @@ inline void drawPanel(Sandbox &sb) {
              ns.peers);
         Text("in %.1f KiB   out %.1f KiB", double(ns.bytesIn) / 1024.0,
              double(ns.bytesOut) / 1024.0);
+        // The host produces keyframes/deltas and the client consumes them; show
+        // the pair that belongs to this role (a replica's own counters are zero).
         Text("keyframes %llu   deltas %llu   drops %llu",
-             static_cast<unsigned long long>(ns.keyframesOut),
-             static_cast<unsigned long long>(ns.deltasOut),
+             static_cast<unsigned long long>(net.host() ? ns.keyframesOut : ns.keyframesIn),
+             static_cast<unsigned long long>(net.host() ? ns.deltasOut : ns.deltasIn),
              static_cast<unsigned long long>(ns.drops));
         if (!net.host())
           Text("frames in %llu", static_cast<unsigned long long>(ns.framesIn));

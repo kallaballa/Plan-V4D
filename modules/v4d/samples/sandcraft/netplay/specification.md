@@ -1172,6 +1172,7 @@ so host and Android builds are reproducible.
 | D24 | The `HELLO` join token is deferred; v1 sessions are open | `Hello` carries no token field and `PROTOCOL_VERSION` is exercised without one; adding it changes a wire shape no v1 peer needs (M8 rendezvous owns the gate). |
 | D25 | M3 carries the input path end-to-end as well as replication | M2 already wired `LocalInputPlan`→`MSG_INPUT` and the host `drainInput()`, so a one-way M3 would have to disable landed code; M4 then covers multi-player painting semantics and the no-rate-limit proof. |
 | D26 | Per-player roster/cursor propagation stays out of the net thread; the keyframe roster is whatever the `Sandbox` holds | Rule C2 forbids the net thread touching the `Sandbox`; `WELCOME.playerCount` and the keyframe roster may differ until M6 owns the roster. M3 asserts only grid replication. |
+| D27 | `NetStats` carries both directions (`keyframesIn`/`deltasIn` as well as `*Out`), and the HUD/log print the pair that belongs to the role | Keyframes/deltas travel one way, so the out-only counters made a client read `kf=0 dl=0 tick=0` while it was being replicated to. The client counts `KEYFRAME`/`DELTA` on arrival and takes `tick` from their headers without touching the compressed payload (the apply node still owns it). |
 
 ---
 
