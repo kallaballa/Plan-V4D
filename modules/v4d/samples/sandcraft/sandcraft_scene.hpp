@@ -190,6 +190,9 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
     // than on a tray.
     scissor(o.x, o.y, w, h);
     vg::paintSky(o.x, o.y, w, h, tsec);
+    // The scrim separates the world from the sky it hangs in, so the piles do
+    // not dissolve into a night painted from the same pigments they are.
+    vg::paintScrim(o.x, o.y, w, h);
   } else {
     // The empty field, drawn once so the run pass only has to cover what is
     // actually occupied.
@@ -224,7 +227,7 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
       // the glowing and dissolving ones last, so they sit on top of everything
       STEAM,  FIRE,     EMBER,     ELEC,     ACID};
   for (ParticleType t : kPaintOrder)
-    drawMaterial(pal, t, runs[t], v, tsec, vg, sb.impasto_);
+    drawMaterial(pal, t, runs[t], v, sb, tsec, vg, sb.impasto_);
 
   if (vg) {
     // The linen weave is intentionally NOT laid over the paint here: on the

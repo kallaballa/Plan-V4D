@@ -64,24 +64,66 @@ inline Material materialOf(ParticleType t) {
 // it leans out of the horizontal. Solids are combed into the field; liquids
 // are laid in long horizontal dashes; fire and steam are steep and hot; acid
 // is a stain rather than a body.
+//
+// The last three fields are the foreground treatment: the halo, the lit crown
+// and the specular catches. They are what make a material read against a night
+// painted from the same pigments -- the night sky is cobalt, and so are water,
+// ice and the void, so without a light of their own those piles disappear.
 inline vg::Brush brushOf(ParticleType type) {
   switch (materialOf(type)) {
   case Material::EMBERISH:
-    return {3.5f, 0.55f, 255.0f, 0.6f, 1.25f, 250.0f};
+    return {3.6f, 0.90f, 255.0f, 0.6f, 1.25f, 250.0f, 64.0f, 100.0f, 0.0f};
   case Material::VAPOUR:
-    return {3.0f, 0.60f, 150.0f, 0.8f, 1.10f, 70.0f};
+    return {3.6f, 0.95f, 165.0f, 0.8f, 1.10f, 90.0f, 38.0f, 76.0f, 0.0f};
   case Material::LIQUID:
-    return {8.0f, 0.80f, 210.0f, 1.0f, 0.0f, 240.0f};
+    return {8.0f, 1.10f, 232.0f, 1.0f, 0.0f, 244.0f, 28.0f, 190.0f, 0.50f};
   case Material::DISSOLVE:
-    return {4.5f, 0.70f, 225.0f, 0.7f, 0.0f, 130.0f};
+    return {5.0f, 0.95f, 232.0f, 0.7f, 0.0f, 150.0f, 30.0f, 140.0f, 0.45f};
   default:
-    return {7.0f, 0.85f, 250.0f, 1.0f, 0.0f, 250.0f};
+    // A solid is laid with a loaded brush: strokes short enough to read as chop
+    // rather than as long smears, wide enough to cover their row on their own,
+    // and translucent enough that where two cross they mix.
+    return {3.2f, 1.10f, 242.0f, 0.9f, 0.0f, 248.0f, 30.0f, 150.0f, 0.42f};
+  }
+}
+
+// Fire's own glow, plus the reaction that lit it: a bolt for electricity, a
+// sizzle for acid, a cloud for steam, a cold radiance for ice. Kept next to the
+// brush so the two halves of a material's look are read together.
+inline void reactionFx(const vg::Pigment &pig, ParticleType type,
+                       const std::vector<Run> &runs, const View &v,
+                       float timeSec) {
+  switch (type) {
+  case ELEC:
+    vg::elecFx(pig, runs, v, timeSec);
+    break;
+  case TORCH:
+    vg::fireFx(pig, runs, v, timeSec, 2.6f, true);
+    break;
+  case FIRE:
+    vg::fireFx(pig, runs, v, timeSec, 1.7f, true);
+    break;
+  case EMBER:
+    vg::emberFx(pig, runs, v, timeSec);
+    break;
+  case ACID:
+    vg::acidFx(pig, runs, v, timeSec);
+    break;
+  case STEAM:
+    vg::cloudFx(pig, runs, v, timeSec);
+    break;
+  case ICE:
+    vg::frostFx(pig, runs, v, timeSec);
+    break;
+  default:
+    break;
   }
 }
 
 inline void drawMaterial(const Palette &pal, ParticleType type,
                          const std::vector<Run> &runs, const View &v,
-                         float timeSec, bool vanGogh, float impasto) {
+                         const Sandbox &sb, float timeSec, bool vanGogh,
+                         float impasto) {
   using namespace cv::v4d::nvg;
   if (runs.empty())
     return;
@@ -90,56 +132,29 @@ inline void drawMaterial(const Palette &pal, ParticleType type,
 
   // --- the painter's path ---------------------------------------------------
   //
-  // Below roughly two and a half pixels a cell there is no room for a stroke:
-  // the brush becomes a smear and the world becomes mud. Small windows
-  // therefore fall through to the band renderer below, which still paints in
-  // the pigments rather than the palette.
-  if (vanGogh && cell >= 2.6f) {
+  // The strokes are sized in cells, not pixels, so a smaller cell simply means a
+  // finer brush. The threshold is where a stroke stops being a stroke and starts
+  // being a sub-pixel smear; above it every material in Van Gogh mode is painted
+  // with the brush, and only a genuinely tiny window falls through to the band
+  // renderer below.
+  if (vanGogh && cell >= 1.7f) {
     static thread_local vg::Batch batch;
     const vg::Pigment pig = vg::pigmentOf(type);
     const vg::Brush brush = brushOf(type);
 
-    vg::paintMaterial(pig, runs, v, timeSec, brush, impasto, batch);
+    vg::paintMaterial(pig, type, runs, v, sb, timeSec, brush, impasto, batch);
 
+    // The broad glow the old renderer only gave to embers: every material now
+    // carries a little of it, and the emissive ones carry a lot.
     switch (materialOf(type)) {
     case Material::EMBERISH:
-      // Fire, embers, electricity and torches: light that does not stop at the
-      // edge of the material. Additive, and flickering at 12 Hz -- a hash of
-      // the cell and the frame quantum, so the flame lives without boiling.
-      vg::glareRun(vg::mix(pig.light, vg::cream(), 0.25f), runs, v, cell * 1.7f,
-                   96.0f, timeSec);
+      vg::glareRun(vg::mix(pig.light, vg::cream(), 0.30f), runs, v, cell * 1.9f,
+                   88.0f, timeSec);
       break;
-    case Material::LIQUID: {
-      // The surface of Van Gogh's water is not one colour but a field of small
-      // bright dashes laid over the blue and drifting with the current.
-      save();
-      globalCompositeOperation(NVG_LIGHTER);
-      beginPath();
-      for (const Run &r : runs) {
-        const float len = (r.x1_ - r.x0_ + 1) * cell;
-        if (len < cell * 1.5f)
-          continue;
-        const int n = std::clamp(int(len / (cell * 3.0f)), 1, 8);
-        for (int k = 0; k < n; ++k) {
-          const float f = (float(k) + 0.5f) / float(n);
-          const float drift = std::sin(timeSec * 1.3f + float(r.y_) * 0.7f +
-                                       f * 6.2831853f) * cell * 0.25f;
-          const float cx =
-              v.origin_.x + (float(r.x0_) + (r.x1_ - r.x0_ + 1) * f) * cell;
-          const float cy = v.origin_.y + (r.y_ + 0.38f) * cell + drift;
-          vg::appendStroke(vg::Stroke{cx - cell * 0.55f, cy, cx + cell * 0.55f,
-                                      cy, std::max(1.0f, cell * 0.18f), 0.0f,
-                                      0.0f, 0.0f});
-        }
-      }
-      fillColor(vg::withAlpha(vg::mix(pig.light, vg::cream(), 0.55f), 120.0f));
-      fill();
-      restore();
-      break;
-    }
     default:
       break;
     }
+    reactionFx(pig, type, runs, v, timeSec);
     return;
   }
 
