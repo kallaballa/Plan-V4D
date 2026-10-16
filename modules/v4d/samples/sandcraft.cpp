@@ -66,11 +66,13 @@
 #include "sandcraft/netplay/input_apply.hpp"
 #include "sandcraft/netplay/net_glue.hpp"
 #include "sandcraft/netplay/net_runtime.hpp"
+#include "sandcraft/netplay/net_thread.hpp"
 #include "sandcraft/netplay/netplay.hpp"
 #include "sandcraft/netplay/netqueues.hpp"
 #include "sandcraft/netplay/protocol.hpp"
 #include "sandcraft/netplay/replication.hpp"
 #include "sandcraft/netplay/selftest.hpp"
+#include "sandcraft/netplay/tcp_selftest.hpp"
 
 using namespace cv;
 using namespace cv::v4d;
@@ -691,14 +693,41 @@ V4D_DEMO_MAIN(int argc, char **argv) {
     const netplay::SelfTestStats st = netplay::runSelfTest(net, std::cerr);
     return st.failures == 0 ? 0 : 1;
   }
+
+  // The in-process host+client self-test over real loopback TCP (roadmap M3).
+  // Two net threads, two sockets, one automaton: the milestone's headless proof
+  // that the framing, the handshake, replication and input survive a real byte
+  // stream. Also exits non-zero on any failed check.
+  if (net.tcpSelfTest) {
+    const netplay::TcpSelfTestStats st = netplay::runTcpSelfTest(net, std::cerr);
+    return st.failures == 0 ? 0 : 1;
+  }
+
+  // Apply the role before any plan instance exists (spec §16.6). SandcraftPlan
+  // reads the singleton in its constructor to choose the graph branch, so the
+  // configure() has to precede V4D::init(); without it the singleton keeps its
+  // default (Host) and the client arm is unreachable.
+  netplay::netRuntime().configure(net);
+
+  // Start the net thread only when the process was asked to network (opt-in,
+  // spec §16.6). A no-argument run opens no socket and skips the per-tick
+  // snapshot copy entirely (§4.3).
+  if (net.enabled) {
+    std::string err;
+    if (!netplay::netRuntime().start(err))
+      std::cerr << "sandcraft: net start failed: " << err << std::endl;
+  }
+
   std::cerr << "sandcraft: net role="
             << (net.role == netplay::Role::Host ? "host" : "client")
             << " proto=" << int(netplay::PROTOCOL_VERSION);
   if (net.role == netplay::Role::Client)
     std::cerr << " connect=" << netplay::endpointHost(net) << ":"
               << netplay::endpointPort(net);
+  else if (net.enabled)
+    std::cerr << " listening=" << netplay::netRuntime().boundPort();
   else
-    std::cerr << " port=" << net.port;
+    std::cerr << " (single player)";
   std::cerr << " name=" << net.name << std::endl;
 
   // The Van Gogh brush path only engages above ~2.6 px/cell, so a 640x360 grid
@@ -710,5 +739,6 @@ V4D_DEMO_MAIN(int argc, char **argv) {
   cv::Ptr<V4D> runtime = V4D::init(
       viewport, "Sandcraft", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT | ConfigFlags::DISPLAY_MODE);
   V4DPlan::run<SandcraftPlan>(0);
+  netplay::netRuntime().stop();
   return 0;
 }

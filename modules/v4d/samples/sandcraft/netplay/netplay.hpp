@@ -42,11 +42,18 @@ enum class Role {
 // Everything the process needs to decide what it is before it draws a frame.
 struct NetConfig {
   Role role = Role::Host;   // no network args => the demo as it always was
+  // Networking is opt-in (spec §16.6): the role defaults to Host, but no socket
+  // is opened until the process is *asked* to network -- `--host` or
+  // `--connect`. This is what keeps the no-argument demo exactly today's
+  // single-player run (§4.3) while §17.1 can still say the default role is host.
+  bool enabled = false;
   std::string connect;      // client: "host" or "host:port"
-  uint16_t port = DEFAULT_PORT; // host: bind port
+  uint16_t port = DEFAULT_PORT; // host: bind port (0 == ephemeral, self-test only)
   std::string name = "player";  // shown in the roster (spec §13.4)
   std::string token;        // optional join token; empty => open session
   bool selfTest = false;    // --net-selftest: in-process host==client (M2)
+  bool tcpSelfTest = false; // --net-tcp-selftest: in-process host+client over TCP (M3)
+  bool netStats = false;    // --net-stats: one "net-stats:" line per second
   bool help = false;        // --help: print usage and leave
 };
 
@@ -90,8 +97,10 @@ inline NetConfig parseArgs(int argc, char **argv) {
     };
     if (a == "--host") {
       cfg.role = Role::Host;
+      cfg.enabled = true;
     } else if (a == "--serve" || a == "--connect") {
       cfg.role = Role::Client;
+      cfg.enabled = true;
       cfg.connect = next("");
     } else if (a == "--port") {
       const std::string v = next("");
@@ -107,6 +116,10 @@ inline NetConfig parseArgs(int argc, char **argv) {
       cfg.token = next("");
     } else if (a == "--net-selftest") {
       cfg.selfTest = true;
+    } else if (a == "--net-tcp-selftest") {
+      cfg.tcpSelfTest = true;
+    } else if (a == "--net-stats") {
+      cfg.netStats = true;
     } else if (a == "--help" || a == "-h") {
       cfg.help = true;
     }
@@ -134,13 +147,18 @@ inline uint16_t endpointPort(const NetConfig &cfg) {
 
 inline const char *usageText() {
   return "Sandcraft netplay options:\n"
-         "  --host                 run as the authoritative host (default)\n"
+         "  --host                 run as the authoritative host and listen (default role)\n"
          "  --connect HOST[:PORT]  run as a client and dial HOST\n"
          "  --port N               host listen port (default 45454)\n"
          "  --name NAME            player name shown in the roster\n"
-         "  --token TOKEN          shared join token (empty => open)\n"
-         "  --net-selftest         in-process host==client self test (M2)\n"
-         "  -h, --help             this message\n";
+         "  --token TOKEN          shared join token (empty => open; unused in v1)\n"
+         "  --net-stats            log a net-stats line once a second\n"
+         "  --net-selftest         in-process host==client self test (loopback, M2)\n"
+         "  --net-tcp-selftest     in-process host+client self test over TCP (M3)\n"
+         "  -h, --help             this message\n"
+         "\n"
+         "With no network argument the demo runs as it always has: host role,\n"
+         "player 0, and no socket (spec §4.3, §16.6).\n";
 }
 
 } // namespace netplay

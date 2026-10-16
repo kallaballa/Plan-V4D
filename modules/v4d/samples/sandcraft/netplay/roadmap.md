@@ -1,8 +1,10 @@
 # Sandcraft Netplay — Roadmap
 
-Status: **In progress** — M0 and M1 done, M2 partially landed (protocol, transports, queues,
-replication, self-test harness and `net_runtime` are in and green; the graph branch in
-`sandcraft.cpp` is not yet wired — see [§7 Progress log](#7-progress-log)).
+Status: **In progress** — M0, M1 and M2 done (protocol, transports, queues, replication, self-test
+harness, `net_runtime`, and the `hostMode_` graph branch are all landed and green; the periodic
+keyframe cadence defect is fixed — see [§7 Progress log](#7-progress-log)). Next: **M3**, designed
+but not yet implemented — the design pass (2026-10-16) also found a latent M2 wiring defect (the role
+is never applied, so the client arm of the branch was unreachable) that M3 must fix first.
 Companion document: [`specification.md`](specification.md)
 
 This roadmap turns the specification into ordered, independently verifiable milestones. Every
@@ -54,6 +56,42 @@ build/headless toolkits, not when the code compiles.
 | `headless_capture` / `gl-debugging_frame_diff` | Screenshot and PSNR/SSIM/AE comparison between host and client. |
 | `debugging_*` | strace/gdb/valgrind for socket and threading bugs; helgrind/drd for races in `NetQueues`. |
 | `android_*` / `headless_android` | Android emulator + adb for M10. |
+| `sandcraft.netplay` | `action` = `codec-test`/`codec-bench`/`protocol-test`/`selftest`/`all`; runs the netplay artefacts and parses checks/bytes/timings/selftest stats. |
+
+### Wayland input injection (required on this host)
+
+Plan-V4D's GLFW is a **Wayland-only** build (`-DWITH_WAYLAND=ON`), so the X11 path does not work here:
+`glfwInit` fails on an Xvfb display and `xdotool`/`import` are useless. All interactive verification
+therefore goes through sway + `headless_input`. Two defects in that path were found and fixed:
+
+* **First-event drop (keyboard).** `wtype` publishes its keymap when the virtual keyboard is created;
+  events sent in the same commit are dropped while the client compiles it. The *first* event of every
+  `wtype` invocation was lost, so a standalone `wtype -k Tab` never arrived at all. Fixed with
+  `wtype -s <ms>` — a sleep after creation and before the first key. `-d` does **not** help (it only
+  paces *between* keystrokes). `headless_input` now passes `-s` on every sway key/text injection and
+  exposes `pre_sleep_ms` (default 150). Verified end-to-end: typed text keeps its first character,
+  single keys land, and a lone `Tab` reaches the sample.
+* **No press/release (drag).** `wlrctl` has only `move`/`click`/`scroll` — no way to *hold* a button,
+  so a "drag" was two disjoint clicks. `ydotool`/`evemu` need `/dev/uinput`, which is `root:root 0600`
+  on this host, so they are unusable without root. Instead `wlr-pointer` (built once into
+  `~/.local/bin/wlr-pointer`) speaks `zwlr_virtual_pointer_manager_v1` through the compositor: no
+  privileges, no daemon, and `motion_absolute` removes the tracked-cursor desync that relative-only
+  `wlrctl` movement suffers from.
+
+Rebuild recipe (needs only `wayland-client`, `wayland-scanner`, `gcc`, `pkg-config`):
+
+```
+curl -fsSL https://raw.githubusercontent.com/swaywm/wlroots/master/protocol/wlr-virtual-pointer-unstable-v1.xml -o vp.xml
+wayland-scanner client-header vp.xml wlr-virtual-pointer-unstable-v1-client-protocol.h
+wayland-scanner private-code  vp.xml wlr-virtual-pointer-unstable-v1-protocol.c
+gcc -O2 -o ~/.local/bin/wlr-pointer wlr-pointer.c wlr-virtual-pointer-unstable-v1-protocol.c \
+    -I. $(pkg-config --cflags --libs wayland-client)
+```
+
+The helper reads a line script on stdin:
+`abs X Y | move DX DY | down [BTN] | up [BTN] | click [BTN] | scroll DY [DX] | sleep MS`.
+**Follow-up:** the helper source must be committed under `netplay/tests/` — it currently lives only
+under `/tmp/opencode/tmp-scripts/`, which is not durable.
 
 Temporary orchestration scripts (running two processes, timing, diffing) MUST live under
 `/tmp/opencode/tmp-scripts/`. Reusable test scripts SHOULD be committed under
@@ -219,13 +257,12 @@ pipeline works host==client in a single process over an in-memory transport.
 
 **Size.** M.
 
-**Status.** **In progress** — the whole OpenCV-free pipeline is landed and green; only the graph
-branch in `sandcraft.cpp` is outstanding (see [§7 Progress log](#7-progress-log)). One acceptance
-criterion was amended: the harness injects two *deliberate* desyncs to prove detection, so the
-pass condition is "exit 0 and exactly the two injected desyncs detected", not "zero desyncs".
-One **open defect** was found by the harness and is not yet fixed: the periodic keyframe never fires
-(`keyframes=0` over 600 ticks) because `HostReplicator::produce` measures the interval against the
-last *transmitted* tick instead of the last *keyframe* tick — see the M2 log.
+**Status.** **Done** (see [§7 Progress log](#7-progress-log)). The whole OpenCV-free pipeline is
+landed and green and the graph branch is wired. Two items were amended in flight: the harness injects
+two *deliberate* desyncs to prove detection, so the pass condition is "exit 0 and exactly the two
+injected desyncs detected", not "zero desyncs"; and the periodic-keyframe defect the harness found
+(`keyframes=0` over 600 ticks) is **fixed** by tracking a separate `lastKeyframeTick_` (spec
+§12.3/D21).
 
 **Deliverables.**
 
@@ -247,7 +284,9 @@ last *transmitted* tick instead of the last *keyframe* tick — see the M2 log.
 * `netplay/selftest.hpp` + `--net-selftest` — the host==client loopback harness, run before
   `V4D::init`, exit-code judged. **Landed.**
 * `sandcraft/netplay/` plan nodes: `LocalInputPlan`, `SandSimulationPlan` (extended), `NetApplyPlan`,
-  plus the `hostMode_` branch in `SandcraftPlan::infer`. **Outstanding.**
+  plus the `hostMode_` branch in `SandcraftPlan::infer`. **Landed.**
+* `netplay/input_apply.hpp` — the shared `applyInputEvent`, used by both the harness and the plan.
+  **Landed** (not originally listed; spec D20).
 
 **Work items.**
 
@@ -257,9 +296,9 @@ last *transmitted* tick instead of the last *keyframe* tick — see the M2 log.
 3. Inject scripted input into the loopback and assert paint lands identically. **Done**
    (`applyInputEvent` + scripted presses/drags/clear/emitter toggles).
 4. Wire the graph branch; make `--net-selftest` run with `hostMode_` toggled between host and client
-   sub-plans across two in-process runs (or a dedicated test harness). **Partial** — the harness
-   drives both halves directly (the "dedicated test harness" option); the `SandcraftPlan::infer`
-   branch is outstanding.
+   sub-plans across two in-process runs (or a dedicated test harness). **Done** — the branch is
+   `branch(RS(hostMode_))->subInfer(sim_)->elseBranch()->subInfer(netApply_)->endBranch()`; the
+   dedicated harness drives both halves directly, and the branch is exercised by the live sample.
 
 **Acceptance criteria.**
 
@@ -271,8 +310,9 @@ last *transmitted* tick instead of the last *keyframe* tick — see the M2 log.
 * `--net-selftest` exits 0 and logs zero desyncs. **Amended, met as amended** — it exits 0 and logs
   exactly the two injected desyncs, both detected and recovered; zero-desync holds for the
   un-injected host half.
-* Single-player path (no args) still passes M2 acceptance of M0. **To re-run** after the graph
-  branch lands (it was green before the branch; the branch must leave it green).
+* Single-player path (no args) still passes M2 acceptance of M0. **Met** — re-run after the branch
+  landed: window and exit pass, frame not blank (stddev ≈ 0.13, ≈105k unique colours), log clean
+  (§7 M2 log).
 
 **Verification.**
 
@@ -288,9 +328,8 @@ last *transmitted* tick instead of the last *keyframe* tick — see the M2 log.
 
 **Risks.** The graph branch may interact with V4D's per-worker graph copies; verify `branch` +
 `subInfer` behaves with the `_shared` flag (see spec §16.4, and confirm with the plan expert).
-**Open** — this is the outstanding item. The idiom is confirmed against `beauty-demo.cpp`
-(`branch(R(x))->subInfer(..)->elseBranch()->subInfer(..)->endBranch()`), but the live build is not
-yet exercised.
+**Resolved** — the idiom was confirmed against `beauty-demo.cpp` and the sample builds, runs and
+renders with the branch in place; the live build is exercised (single-player smoke green).
 
 ---
 
@@ -303,26 +342,46 @@ keyframe and deltas, and renders the host's world **without** sending input yet.
 
 **Size.** L.
 
+**Status.** **In progress (design).** No code has landed for M3. The design pass (2026-10-16) is
+recorded in [§7 Progress log](#7-progress-log); it fixes a latent M2 wiring defect (the role was
+never applied to `NetRuntime`, so the client arm was unreachable) before the socket work begins, and
+pins the deliverables and verification below. Scope amendment: M2 already wired the input path, so M3
+carries input end-to-end and M4 narrows to multi-player painting semantics (decision D25).
+
 **Deliverables.**
 
-* `netplay/tcp_server.hpp` / `netplay/tcp_client.hpp` — non-blocking POSIX sockets, `poll` loop,
-  length-prefixed framing, reconnect handling.
-* `netplay/net_runtime` extended: parity with real sockets; `--host [--port N]`, `--connect host:port`.
+* `netplay/socket_util.hpp` — non-blocking / `TCP_NODELAY` / `SO_REUSEADDR`, `getaddrinfo`,
+  `SIGPIPE` ignored plus `MSG_NOSIGNAL`.
+* `netplay/tcp_server.hpp` / `netplay/tcp_client.hpp` — `TcpListener` (bind, ephemeral-port
+  tolerance, non-blocking accept) and `TcpConnector` (non-blocking `connect` + `step()`).
+* `netplay/net_thread.hpp` — the `poll` loop: per-peer `HostReplicator`, per-peer reassembly and
+  write buffer, `HELLO`→`WELCOME`+`KEYFRAME`/`REJECT`, `INPUT`→`NetQueues::input`,
+  `RESYNC`→keyframe, `BYE`, the wake pipe, and the `--net-stats` counters. Client side:
+  connect/reconnect, `HELLO`, `WELCOME`→player id, everything else→`inbound`, `outbound`→socket.
+* `netplay/net_runtime` extended: owns the `NetThread` (`start()`/`stop()`), exposes the bound port,
+  the assigned player id and the counters; `NetConfig::enabled` gates the socket (spec D22).
+* `NetQueues` gains a wake callback so `publishSnapshot`/`pushOutbound` rouse the poll loop.
 * Host: keyframe on join + periodic keyframe (default every 300 ticks); delta every tick against the
   last transmitted state; `WELCOME`/`REJECT`.
 * Client: `NetApplyPlan` applies keyframe/delta; renders the replica.
 * `sandcraft_panel.hpp` — a minimal "Network" section: role, local endpoint, peer, tick, bytes/s.
 * Capture/instrumentation: a `--net-stats` log line per second (tick, peers, bytes out/in, delta
   ratio, drops).
+* `netplay/tcp_selftest.hpp` + `--net-tcp-selftest` — an in-process host+client over **real loopback
+  TCP**, driving the real automaton, asserting convergence, version rejection and reconnect.
 
 **Work items.**
 
+0. **Fix the M2 wiring defect first**: call `NetRuntime::configure()` in `V4D_DEMO_MAIN` before
+   `V4D::init`, and add `NetConfig::enabled` set by `--host`/`--connect` so a no-argument run opens
+   no socket (spec §16.6, decisions D22/D23). Without this the client role can never be selected.
 1. Socket layer with robust framing and timeouts; `SO_REUSEADDR`; TCP_NODELAY on.
-2. Handshake: version/capacity validation; `REJECT` paths.
+2. Handshake: version/capacity validation; `REJECT` paths (token deferred, spec D24).
 3. Baseline ownership in the net thread (`lastSentTick`, `lastSentGrid`); coalescing to the latest
    when behind.
 4. CRC check on the client; `RESYNC` request + keyframe reply (minimal).
 5. Delta byte accounting surfaced to the panel and logs.
+6. The two-endpoint TCP harness (headless), from which the acceptance numbers are taken.
 
 **Acceptance criteria.**
 
@@ -335,6 +394,8 @@ keyframe and deltas, and renders the host's world **without** sending input yet.
 
 **Verification.**
 
+* `toolkit_invoke(toolkit="sandcraft", name="netplay", input={"action":"tcp-selftest"})` first: the
+  socket path is proven headless, with no window, before any GL run.
 * Orchestrate two `headless_run` invocations (or one script) on displays `main`/`peer`; capture both,
   `gl-debugging_frame_diff` PSNR.
 * `debugging_trace_syscalls` on the host to confirm the listen/accept/read/write pattern and no busy
@@ -807,7 +868,7 @@ Deviations / notes:
   because build.sh's Android pre-step *builds* clvk (≈2855 ninja targets) before the OpenCV configure;
   that cost is paid once and is cached, so later Android work in M10 will not repeat it.
 
-### M2 — Protocol types and loopback (no sockets) — **in progress**
+### M2 — Protocol types and loopback (no sockets) — **done**
 
 What landed (uncommitted working tree at time of writing). Everything below is **OpenCV-free** —
 the codec, protocol, transports, queues, replication and the harness include no OpenCV and no GL, so
@@ -899,3 +960,118 @@ Deviations / notes:
   Plan graph. Consequently the single-player regression was last green *before* the branch and must
   be re-run once it lands; `netActive()` (in `net_runtime.hpp`) already exists so the host branch can
   skip the per-tick snapshot copy when single-player.
+  *(Resolved in the continuation entry below. Kept verbatim as history.)*
+
+#### M2 (continuation) — graph wiring, keyframe cadence, verification harness — 2026-10-16
+
+Closes the two items the entry above left open. All of the code below is **committed**
+(`sandcraft.cpp` in `a2f96f53`, the netplay headers earlier); the working tree is clean apart from
+these two documents.
+
+What landed:
+
+* **Periodic-keyframe defect fixed.** `HostReplicator` now tracks `lastKeyframeTick_` (new member,
+  `lastKeyframeTick()` getter, reset in `reset()`); `produce` frames a keyframe when
+  `forceKeyframe || !haveBaseline_ || (snap.tick - lastKeyframeTick_) >= keyframeEvery_`, and sets
+  `lastKeyframeTick_ = snap.tick` when it does. `selftest.hpp` gained a cadence assertion
+  (`check(st.keyframes >= 2, "periodic keyframes fired")`), so the harness now *proves* the cadence
+  it previously could not observe. Spec §12.3 amended; decision D21.
+* **The graph branch is wired** in `SandcraftPlan::infer`:
+  `subInfer(input_); branch(RS(hostMode_))->subInfer(sim_)->elseBranch()->subInfer(netApply_)->endBranch(); subInfer(render_); ...`
+  `hostMode_` is a `_shared(bool)` initialised from `netplay::netRuntime().host()`;
+  `sandbox_.players_[0].active = true` keeps the local player live; `netApply_` is a new sub-plan.
+* **`LocalInputPlan`** (renamed from `SandInputPlan`) now *emits* rather than paints: it turns the
+  existing event edges (`press_`, `drag_`, `scroll_`, `move_`, `keys_`) into `InputEventWire`s using
+  the sender's own `fitView`/`cellAt` (§9.1 / Rule I2), with a frame-local `shadow` of the local
+  player so wheel/key accumulation matches the old in-place mutations (§9.5). The host pushes each
+  event to `NetQueues` as player 0 (loopback); the guest frames them into `MSG_INPUT` and mirrors
+  only its own cursor locally.
+* **`SandSimulationPlan::step`** drains `NetQueues::input`, applies each `InputEnvelope` through the
+  shared `applyInputEvent`, runs the unchanged automaton, and publishes a snapshot only when
+  `netplay::netActive()`, so single-player pays no snapshot copy.
+* **`NetApplyPlan`** (guest only) pops inbound frames through `netplay::ClientReplicator`, handles
+  `ApplyResult::Desync` with `resync()`, and copies the replica into the sandbox (`gridToSandbox` /
+  `applyWorldWire`).
+* **`InputEnvelope`** added to `netqueues.hpp`; `pushInput`/`popInput`/`drainInput` now carry the
+  sender id with the event (§16.2 / Appendix A amended; decision D18).
+* **`netplay/input_apply.hpp`** — the shared
+  `applyInputEvent(Sandbox&, int playerId, const InputEventWire&)` (guards `playerId`; no `active`
+  check); `selftest.hpp` includes it and its private copy is gone (decision D20).
+
+Evidence:
+
+* `build_run(command="plan+v4d", build_type="debug")` → ok, rc 0 (~105 s).
+* `toolkit_invoke sandcraft.netplay {"action":"all"}` → green: codec-test **30 checks / 0 failures**,
+  protocol-test **50 / 0**, codec-bench **30 / 0**, selftest **22 checks / 0 failures** with
+  `keyframes=2 deltas=592` — the periodic keyframe now fires (it was `keyframes=0`).
+* Single-player headless smoke (no args) after the branch: window pass, exit pass, frame not blank
+  (stddev ≈ 0.13, ≈105k unique colours), log clean; the panel and the Van Gogh scene render
+  unchanged.
+
+Deviations / notes:
+
+* **`--net-selftest` still drives both halves directly**, not through two in-process graph runs. This
+  is the "dedicated test harness" option the work item allowed, and the graph branch itself is
+  exercised by the live sample. Recorded so the choice is not read as an omission.
+* **Spec amendments in this pass:** §16.2 (`InputEnvelope`), §16.4 (`RS(hostMode_)`), §16.5 (shared
+  `applyInputEvent`), §12.3 (keyframe cadence measured from the last keyframe), Appendix A, and
+  decisions D17–D21.
+* **Interactive verification is Wayland-only on this host.** The X11 path is unusable — Plan-V4D's
+  GLFW is a Wayland-only build, so `glfwInit` fails on Xvfb — and the Wayland injection path itself
+  needed two fixes before input reached the sample at all: the `wtype` first-event drop and the
+  absence of any press/release primitive (so drags were impossible). Both are fixed and documented in
+  §2, together with the new privilege-free `wlr-pointer` helper. This becomes load-bearing at M3,
+  where two instances must be driven interactively. **Follow-up:** commit `wlr-pointer`'s source
+  under `netplay/tests/` (it currently lives only under `/tmp/opencode/tmp-scripts/`).
+
+#### M3 — TCP transport, role split, one-way replication — **design pass, no code yet** — 2026-10-16
+
+A reading pass over the specification, the roadmap and the landed M0–M2 code, to pin M3 before
+implementing it. **Nothing has landed for M3**; this entry records the findings and the design the
+implementation will follow, so the pre-work is not lost when the code arrives. No acceptance
+criterion is met yet.
+
+Findings that change the plan:
+
+* **Latent M2 wiring defect — the role is never applied.** `netplay.hpp` parses the role into a
+  `NetConfig`, but `V4D_DEMO_MAIN` never calls `netRuntime().configure(net)`. `SandcraftPlan`'s
+  constructor therefore reads the singleton's *default* config, so `hostMode_` is always `Host` and
+  the `elseBranch()->subInfer(netApply_)` arm is unreachable in the live sample. The M2 continuation
+  entry's "the graph branch itself is exercised by the live sample" is therefore true only of the
+  **host** arm; the client arm has never run outside the direct harness. M3 work item 0 fixes this
+  (`NetRuntime::configure()` before `V4D::init`) before any socket work. Spec §16.6 amended;
+  decision D23.
+* **Networking must be opt-in.** `--host` and the no-argument default both mean `Role::Host`, so
+  nothing currently distinguishes "be a host and listen" from "be today's single-player demo".
+  Without an explicit switch, either the no-argument demo would open a listener (breaking §4.3) or
+  `--host` would be unrepresentable. The fix is `NetConfig::enabled`, set by `--host`/`--connect`,
+  which is what makes `netActive()` true and the graph publish snapshots. Spec §16.6/§17.1 amended;
+  decision D22.
+* **The `HELLO` join token has nowhere to go.** §17.2 lists a token in `HELLO` and `REJECT_TOKEN`
+  exists, but `HelloWire` (§13.4) is `{version, nameLen, reserved[2], name[]}` — there is no token
+  field. v1 sessions are therefore **open**: the token is parsed, printed in the join string and
+  otherwise unused. It is wired when the rendezvous work (M8) needs a gate. Spec §13.4 amended;
+  decision D24.
+* **M3 cannot be one-way without disabling landed code.** M2 already wired `LocalInputPlan` to frame
+  every consumed event into `MSG_INPUT` and the host simulation to `drainInput()`/`applyInputEvent()`.
+  The transport therefore carries input both ways as soon as it exists. M3's deliverable is the
+  transport + replication (its acceptance is still only the one-way client match); M4 narrows to
+  multi-player painting semantics and the "no rate limit" proof. Decision D25.
+* **Roster/cursor propagation stays M6.** The net thread is forbidden from touching the `Sandbox`
+  (Rule C2), so the host's keyframe roster is whatever the sandbox's `players_` holds — player 0
+  alone until M6 owns the roster. `WELCOME.playerCount` (the host-side count) and the keyframe's
+  roster may therefore differ; M3 asserts only grid replication, not the roster. Decision D26.
+* **Shutdown ordering.** `NetRuntime` will own the `NetThread`; `stop()` must release the runtime
+  mutex *before* joining the thread so a future callback from the net thread cannot deadlock the
+  join. The net thread deliberately reads nothing back out of `NetRuntime`; `NetRuntime` reads the
+  thread's atomics (player id, counters, bound port), so the ordering holds by construction.
+
+Planned M3 surface (not yet written; named in the M3 section above): `netplay/socket_util.hpp`,
+`netplay/tcp_server.hpp`, `netplay/tcp_client.hpp`, `netplay/net_thread.hpp`,
+`netplay/tcp_selftest.hpp`, a wake callback on `NetQueues`, and the `NetConfig::enabled` /
+`NetRuntime` wiring. No `modules/v4d/CMakeLists.txt` change is expected: the new headers are
+POSIX-only and header-only, included by `sandcraft.cpp`, which already links `libzstd_static`.
+
+Documentation amended in this pass: spec §13.4 (token deferred), §16.2 (wake-up), §16.6 (opt-in,
+role application), §17.1 (host selection), and decision log D22–D26; roadmap M3 status, deliverables,
+work items and verification, plus this entry.

@@ -26,6 +26,7 @@
 
 #include "sandcraft_materials.hpp"
 #include "sandcraft_sandbox.hpp"
+#include "netplay/net_runtime.hpp"
 
 namespace sandcraft {
 
@@ -223,6 +224,40 @@ inline void drawPanel(Sandbox &sb) {
       TextDisabled("  the automaton as a diagram: banded cells, one colour");
       TextDisabled("  per material, lit from above");
     }
+
+    // ---- the network: role, endpoint, and what crossed the wire ----
+    //
+    // The net thread keeps plain atomics for exactly this (spec §16.6); the
+    // panel only ever reads them, never blocks on the socket. When the process
+    // was not asked to network this section says so rather than pretending.
+    Separator();
+    Text("Network");
+    {
+      netplay::NetRuntime &net = netplay::netRuntime();
+      if (!net.active()) {
+        TextDisabled("  single player: no socket");
+        TextDisabled("  start with --host, or --connect HOST to join");
+      } else {
+        const netplay::NetStats ns = net.stats();
+        Text("%s", net.host() ? "host (authoritative)" : "client (replica)");
+        if (net.host())
+          Text("listening  port %u", unsigned(net.boundPort()));
+        else
+          Text("player %u  %s", unsigned(ns.playerId),
+               !ns.connected ? "reconnecting"
+                             : (ns.handshakeDone ? "joined" : "joining"));
+        Text("%llu ticks   %d peers", static_cast<unsigned long long>(ns.tick),
+             ns.peers);
+        Text("in %.1f KiB   out %.1f KiB", double(ns.bytesIn) / 1024.0,
+             double(ns.bytesOut) / 1024.0);
+        Text("keyframes %llu   deltas %llu   drops %llu",
+             static_cast<unsigned long long>(ns.keyframesOut),
+             static_cast<unsigned long long>(ns.deltasOut),
+             static_cast<unsigned long long>(ns.drops));
+        if (!net.host())
+          Text("frames in %llu", static_cast<unsigned long long>(ns.framesIn));
+      }
+    }
   }
   End();
 
@@ -260,8 +295,10 @@ inline void drawPanel(Sandbox &sb) {
     TextDisabled("DELETE                  clear the world");
     Separator();
     TextWrapped("Ported from the SDL2 + agar original to Plan-V4D: "
-                "NanoVG for the world, ImGui for the panel, and no "
-                "networking.");
+                "NanoVG for the world, ImGui for the panel, and a "
+                "host-authoritative netplay layer (TCP) for two to four "
+                "players. Paint is applied by the host; clients render "
+                "the replica.");
     End();
   }
 

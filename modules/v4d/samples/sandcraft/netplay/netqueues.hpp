@@ -26,8 +26,10 @@
 #include <atomic>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include "protocol.hpp"
@@ -79,6 +81,24 @@ struct NetQueues {
 
   // Dropped-item counter. Atomic so it can be read (HUD, logs) without `mtx`.
   std::atomic<uint64_t> drops{0};
+
+  // --- wake-up (spec §16.2) --------------------------------------------------
+  //
+  // The net thread blocks in poll(2), so it must be roused the moment the plan
+  // produces work. Rather than teach every producer about a pipe fd, the net
+  // thread registers a callback here once at start; pushOutbound and
+  // publishSnapshot invoke it *after* releasing `mtx` (never while holding it --
+  // the callback writes to a pipe, which must not happen under the lock). The
+  // callback is copied under the lock and called outside, so it can never
+  // re-enter this object and deadlock.
+  void setWake(std::function<void()> fn) {
+    std::lock_guard<std::mutex> lk(mtx);
+    wake_ = std::move(fn);
+  }
+  void clearWake() {
+    std::lock_guard<std::mutex> lk(mtx);
+    wake_ = nullptr;
+  }
 
   // --- host input path -------------------------------------------------------
   void pushInput(const InputEnvelope &e) {
@@ -139,12 +159,18 @@ struct NetQueues {
 
   // --- outbound path ---------------------------------------------------------
   void pushOutbound(std::vector<uint8_t> bytes) {
-    std::lock_guard<std::mutex> lk(mtx);
-    if (outbound.size() >= OUTBOUND_CAP) {
-      outbound.pop_front();
-      drops.fetch_add(1, std::memory_order_relaxed);
+    std::function<void()> w;
+    {
+      std::lock_guard<std::mutex> lk(mtx);
+      if (outbound.size() >= OUTBOUND_CAP) {
+        outbound.pop_front();
+        drops.fetch_add(1, std::memory_order_relaxed);
+      }
+      outbound.push_back(std::move(bytes));
+      w = wake_;
     }
-    outbound.push_back(std::move(bytes));
+    if (w)
+      w();
   }
 
   bool popOutbound(std::vector<uint8_t> &out) {
@@ -158,8 +184,14 @@ struct NetQueues {
 
   // --- snapshot slot ---------------------------------------------------------
   void publishSnapshot(std::shared_ptr<const GridSnapshot> snap) {
-    std::lock_guard<std::mutex> lk(mtx);
-    snapshot = std::move(snap);
+    std::function<void()> w;
+    {
+      std::lock_guard<std::mutex> lk(mtx);
+      snapshot = std::move(snap);
+      w = wake_;
+    }
+    if (w)
+      w();
   }
 
   std::shared_ptr<const GridSnapshot> takeSnapshot() {
@@ -181,6 +213,10 @@ struct NetQueues {
     std::lock_guard<std::mutex> lk(mtx);
     return outbound.size();
   }
+
+private:
+  // Guarded by mtx. Empty until the net thread registers its pipe at start.
+  std::function<void()> wake_;
 };
 
 // One per process (spec Rule C3): the plan is built once per worker *and* once

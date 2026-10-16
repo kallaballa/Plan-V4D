@@ -546,7 +546,12 @@ baseline is the bottleneck (roadmap M1/M2 produce those numbers).
   ≈5 s) so any undetected divergence is bounded in time.
 * On any of {crc mismatch, `delta.baseTick != replica.lastTick`, decode error} the client requests a
   keyframe (`RESYNC`) and, until one arrives, keeps rendering the last good replica.
-* A keyframe resets `lastTick`, `lastSentTick` and the net thread's baseline.
+* A keyframe resets `lastTick`, `lastSentTick`, the net thread's baseline **and `lastKeyframeTick`**.
+* The periodic interval MUST be measured from the last **keyframe** tick, not from the last
+  *transmitted* tick. Delta transmission advances the transmit baseline on (almost) every tick, so
+  testing the interval against it would push the deadline forward forever and the periodic keyframe
+  would never fire — the M2 defect recorded in the roadmap's progress log. `HostReplicator`
+  therefore tracks a separate `lastKeyframeTick_`.
 
 ### 12.4 Compression parameters
 
@@ -700,6 +705,13 @@ finds the authoritative one in the first delta. The replica's `gridW`/`gridH` ar
 keyframe header on receipt — the first keyframe sizes the replica, and every later keyframe must
 match because a session's dimensions are fixed for its lifetime (§23).
 
+**The join token is deferred.** §17.2 lists a token in `HELLO` and `REJECT_TOKEN` exists, but the
+`Hello` structure above carries no token field, and `PROTOCOL_VERSION == 1` is already exercised
+without one. v1 therefore runs an **open session**: `--token` is parsed, echoed in the join string
+and otherwise unused, and no peer is ever rejected for a token. A length-prefixed token field is
+added to `Hello`, and `REJECT_TOKEN` wired, when the rendezvous work (M8) actually needs a gate
+(decision D24). This is the only `REJECT` reason v1 does not produce.
+
 `EventKind`: `MOVE=0, PRESS=1, RELEASE=2, DRAG=3, SCROLL=4, KEY=5, SET_BRUSH=6, SET_PEN=7,
 COMMAND=8`. `flags` bit layout: bits 0–3 = mouse button `0..8`; bits 4–6 = modifiers
 (shift/ctrl/alt); bit 7 = key edge (0 press / 1 release). For `KEY`, `x` holds the `Keyboard::Key`
@@ -842,15 +854,25 @@ panel shows it and accepts a peer's string.
 A single struct, registered with the plan via `_shared(queues_)`, holding self-synchronised queues:
 
 ```cpp
+struct InputEnvelope {                  // the shared input queue serves many senders
+  uint8_t        player;                // 0..3, the sender of `event`
+  InputEventWire event;
+};
+
 struct NetQueues {
   std::mutex mtx;                       // guards everything below; also the net-thread lock
-  std::deque<InputEventWire> input;     // host: net + loopback -> sim
+  std::deque<InputEnvelope>  input;     // host: net + loopback -> sim (per-player)
   std::deque<Frame>          inbound;   // client: net -> apply node (parsed frame)
   std::deque<std::vector<uint8_t>> outbound; // client: input node -> net
   std::shared_ptr<const GridSnapshot> snapshot;  // host: sim -> net (single slot, latest)
   std::atomic<uint64_t>      drops{0};  // safety-valve counter (§9.3, §18.3)
 };
 ```
+
+Input crosses the boundary as an **`InputEnvelope`**, not a bare `InputEventWire`: the queue is fed
+by every sender (each peer *and* the host's own loopback path), so the sender id must travel with the
+event. The host's own input is enqueued as player `0` and drained by the simulation node through the
+same `applyInputEvent` a peer's event takes (Rule S2, §16.4) — there is exactly one apply path.
 
 **Rule C1.** Every accessor (`pushInput`, `popInput`, `publishSnapshot`, `takeSnapshot`,
 `pushInbound`, `popInbound`) locks `queues_.mtx`. The net thread uses only these accessors. Nodes
@@ -864,6 +886,12 @@ roster state crosses the boundary as encoded byte buffers or as plain value stru
 
 **Rule C3.** `NetQueues` is a process-wide singleton alongside `static Sandbox sandbox_` (the plan
 is constructed once per worker *and* once for the display thread; the queues must exist once).
+
+**Wake-up.** The net thread blocks in `poll(2)` with a short timeout, so it must be roused when the
+plan produces work — a published snapshot on the host, a queued `INPUT` on a client. The plan signals
+it through a wake pipe (§15.1) that is part of the net thread's poll set, so outbound and publish
+latency are bounded by the wake and not by the poll timeout. The net thread registers its pipe with
+`NetQueues` once, at start; `publishSnapshot` and `pushOutbound` signal it after releasing `mtx`.
 
 ### 16.3 The snapshot slot
 
@@ -907,12 +935,12 @@ void SandcraftPlan::infer() override {
                                    //   client: enqueue outbound INPUT + predicted_
 
   // B. Authority
-  // _shared(bool hostMode_), read with R(...); NO GlobalState USER key exists (see below).
+  // _shared(bool hostMode_), read with RS(...); NO GlobalState USER key exists (see below).
   // A flat if/else takes exactly ONE endBranch(); each endBranch() closes the
   // innermost open branch, so `endBranch()->elseBranch()` only appears when a
   // branch is nested (cf. beauty-demo.cpp, where the inner endBranch() closes
   // the nested branch and elseBranch() binds to the enclosing one).
-  branch(R(hostMode_))
+  branch(RS(hostMode_))
      ->subInfer(sim_)              // SandSimulationPlan: drain input, apply, step, settle, publish
   ->elseBranch()
      ->subInfer(netApply_)         // NetApplyPlan: popInbound -> apply keyframe/delta/world/roster
@@ -930,7 +958,9 @@ void SandcraftPlan::infer() override {
 `RUN_CNT`, `START_TIME`, `FPS`, `WORKERS_READY`, `WORKERS_STARTED`, `LOCKING`, `DISPLAY_READY`,
 `LOCK_CONTENTION_CNT`, `LOCK_CONTENTION_RATE`, `LCR_CNT`, `SHOW_GUI`, `SHOW_FRAME_TIME`,
 `TIME_TRACKER`). The host/client flag SHALL be a `_shared(bool hostMode_)` member, read with
-`R(hostMode_)`, and set once before the first frame (it is fixed for the process lifetime).
+**`RS(hostMode_)`** — `RS` is the accessor that enforces `checkShared`, whereas `R()` does not
+declare the shared dependency correctly for a `_shared` variable — and set once before the first
+frame (it is fixed for the process lifetime).
 
 ### 16.5 Node ownership
 
@@ -938,7 +968,10 @@ void SandcraftPlan::infer() override {
   existing event edges (`press_`, `drag_`, `scroll_`, `move_`, `keys_`) and the `guiWantsMouse_`/
   `guiWantsKeyboard_` mirroring, but *emits events* instead of painting.
 * `SandSimulationPlan` gains the input-application and publish steps; its automaton core is
-  unchanged.
+  unchanged. It drains `NetQueues::input` and applies each `InputEnvelope` through the shared
+  `applyInputEvent(sandbox, player, event)` in `netplay/input_apply.hpp` — the *single* sample-side
+  implementation of §9.2/§9.6, also used by the M2 harness, so the plan and the self-test cannot
+  drift apart.
 * `NetApplyPlan` is new: drains `inbound`, applies keyframe/delta/world/roster, reconciles
   `predicted_` against `appliedSeq`.
 * `SandRenderPlan` renders `display_` instead of `sandbox_.cells_` (§10.2).
@@ -949,6 +982,18 @@ void SandcraftPlan::infer() override {
   token) before `V4DPlan::run`, starts its thread lazily on first use, and is stopped by a static
   destructor / `atexit`. `setup()`/`teardown()` run per instance and MUST NOT start/stop it more
   than once (guard with `std::once_flag`).
+* **Networking is opt-in.** The default `NetConfig` has `role == Host` and `enabled == false`; an
+  instance started with no network arguments opens no socket and runs exactly today's single-player
+  demo (§4.3). A listener is opened, and `netActive()` becomes true, only when the process is *asked*
+  to network — `--host` (listen) or `--connect HOST[:PORT]` (dial). This resolves the tension
+  between §4.3 ("no network configuration ... boots exactly as today") and §17.1 ("the instance
+  launched with `--host` ... is the host"): the **role** defaults to host, the **socket** does not.
+  The flag is what gates the per-tick snapshot publish, so the no-argument demo still pays no
+  230 KB copy (Rule C2/§16.3).
+* The role flag MUST be applied with `NetRuntime::configure()` from the demo entry point, before
+  `V4D::init` constructs any plan instance. Reading the singleton without configuring it leaves
+  `hostMode_` at its default (`Host`) and makes the client arm of the §16.4 branch unreachable
+  (this was a latent M2 wiring omission; see the roadmap's M3 entry).
 * `--net-selftest` is the loopback harness (roadmap M2): it runs the whole host==client pipeline
   in-process over the in-memory transport (`loopback_transport.hpp`) *before* the first frame and
   *before* `V4D::init` — no window, no GL — and exits non-zero if any check fails. It is the headless
@@ -963,8 +1008,10 @@ void SandcraftPlan::infer() override {
 
 ### 17.1 Host selection
 
-Out-of-band in v1: the instance launched with `--host` (or with no network args, preserving today's
-behaviour) is the host and is player 0. There is no election. (Election/migration: backlog.)
+Out-of-band in v1: the instance launched with `--host` is the host and is player 0, and its listener
+is opened. An instance with no network arguments is still the host and player 0 but opens no socket
+(§4.3, §16.6): the role defaults to host, the socket does not. There is no election.
+(Election/migration: backlog.)
 
 ### 17.2 Join
 
@@ -1115,6 +1162,16 @@ so host and Android builds are reproducible.
 | D14 | `NetQueues` are OpenCV-free and carry only wire types; the snapshot carries `WorldWire`/`width`/`height`/`roster` | Proves the whole pipeline headless and keeps the net thread unable to touch the `Sandbox` (Rule C2). |
 | D15 | The replica is sized by its first `KEYFRAME`, which carries no watermark/cursors | A joiner can reconstruct the world from a keyframe alone; per-tick cosmetic state rides the deltas. |
 | D16 | The M2 loopback proof is `--net-selftest` (in-process, before `V4D::init`) plus standalone `protocol`/`codec` test binaries, not the `plan` gtest suite | The V4D-off `plan` build cannot reach vendored zstd, and the harness must run with no window and no socket. |
+| D17 | The host's own input takes the **loopback queue** like a peer's | One apply path, so the authority cannot diverge from a guest (Rule S2, §16.4); it also exercises the guest path on every single-player frame. |
+| D18 | The shared input queue carries `InputEnvelope{player, event}`, not a bare `InputEventWire` | The queue is fed by every sender; the demux id must be explicit rather than implied by position (amends §16.2/Appendix A). |
+| D19 | The `hostMode_` branch predicate is read with `RS(...)`, not `R(...)` | `RS` is the accessor that enforces `checkShared`; `R()` does not declare the shared dependency for a `_shared` variable (amends §16.4). |
+| D20 | `applyInputEvent` lives in a sample-side header (`netplay/input_apply.hpp`) | One definition of "what an event means", shared by the plan node and the M2 harness; neither can drift (§9.2/§9.6). |
+| D21 | The periodic keyframe interval is measured from the last **keyframe** tick | Measuring against the last *transmitted* tick moves the deadline forward every delta, so the periodic keyframe never fires (§12.3, M2 defect). |
+| D22 | Networking is opt-in: `NetConfig::enabled` is set only by `--host`/`--connect` | Preserves §4.3 (no arguments == today's single-player demo) while §17.1 still calls the default role host; gates the per-tick snapshot publish. |
+| D23 | The role flag is applied by `NetRuntime::configure()` from the demo entry point, before `V4D::init` | Without the call `hostMode_` stays `Host` and the client arm of the §16.4 branch is unreachable — a latent M2 wiring omission (roadmap §7 M3 entry). |
+| D24 | The `HELLO` join token is deferred; v1 sessions are open | `Hello` carries no token field and `PROTOCOL_VERSION` is exercised without one; adding it changes a wire shape no v1 peer needs (M8 rendezvous owns the gate). |
+| D25 | M3 carries the input path end-to-end as well as replication | M2 already wired `LocalInputPlan`→`MSG_INPUT` and the host `drainInput()`, so a one-way M3 would have to disable landed code; M4 then covers multi-player painting semantics and the no-rate-limit proof. |
+| D26 | Per-player roster/cursor propagation stays out of the net thread; the keyframe roster is whatever the `Sandbox` holds | Rule C2 forbids the net thread touching the `Sandbox`; `WELCOME.playerCount` and the keyframe roster may differ until M6 owns the roster. M3 asserts only grid replication. |
 
 ---
 
@@ -1131,7 +1188,7 @@ Sandbox
 └── rng_          std::mt19937                                               [host only]
 
 NetQueues (self-synchronised, _shared)
-├── input     InputEventWire[]   (host consumes)
+├── input     InputEnvelope[]    (host consumes; {player, InputEventWire})
 ├── inbound   Frame[]            (client consumes; parsed type + payload)
 ├── outbound  byte[][]           (net thread sends)
 ├── snapshot  GridSnapshot*      (host publishes; latest-wins shared_ptr)
