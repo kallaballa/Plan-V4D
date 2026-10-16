@@ -46,6 +46,25 @@ inline ParticleType settledType(ParticleType raw) {
   return (!isInert(raw) && (raw % 2) == 1) ? ParticleType(raw - 1) : raw;
 }
 
+// Fold every non-inert moved flavour back to its resting type, in place.
+//
+// This is the settle that collectRuns() below used to perform as a side effect
+// of walking the grid during rendering. Netplay promotes it to an explicit step
+// so that "the authoritative state for tick T" is well defined *after* the
+// simulation step and *before* any rendering (spec §7.4, Rule A4): a delta is
+// taken from the settled grid, and a replica must not have to render to catch
+// up. Running it at the end of the sim step is behaviour-preserving because the
+// operation is idempotent -- collectRuns() still settles in place, and the
+// second pass finds nothing left to fold.
+inline void settleGrid(Sandbox &sb) {
+  const size_t n = sb.cells_.size();
+  for (size_t i = 0; i < n; ++i) {
+    const ParticleType raw = sb.cells_[i];
+    if (raw != NOTHING)
+      sb.cells_[i] = settledType(raw);
+  }
+}
+
 inline int collectRuns(Sandbox &sb, RunBuckets &runs) {
   for (auto &bucket : runs)
     bucket.clear();

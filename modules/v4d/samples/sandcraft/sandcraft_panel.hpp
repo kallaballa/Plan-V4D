@@ -53,6 +53,10 @@ inline ImVec4 contrastOn(const cv::Scalar &bgra) {
 inline void drawPanel(Sandbox &sb) {
   using namespace ImGui;
   const Palette pal;
+  // The panel drives the local player (always player 0). On a client this writes
+  // the replica's player-0 brush/pen, which the net layer forwards as SET_BRUSH/
+  // SET_PEN (spec §9.5); on the host it is the authority's own player.
+  PlayerState &me = sb.players_[0];
 
   // ---- the studio: the panel dresses as the painting does -----------
   //
@@ -61,7 +65,7 @@ inline void drawPanel(Sandbox &sb) {
   // context is where the world is painted; the panel is ImGui and
   // therefore styled through the style stack, pushed once for the
   // duration of both windows and popped after the last End().
-  const bool styled = sb.vanGogh_;
+  const bool styled = sb.local_.vanGogh;
   int pushedColors = 0;
   int pushedVars = 0;
   if (styled) {
@@ -106,7 +110,7 @@ inline void drawPanel(Sandbox &sb) {
   // world, and a panel that snaps back to the corner every frame can
   // never be dragged out of the way of whatever it is covering.
   SetNextWindowPos(ImVec2(14, 14), ImGuiCond_FirstUseEver);
-  if (Begin("Sandcraft", &sb.panelOpen_)) {
+  if (Begin("Sandcraft", &sb.local_.panelOpen)) {
     Text("Material");
     Separator();
     // The swatch is a Button carrying the material's colour, not a
@@ -126,7 +130,7 @@ inline void drawPanel(Sandbox &sb) {
     for (size_t bi = 0; bi < kBrushes.size(); ++bi) {
       const BrushInfo &b = kBrushes[bi];
       const cv::Scalar c = pal[b.type];
-      const bool selected = sb.brush_ == b.type;
+      const bool selected = me.brush == b.type;
       TableNextColumn();
       PushStyleColor(ImGuiCol_Button, toImVec(c));
       PushStyleColor(ImGuiCol_ButtonHovered,
@@ -135,7 +139,7 @@ inline void drawPanel(Sandbox &sb) {
       char id[32];
       std::snprintf(id, sizeof(id), "##brush%zu", bi);
       if (Button(id, ImVec2(46.0f, 22.0f)))
-        sb.brush_ = b.type;
+        me.brush = b.type;
       PopStyleColor(3);
       // The selection marker is drawn by hand rather than through
       // FrameBorderSize/FrameBorderColor: the marker has to survive
@@ -158,21 +162,21 @@ inline void drawPanel(Sandbox &sb) {
 
     Separator();
     Text("Brush");
-    SliderInt("Pen size##pen", &sb.penSize_, 1, 32);
-    Checkbox("Density swaps##swaps", &sb.particleSwaps_);
+    SliderInt("Pen size##pen", &me.penSize, 1, 32);
+    Checkbox("Density swaps##swaps", &sb.world_.particleSwaps);
     TextDisabled(
         "  let liquids sink through materials denser than "
         "themselves");
     if (Button("Random strokes"))
-      sb.randomizeRequested_ = true;
+      sb.world_.randomizeRequested = true;
     SameLine();
     if (Button("Clear##clear"))
-      sb.clearRequested_ = true;
+      sb.world_.clearRequested = true;
 
     Separator();
     Text("Emitters");
-    for (size_t i = 0; i < sb.emitters_.size(); ++i) {
-      Emitter &e = sb.emitters_[i];
+    for (size_t i = 0; i < sb.world_.emitters.size(); ++i) {
+      Emitter &e = sb.world_.emitters[i];
       const cv::Scalar c = pal[e.type];
       char toggle[64], slider[64];
       std::snprintf(toggle, sizeof(toggle), "%s##emit%zu", e.name, i);
@@ -196,20 +200,20 @@ inline void drawPanel(Sandbox &sb) {
 
     Separator();
     Text("World");
-    Text("%.0f fps   %d particles   frame %d", sb.fps_,
+    Text("%.0f fps   %d particles   frame %d", sb.local_.fps,
          sb.particleCount_, sb.simFrames_);
     Text("%dx%d cells   %s, size %d", sb.width_, sb.height_,
-         brushName(sb.brush_), sb.penSize_);
-    Checkbox("Paused##paused", &sb.paused_);
+         brushName(me.brush), me.penSize);
+    Checkbox("Paused##paused", &sb.world_.paused);
     SameLine();
     if (Button("About##about"))
-      sb.helpOpen_ = true;
+      sb.local_.helpOpen = true;
 
     Separator();
     Text("Style");
-    Checkbox("Van Gogh##style", &sb.vanGogh_);
-    if (sb.vanGogh_) {
-      SliderFloat("Impasto##impasto", &sb.impasto_, 0.4f, 2.0f);
+    Checkbox("Van Gogh##style", &sb.local_.vanGogh);
+    if (sb.local_.vanGogh) {
+      SliderFloat("Impasto##impasto", &sb.local_.impasto, 0.4f, 2.0f);
       TextDisabled("  how thickly the paint is laid on");
       TextDisabled(
           "  on: fields of brush strokes, a night sky with eleven stars,");
@@ -231,10 +235,10 @@ inline void drawPanel(Sandbox &sb) {
   // matching End() is reached the flag is false and the window is left
   // unclosed: ImGui keeps a begun window on its stack forever, and
   // every later window is pushed one level too deep.
-  if (sb.helpOpen_) {
+  if (sb.local_.helpOpen) {
     SetNextWindowPos(ImVec2(340, 110), ImGuiCond_Always);
     SetNextWindowSize(ImVec2(430.0f, 0.0f), ImGuiCond_Always);
-    Begin("About Sandcraft", &sb.helpOpen_);
+    Begin("About Sandcraft", &sb.local_.helpOpen);
     TextWrapped(
         "A falling-sand sandbox. Materials are laid down with the "
         "brush and then obey the rules of a cellular automaton: sand "

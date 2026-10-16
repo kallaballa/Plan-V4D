@@ -46,7 +46,7 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
   const float w = cell * v.width_;
   const float h = cell * v.height_;
   const cv::Point2f o = v.origin_;
-  const bool vg = sb.vanGogh_;
+  const bool vg = sb.local_.vanGogh;
   const float tsec = float(timeSec);
   const cv::Scalar cream = vg::cream();
 
@@ -120,8 +120,8 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
   const float nozzleFont = std::max(11.0f, std::min(cell * 1.4f, 20.0f));
   fontSize(nozzleFont);
   textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_BOTTOM);
-  for (size_t i = 0; i < sb.emitters_.size(); ++i) {
-    const Emitter &e = sb.emitters_[i];
+  for (size_t i = 0; i < sb.world_.emitters.size(); ++i) {
+    const Emitter &e = sb.world_.emitters[i];
     const float cx = o.x + (emitterColumn(sb.width_, i) + 0.5f) * cell;
     const float cy = o.y - 8.0f;
     const cv::Scalar col = pal[e.type];
@@ -227,7 +227,7 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
       // the glowing and dissolving ones last, so they sit on top of everything
       STEAM,  FIRE,     EMBER,     ELEC,     ACID};
   for (ParticleType t : kPaintOrder)
-    drawMaterial(pal, t, runs[t], v, sb, tsec, vg, sb.impasto_);
+    drawMaterial(pal, t, runs[t], v, sb, tsec, vg, sb.local_.impasto);
 
   if (vg) {
     // The linen weave is intentionally NOT laid over the paint here: on the
@@ -248,17 +248,18 @@ inline void drawChrome(const Palette &pal, Sandbox &sb, const View &v,
   const float w = cell * v.width_;
   const float h = cell * v.height_;
   const cv::Point2f o = v.origin_;
-  const bool vg = sb.vanGogh_;
+  const bool vg = sb.local_.vanGogh;
   const cv::Scalar cream = vg::cream();
 
   // --- the brush ring ---
-  if (sb.penCell_.x >= 0.0 && cell > 0.75f) {
-    const float r = (sb.penSize_ + 0.5f) * cell;
-    const float cx = o.x + (sb.penCell_.x + 0.5f) * cell;
-    const float cy = o.y + (sb.penCell_.y + 0.5f) * cell;
-    const cv::Scalar col = pal[sb.brush_];
+  const PlayerState &me = sb.players_[0];
+  if (me.cursorCell.x >= 0.0 && cell > 0.75f) {
+    const float r = (me.penSize + 0.5f) * cell;
+    const float cx = o.x + (me.cursorCell.x + 0.5f) * cell;
+    const float cy = o.y + (me.cursorCell.y + 0.5f) * cell;
+    const cv::Scalar col = pal[me.brush];
     if (vg) {
-      const vg::Pigment pig = vg::pigmentOf(sb.brush_);
+      const vg::Pigment pig = vg::pigmentOf(me.brush);
       vg::glare(vg::mix(pig.base, cream, 0.20f), cx, cy, r * 1.7f, 56.0f);
       // A painted ring, not a drawn one: the circle stippled into short
       // arc-strokes, a dark one underneath and a cream one on top, so the
@@ -325,8 +326,8 @@ inline void drawChrome(const Palette &pal, Sandbox &sb, const View &v,
   char stats[256];
   std::snprintf(stats, sizeof(stats),
                 "%d particles   %.0f fps   %dx%d cells   %s, size %d",
-                sb.particleCount_, sb.fps_, sb.width_, sb.height_,
-                brushName(sb.brush_), sb.penSize_);
+                sb.particleCount_, sb.local_.fps, sb.width_, sb.height_,
+                brushName(me.brush), me.penSize);
   paintText(stats, stats + std::strlen(stats), o.x, hudTop + 20.0f,
             vg ? vg::withAlpha(cream, 215.0f) : cv::Scalar(150, 150, 170, 230));
 

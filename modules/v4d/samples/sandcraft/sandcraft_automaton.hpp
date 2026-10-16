@@ -76,15 +76,43 @@ inline void drawLine(Sandbox &sb, int newx, int newy, int oldx, int oldy,
 }
 
 // Particles::doRandomLines: forty random strokes across the whole grid.
-inline void doRandomLines(Sandbox &sb, ParticleType type) {
+inline void doRandomLines(Sandbox &sb, ParticleType type, int penSize) {
   for (int i = 0; i < 20; ++i)
     drawLine(sb, int(sb.rand(unsigned(sb.width_))), 0,
-             int(sb.rand(unsigned(sb.width_))), sb.height_ - 1, type,
-             sb.penSize_);
+             int(sb.rand(unsigned(sb.width_))), sb.height_ - 1, type, penSize);
   for (int i = 0; i < 20; ++i)
     drawLine(sb, 0, int(sb.rand(unsigned(sb.height_))), sb.width_ - 1,
-             int(sb.rand(unsigned(sb.height_))), type, sb.penSize_);
+             int(sb.rand(unsigned(sb.height_))), type, penSize);
 }
+
+// ---------------------------------------------------------------------------
+// Per-player stroke helpers (spec §11, M0)
+// ---------------------------------------------------------------------------
+//
+// The three motions of a brush, each taking the *player* whose brush and pen
+// they use rather than reading the host's. In the single-player demo the player
+// passed in is always players_[0]; the netplay input application calls the same
+// functions with the sender's PlayerState, so remote and local painting cannot
+// diverge (spec Rule S2). The logic is byte-for-byte the old SandInputPlan body.
+
+// Begin a stroke: stamp a disc at the first cell.
+inline void strokeBegin(Sandbox &sb, PlayerState &p, int x, int y) {
+  drawLine(sb, x, y, x, y, p.brush, p.penSize);
+  p.paintCell = cv::Point2d(double(x), double(y));
+}
+
+// Extend the stroke from where it currently is to (x, y), then move with it.
+// A stroke with no origin (paintCell at (-1, -1)) stamps rather than rules a
+// line across the world (spec §11 step 2).
+inline void strokeExtend(Sandbox &sb, PlayerState &p, int x, int y) {
+  const bool cont = p.paintCell.x >= 0.0 && p.paintCell.y >= 0.0;
+  drawLine(sb, x, y, cont ? int(p.paintCell.x) : x,
+           cont ? int(p.paintCell.y) : y, p.brush, p.penSize);
+  p.paintCell = cv::Point2d(double(x), double(y));
+}
+
+// End a stroke: forget where it was, so the next press starts a fresh one.
+inline void strokeEnd(PlayerState &p) { p.paintCell = {-1.0, -1.0}; }
 
 // ---------------------------------------------------------------------------
 // The rules -- Particles.cpp
@@ -408,7 +436,7 @@ inline void moveParticle(Sandbox &sb, int x, int y, ParticleType type) {
 
   // "Realism": a lighter material sinks through a heavier one. New cases go
   // here as MOVED_<A> whenever A is lighter than B.
-  if (sb.particleSwaps_) {
+  if (sb.world_.particleSwaps) {
     switch (type) {
     case MOVEDWATER:
       if (c[above] == SAND || c[above] == MUD ||

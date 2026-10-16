@@ -10,6 +10,14 @@
 // worker and the ImGui node both reach it. A sub-plan re-registering the same
 // object is a no-op, which is also how two sub-plans end up contending on the
 // *same* mutex rather than on two.
+//
+// The netplay design (see ../netplay/specification.md §7) splits the old flat
+// fields by *ownership*: per-player state, host-authoritative world state and
+// purely local state. Keeping the split here, rather than as loose members on
+// the Sandbox, is what lets the simulation step later apply one player's brush
+// without reaching for the host's -- and it is the seam the network code keys
+// on. player 0 is always the local player, so the single-player demo reads and
+// writes exactly the same cells it always did.
 #ifndef MODULES_V4D_SAMPLES_SANDCRAFT_SANDBOX_HPP_
 #define MODULES_V4D_SAMPLES_SANDCRAFT_SANDBOX_HPP_
 
@@ -26,66 +34,81 @@
 
 namespace sandcraft {
 
-struct Sandbox {
-  // The virtual screen: one material per cell, row-major, width_ * height_.
-  std::vector<ParticleType> cells_;
-  int width_ = 0;
-  int height_ = 0;
-  bool particleSwaps_ = true;
+// One human participant's brush and cursor. In the single-player demo there is
+// exactly one, players_[0], and it is the one the panel and the input node
+// drive. When the demo is networked the host owns all four and the clients'
+// events are written into them (spec §11); colorIdx is the wire byte the HUD
+// tints a peer's cursor ring with (spec §7.2, §16.5).
+struct PlayerState {
+  bool active = false;
+  ParticleType brush = SAND;             // this player's selected material
+  int penSize = 2;                       // 1..32
+  cv::Point2d paintCell{-1.0, -1.0};     // host: stroke cursor for THIS player
+  cv::Point2d cursorCell{-1.0, -1.0};    // hover cell, from MOVE events
+  uint32_t appliedSeq = 0;               // host: highest seq folded into publish
+  uint8_t colorIdx = 0;                  // 0..3 display colour
+};
 
-  // --- the style ---
-  //
-  // Van Gogh is the default: NanoVG has no single way of putting a colour on
-  // the screen -- flat fills, gradients, images and additive composites all
-  // exist -- and a falling-sand world is exactly the kind of subject that begs
-  // to be painted rather than diagrammed. The flag is a runtime one so the
-  // original, honest-to-the-automaton rendering stays one checkbox away, and so
-  // the two can be compared without rebuilding.
-  bool vanGogh_ = true;
-  // How thickly the paint is laid on: the renderer scales the number of strokes
-  // it combs through every run of material with this. It exists so that a slow
-  // machine thins the paint instead of dropping frames -- Van Gogh with a
-  // lighter palette knife.
-  float impasto_ = 1.0f;
-
-  // Brush
-  ParticleType brush_ = SAND;
-  int penSize_ = 2;
-  // The cursor in cell coordinates, or (-1, -1) when it is not over the world.
-  // This is only the hover position: it is what the brush ring follows and what
-  // the input node compares against, never a painting trigger on its own.
-  cv::Point2d penCell_{-1.0, -1.0};
-  // The last cell a stroke actually painted, or (-1, -1) between strokes. Kept
-  // apart from penCell_ because the two answer different questions: this one
-  // is where the *stroke* is, so that a drag continues from it, and it is reset
-  // whenever the button is up. Conflating the two is what makes a brush that
-  // paints on hover possible at all -- a position that both follows the cursor
-  // and marks the stroke's origin cannot tell "the pointer is here" from "the
-  // button is down here".
-  cv::Point2d paintCell_{-1.0, -1.0};
-
-  // The four top-of-screen emitters
-  std::array<Emitter, 4> emitters_ = {{
+// Host-authoritative, simulation-affecting state. Every instance reads it, but
+// only the authority writes it (spec Rule A3 / §9.5): a client's keystroke or
+// panel click becomes a COMMAND the host validates and applies. epoch is bumped
+// on clear/randomize so a replica can tell a world reset from a delta it merely
+// missed (spec §18.2).
+struct WorldState {
+  bool paused = false;
+  bool particleSwaps = true;
+  std::array<Emitter, 4> emitters = {{
       {WATER, "Water", true, 0.30f},
       {SAND, "Sand", true, 0.30f},
       {SALT, "Salt", true, 0.30f},
       {OIL, "Oil", true, 0.30f},
   }};
-
   // One-shot commands the GUI raises and the simulation consumes, so that the
-  // ImGui node never has to touch the grid itself.
-  bool clearRequested_ = false;
-  bool randomizeRequested_ = false;
-  bool paused_ = false;
+  // ImGui node never has to touch the grid itself. clear/randomize are world
+  // effects and therefore live here, not on the local side (spec Rule S1).
+  bool clearRequested = false;
+  bool randomizeRequested = false;
+  uint32_t epoch = 0; // ++ on clear/randomize (diagnostics)
+};
 
-  // Panel state
-  bool panelOpen_ = true;
-  bool helpOpen_ = false;
+// Purely local, never networked (spec §6, §7.2): the style, the panel/help
+// windows and the HUD counters are each instance's own business. A client's
+// Van Gogh toggle must not travel to the host, and neither must its fps.
+struct LocalState {
+  bool vanGogh = true;
+  float impasto = 1.0f;
+  bool panelOpen = true;
+  bool helpOpen = false;
+  double fps = 0.0;
+  double lastFrameTime = 0.0;
+};
 
-  // Written by the simulation, read by the HUD.
+// A client-local, not-yet-acknowledged painted segment (spec §10). Owned by the
+// client's plan nodes, flushed against the host's per-player watermark and never
+// touched by the net thread. from == to for the first stamp of a stroke.
+struct PredictedSegment {
+  uint32_t seq = 0;     // input seq that produced it
+  cv::Point2d from{-1.0, -1.0}, to{-1.0, -1.0};
+  ParticleType brush = SAND;
+  int penSize = 2;
+};
+
+struct Sandbox {
+  // The virtual screen: one material per cell, row-major, width_ * height_.
+  std::vector<ParticleType> cells_;
+  int width_ = 0;
+  int height_ = 0;
+
+  // --- the participants, the world and this instance's own preferences ---
+  std::array<PlayerState, 4> players_;
+  WorldState world_;
+  LocalState local_;
+  // Client-only optimistic strokes (spec §10); always empty on the authority.
+  std::vector<PredictedSegment> predicted_;
+
+  // Written by the simulation, read by the HUD. Derived, recomputed locally,
+  // never transmitted (spec §7.5).
   int particleCount_ = 0;
-  double fps_ = 0.0;
-  double lastFrameTime_ = 0.0;
   int simFrames_ = 0;
 
   // Mirrored from the ImGui node. The ImGui context only exists on the display
