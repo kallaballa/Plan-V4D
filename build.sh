@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPENCV_DIR="$(dirname "$SCRIPT_DIR")/Plan-V4D/opencv"
 BUILD_DIR="$OPENCV_DIR/build"
-BUILD_MARKER="$BUILD_DIR/.build-type"
+BUILD_MARKER="$BUILD_DIR/.build-config"
 JOBS=4
 TARGET=plan
 TARGET_SET=0
@@ -12,13 +12,13 @@ BUILD_TYPE=debug
 REBUILD=
 TEST_ARGS=
 DNN_BACKEND=openvino
-ANDROID_ABI=arm64-v8a
-ANDROID_API_LEVEL=32
+ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
+ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-32}"
 ANDROID_PACKAGE=0
 ANDROID_CONFIGURE_ONLY=0
 ANDROID_DEMO=all
 ANDROID_DEMO_SET=0
-ANDROID_SERIAL=
+ANDROID_SERIAL="${ANDROID_SERIAL:-}"
 ANDROID_LOG=0
 ANDROID_WAIT=12
 ANDROID_SETTLE=12
@@ -38,7 +38,7 @@ them to a device.
 Commands:
   plan            Configure, build and run the plan tests (the default when no
                   command is given)
-  plan+v4d        Configure and build the plan+v4d stack
+  plan+v4d        Configure, build and install the plan+v4d stack
                   ('v4d' is accepted as a shorthand)
   android         Cross-compile the V4D demos for Android
   deploy          Install a packaged demo APK on a device and start it
@@ -55,7 +55,7 @@ Commands:
   configure       Configure the build directory, nothing else
   build           Compile an already-configured build directory
   test            Run the plan test and perf binaries
-  install         Install a built tree
+  install         Build (if needed) then install a built tree
   clean           Remove the build directory
 
 Options:
@@ -63,15 +63,15 @@ Options:
                        'plan' or 'plan+v4d' (default: plan). The 'plan' and
                        'plan+v4d' commands name the module set themselves and
                        reject this option.
-  -b, --build-type TYPE  Build configuration: release, debug, asan, ubsan, tsan
-                          (default: debug)
+  -b, --build-type TYPE  Build configuration: release, debug, relwithdeb,
+                         asan, ubsan, tsan (default: debug)
   -j, --jobs N           Parallel build jobs (default: 4)
   -d, --dnn-backend NAME DNN inference backend: 'openvino' or 'opencv'
-                         (default: openvino). 'openvino' compiles the OpenVINO
-                         backend into libopencv_dnn and makes cv::dnn register
-                         the OpenVINO 'GPU' (OpenCL) device. Note that on
-                         OpenCV 5.x this only applies to models loaded as
-                         OpenVINO IR -- see the note below.
+                         (default: openvino). Parsed and validated for
+                         forward-compatible scripting only: on OpenCV 5.x the
+                         OpenVINO backend is compiled in unconditionally, so this
+                         option currently selects nothing. See the "DNN on the
+                         GPU" section of the top-level README.
   -r, --rebuild          Force a fresh cmake configure, discarding the current
                          build directory contents
   -h, --help             Show this help
@@ -84,8 +84,9 @@ Android options:
       --demo NAME        Which demos to build and package (default: all);
                          a comma separated list of sample names, or 'all' for
                          every sample that has an Android path (see
-                         tools/android/sample-list.sh). 'deploy' and 'debug'
-                         take a single sample only; 'smoke' takes a list.
+                          tools/android/sample-list.sh). 'deploy' and 'debug'
+                          take a single sample only (default: font_rendering);
+                          'smoke' takes a list.
       --configure-only   Configure, but do not compile
       --apk              Also assemble a signed APK with
                          tools/android/package-apk.sh
@@ -120,6 +121,10 @@ Environment:
   ANDROID_API_LEVEL / ANDROID_ABI  Defaults for the Android options above
   ANDROID_SERIAL    Device serial for deploy/debug/smoke (equivalent to
                     --serial)
+  ANDROID_STAGE     Android: staging directory for the cross-build's .so
+                    files and APKs (default: <repo>/build/android)
+  V4D_SKIP_CLVK     Android: set to 1 to skip building the vendored clvk
+                    (OpenCL-on-Vulkan) layer and get a CPU-only build
 
 Examples:
   $(basename "$0") plan
@@ -383,12 +388,12 @@ case "$BUILD_TYPE" in
   debug)
     CMAKE_BUILD_TYPE=Debug ;;
   relwithdeb)
-    CMAKE_BUILD_TYPE=ReleaseWithDebInfo ;;
+    CMAKE_BUILD_TYPE=RelWithDebInfo ;;
   asan)  SAN="-fsanitize=address" ;;
   ubsan) SAN="-fsanitize=undefined" ;;
   tsan)  SAN="-fsanitize=thread" ;;
   *)
-    echo "Invalid build type '$BUILD_TYPE' (expected release, debug, asan, ubsan or tsan)" >&2
+    echo "Invalid build type '$BUILD_TYPE' (expected release, debug, relwithdeb, asan, ubsan or tsan)" >&2
     exit 1 ;;
 esac
 
@@ -406,7 +411,7 @@ CMAKE_ARGS=(
   -DOPENCV_V4D_ENABLE_BGFX=OFF
   -DOPENCV_ALGO_HINT_DEFAULT=ALGO_HINT_APPROX
   -DCMAKE_MODULE_LINKER_FLAGS="/usr/local/lib64/"
-  -DINSTALL_BIN_EXAMPLES=OM
+  -DINSTALL_BIN_EXAMPLES=ON
   -DENABLE_LTO=ON
   -DOPENCV_GENERATE_PKGCONFIG=ON
   -DINSTALL_CREATE_DISTRIB=ON
@@ -539,6 +544,10 @@ CMAKE_ARGS=(
   -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
 )
 
+if [ -n "$OPENVINO_DIR_OVERRIDE" ]; then
+  CMAKE_ARGS+=(-DOpenVINO_DIR="$OPENVINO_DIR_OVERRIDE")
+fi
+
 if [ "$TARGET" = plan+v4d ]; then
   CMAKE_ARGS+=(
     -DWITH_QT=OFF
@@ -578,14 +587,22 @@ CMAKE_ARGS+=(-DCMAKE_CXX_FLAGS="$CXX_FLAGS")
 # --- host build steps --------------------------------------------------------
 
 # Make sure there is a build directory to configure into, discarding a stale one
-# when the build type changed or --rebuild was asked for.
+# when the module set or build type changed, or --rebuild was asked for.
 prepare_build_dir() {
   if [ ! -d "$OPENCV_DIR" ]; then
     (cd "$SCRIPT_DIR"; git clone git@github.com:kallaballa/opencv.git)
   fi
 
-  if [ -f "$BUILD_MARKER" ] && [ "$(cat "$BUILD_MARKER")" != "$BUILD_TYPE" ]; then
-    echo "Build dir was configured as '$(cat "$BUILD_MARKER")', reconfiguring for '$BUILD_TYPE'"
+  # The marker records both the module set and the build type. Both have to
+  # match, because either one changes the CMake arguments: switching module sets
+  # (e.g. plan+v4d -> plan) turns modules such as opencv_ts on or off, and CMake
+  # caches the resulting OPENCV_MODULES_DISABLED_FORCE list -- so an in-place
+  # reconfigure would leave the tests (or the v4d module) disabled and only a
+  # fresh tree re-enables them. The stale marker from before the split read just
+  # the build type, so the first run after this change reconfigures once.
+  local want="$TARGET $BUILD_TYPE"
+  if [ -f "$BUILD_MARKER" ] && [ "$(cat "$BUILD_MARKER")" != "$want" ]; then
+    echo "Build dir was configured as '$(cat "$BUILD_MARKER")', reconfiguring for '$want'"
     REBUILD=1
   fi
 
@@ -608,14 +625,14 @@ require_configured_build_dir() {
 
 do_configure() {
   prepare_build_dir
-  echo "==> Configuring target '${TARGET}' (build type: ${BUILD_TYPE} in ${BUILD_DIR}"
+  echo "==> Configuring target '${TARGET}' (build type: ${BUILD_TYPE}) in ${BUILD_DIR}"
   cd "$BUILD_DIR"
   if [ "$REBUILD" = 1 ]; then
     cmake --fresh "${CMAKE_ARGS[@]}" "$OPENCV_DIR"
   else
     cmake "${CMAKE_ARGS[@]}" "$OPENCV_DIR"
   fi
-  echo "$BUILD_TYPE" > "$BUILD_MARKER"
+  echo "$TARGET $BUILD_TYPE" > "$BUILD_MARKER"
 }
 
 # The plan module set builds only its test binaries; plan+v4d builds everything.

@@ -46,13 +46,15 @@ using namespace cv::plan;
 #include <string>
 // Bionic ships <sys/resource.h> and <sys/syscall.h> as well, but its
 // setpriority() is a stub that always fails; the one place those two are used
-// is fenced off for Android below.
-#if !defined(__ANDROID__)
+// is fenced off for Android below. Windows has neither header at all.
+#if !defined(_WIN32) && !defined(__ANDROID__)
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #endif
 #include <type_traits>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <vector>
 
 #include <opencv2/core.hpp>

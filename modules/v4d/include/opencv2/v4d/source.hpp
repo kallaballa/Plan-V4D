@@ -72,12 +72,6 @@ public:
    */
   CV_EXPORTS virtual ~Source();
   /*!
-   * Signals if the source is ready to provide data.
-   * @return true if the source is ready.
-   */
-  CV_EXPORTS bool isReady();
-
-  /*!
    * Determines if the source is open.
    * @return true if the source is open.
    */

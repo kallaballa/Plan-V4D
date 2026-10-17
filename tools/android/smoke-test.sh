@@ -50,11 +50,15 @@ if [ ${#DEMOS[@]} -eq 0 ]; then
   mapfile -t DEMOS < <("$SCRIPT_DIR/sample-list.sh" --lines)
 fi
 
-DEVICES=$(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
-[ -n "$DEVICES" ] || { echo "smoke-test: no device attached" >&2; exit 1; }
-[ "$(printf '%s\n' "$DEVICES" | wc -l)" -eq 1 ] || {
-  echo "smoke-test: several devices attached; set ANDROID_SERIAL" >&2; exit 1; }
-export ANDROID_SERIAL="$DEVICES"
+# An exported ANDROID_SERIAL (build.sh --serial) already names the device, and
+# adb honours it for every call below, so the one-device check is skipped.
+if [ -z "${ANDROID_SERIAL:-}" ]; then
+  DEVICES=$(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
+  [ -n "$DEVICES" ] || { echo "smoke-test: no device attached" >&2; exit 1; }
+  [ "$(printf '%s\n' "$DEVICES" | wc -l)" -eq 1 ] || {
+    echo "smoke-test: several devices attached; set ANDROID_SERIAL" >&2; exit 1; }
+  export ANDROID_SERIAL="$DEVICES"
+fi
 echo "==> device $ANDROID_SERIAL ($ABI), ${SETTLE}s settle per demo"
 
 PASS=0; FAIL=0; FAILED_DEMOS=()

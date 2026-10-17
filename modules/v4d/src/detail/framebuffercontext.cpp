@@ -706,6 +706,11 @@ void FrameBufferContext::setup() {
 }
 
 void FrameBufferContext::teardown() {
+  // close() already tore this context down (and destroyed its window); the
+  // destructor then calls teardown() a second time, which must not issue GL
+  // deletes against a destroyed context.
+  if (!glfwWindow_)
+    return;
   using namespace cv::ocl;
 #if defined(HAVE_OPENCL) && !defined(__ANDROID__)
   if (cv::ocl::useOpenCL() && clImage_ != nullptr &&
@@ -739,14 +744,26 @@ void FrameBufferContext::teardown() {
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glGetError();
 
-  GL_CHECK(glDeleteRenderbuffers(1, &renderBufferID_));
-  GL_CHECK(glDeleteTextures(1, &textureID_));
+  // The colour texture and the renderbuffer are owned by the root context; a
+  // child aliases its parent's (see init()) and rendering into them, so only
+  // the root may delete them -- deleting from a child destroyed the visible
+  // window's texture/renderbuffer out from under it.
+  if (!hasParent()) {
+    GL_CHECK(glDeleteRenderbuffers(1, &renderBufferID_));
+    GL_CHECK(glDeleteTextures(1, &textureID_));
+  }
   GL_CHECK(glDeleteFramebuffers(1, &framebufferID_));
+  // Clear the handles so a second teardown cannot double-delete.
+  renderBufferID_ = 0;
+  textureID_ = 0;
+  framebufferID_ = 0;
   if (textureFlippedID_) {
     GL_CHECK(glDeleteTextures(1, &textureFlippedID_));
+    textureFlippedID_ = 0;
   }
   if (framebufferFlippedID_) {
     GL_CHECK(glDeleteFramebuffers(1, &framebufferFlippedID_));
+    framebufferFlippedID_ = 0;
   }
 #if defined(__ANDROID__)
   if (cameraProgram_) {
@@ -1148,7 +1165,14 @@ void FrameBufferContext::setFullscreen(bool f) {
     glfwGetWindowPos(window, &windowedPos_.x, &windowedPos_.y);
     glfwGetWindowSize(window, &windowedSize_.width, &windowedSize_.height);
     auto monitor = glfwGetPrimaryMonitor();
+    // Android has no primary monitor (glfwGetPrimaryMonitor() is NULL) and a
+    // monitor can also be disconnected between the checks; dereferencing either
+    // result crashed. Fullscreen is a no-op there.
+    if (!monitor)
+      return;
     const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+    if (!mode)
+      return;
     // Request the monitor's current video mode. Do not follow this with
     // glfwSetWindowSize(): on a fullscreen window that replaces the desired
     // video mode and reconfigures the monitor instead of resizing the window.
@@ -1182,8 +1206,10 @@ void FrameBufferContext::setVisible(bool v) {
 bool FrameBufferContext::isClosed() { return glfwWindow_ == nullptr; }
 
 void FrameBufferContext::close() {
+  if (!glfwWindow_)
+    return;
   teardown();
-  glfwDestroyWindow(getGLFWWindow());
+  glfwDestroyWindow(glfwWindow_);
   glfwWindow_ = nullptr;
 }
 

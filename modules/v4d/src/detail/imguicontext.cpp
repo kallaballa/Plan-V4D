@@ -270,18 +270,35 @@ ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext)
   // Creating the context made it current; hand the current context back to
   // whoever had it, so that a second window does not steal it.
   ImGui::SetCurrentContext(prevCtx);
+  backendInitialized_ = true;
 }
 
 ImGuiContextImpl::~ImGuiContextImpl() {
 #if defined(__ANDROID__)
   glfw_android_set_input_handler(nullptr);
   if (gImGuiWindow) {
-    ImGui_ImplAndroid_Shutdown();
     ANativeWindow_release(gImGuiWindow);
     gImGuiWindow = nullptr;
     gImGuiWindowGeneration = 0;
   }
 #endif
+  if (backendInitialized_ && ctx_) {
+    // Shut the backends down before the context is destroyed. ImGui_ImplOpenGL3
+    // owns a font-atlas texture, its shader and its vertex/index buffers, and
+    // ImGui_ImplGlfw owns the GLFW callbacks it installed; without these calls
+    // every runtime leaked its GPU objects and left the window's callbacks
+    // pointing at a context that no longer exists. Both need their ImGui
+    // context current and the GL context current.
+    ImGui::SetCurrentContext(ctx_);
+    FrameBufferContext::WindowScope winScope(mainFbContext_);
+    FrameBufferContext::GLScope glScope(mainFbContext_, GL_FRAMEBUFFER);
+    ImGui_ImplOpenGL3_Shutdown();
+#if defined(__ANDROID__)
+    ImGui_ImplAndroid_Shutdown();
+#else
+    ImGui_ImplGlfw_Shutdown();
+#endif
+  }
   if (ImGui::GetCurrentContext() == ctx_)
     ImGui::SetCurrentContext(nullptr);
   ImGui::DestroyContext(ctx_);

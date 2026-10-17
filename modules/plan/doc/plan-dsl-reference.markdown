@@ -101,8 +101,11 @@ class PlanRuntime {
     cv::Rect getViewport() const;
 
     // Lifecycle hooks
+    void onRunStart(int32_t workers);
     void initWorkerThread(int32_t workerIdx);
     void willGui(const cv::Ptr<Plan>& plan);
+    void captureInput(const cv::Ptr<Plan>& plan);
+    void writeOutput(const cv::Ptr<Plan>& plan);
     void runFrameLoop(std::function<void()> frameFn);
     void releaseIo();
 };
@@ -320,6 +323,7 @@ V4D adds a runtime key family read through `P<T>(V4D::Keys::…)`:
 | `DISABLE_INPUT_EVENTS` | `bool` | no |
 | `VISIBLE` | `bool` | no |
 | `AUTO_SCALE` | `bool` | no |
+| `AUTO_VIEWPORT` | `bool` | no |
 
 Writable V4D properties fire runtime callbacks when they are set (for example `WINDOW_SIZE` resizes the window, `FULLSCREEN` toggles fullscreen). Other runtimes may add their own key families.
 
@@ -752,8 +756,9 @@ sink is set, the framebuffer content is written to it after the plan runs.
 Plans access the frame using `fb(...)` — there is no need for explicit
 `capture()` or `write()` calls.
 
-`capture()` and `write()` are runtime-internal. `Plan::run` calls them itself,
-around `infer()`:
+`capture()` and `write()` are runtime-internal. `Plan::run` calls the runtime's
+`captureInput()` / `writeOutput()` hooks itself, around `infer()`; V4D implements
+those hooks by recording the `capture()` / `write()` nodes:
 
 ```cpp
 plan->runtime()->captureInput(plan);   // Source  → framebuffer  (V4D: plan->capture())

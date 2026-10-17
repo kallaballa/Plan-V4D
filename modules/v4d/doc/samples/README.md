@@ -2,7 +2,7 @@
 
 > A comprehensive, hands-on guide to the Plan-V4D framework — from displaying your first image to building a full-featured `imshow` reimplementation.
 
-Each walkthrough below covers one sample and breaks it down. Some print the complete source; the others are abridged and say so. The shorter Doxygen tutorials in [`../tutorials/`](../../tutorials/) cover the same samples for the rendered docs; the numbering is offset (walkthrough 01 here is tutorial 19 there), and the samples with no walkthrough are listed in the coverage table at the end of this file.
+Each walkthrough below covers one sample and breaks it down; some print the complete source, the others are abridged. The shorter Doxygen tutorials in [`../../tutorials/`](../../tutorials/) cover the same samples for the rendered docs (plus a standalone video-pipeline tutorial and a WebAssembly note), and their numbering does not line up with the walkthroughs one-to-one — walkthrough 01 is tutorial 19, walkthrough 19 is tutorial 21, walkthrough 20 is tutorial 22, and the rest share their number. The samples with no walkthrough are listed in the coverage table at the end of this file.
 
 ---
 
@@ -762,7 +762,8 @@ platform (on Android that means the live camera rather than FFmpeg).
 ### The `infer()` Method
 
 The source frame is automatically loaded into the framebuffer by the runtime
-before the plan runs — resized to the viewport with the aspect ratio preserved,
+before the plan runs — resized to the viewport (a plain stretch, so the aspect
+ratio is not preserved),
 flipped into OpenGL's coordinate system and converted to BGRA. The plan renders
 text on top of the video frame:
 
@@ -1607,7 +1608,7 @@ int main() {
 
 ### The Multi-Context `gl` Call
 
-`gl<-1>(V(i), …)` tells V4D to use one of its worker OpenGL contexts (see [`v4d.hpp:584`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp)). `V(i)` specifies the index of the worker context — each cube is a separate graph node targeting an independent context.
+`gl<-1>(V(i), …)` tells V4D to use one of its worker OpenGL contexts (see [`v4d.hpp:712`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/include/opencv2/v4d/v4d.hpp)). `V(i)` specifies the index of the worker context — each cube is a separate graph node targeting an independent context.
 
 ### Parallel Execution
 
@@ -1853,7 +1854,7 @@ This concludes the tutorial series. You have now seen the entire Plan-V4D featur
 
 ## Coverage: Samples vs. Walkthroughs
 
-The series has 21 sections (00–20): the introduction in section 00 plus 20 sample walkthroughs. `modules/v4d/CMakeLists.txt` registers 28 `add_binary_sample` targets, so 20 of them have a walkthrough in this file and the remaining 8 do not (yet).
+The series has 21 sections (00–20): the introduction in section 00 plus 20 sample walkthroughs. `modules/v4d/CMakeLists.txt` registers 29 `add_binary_sample` targets, so 20 of them have a walkthrough in this file and the remaining 9 do not (yet).
 
 | Sample source | CMake target | Walkthrough |
 |---------------|--------------|-------------|
@@ -1885,3 +1886,4 @@ The series has 21 sections (00–20): the introduction in section 00 plus 20 sam
 | [`image_carousel-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/image_carousel-demo.cpp) | `example_v4d_image_carousel-demo` | [Tutorial 19](#tutorial-19--an-interactive-image-carousel) |
 | [`shadertoy-editor.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/shadertoy-editor.cpp) | `example_v4d_shadertoy-editor` | no walkthrough yet |
 | [`dock-demo.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/dock-demo.cpp) | `example_v4d_dock-demo` | no walkthrough yet |
+| [`sandcraft.cpp`](https://github.com/kallaballa/Plan-V4D/blob/beta-5.x/modules/v4d/samples/sandcraft.cpp) | `example_v4d_sandcraft` | no walkthrough yet |

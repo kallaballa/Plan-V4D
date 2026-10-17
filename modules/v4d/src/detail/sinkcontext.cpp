@@ -32,7 +32,7 @@ int SinkContext::execute(const cv::Rect &vp, std::function<void()> fn) {
     cvtColor(sinkBuffer(), rgba_, cv::COLOR_BGRA2RGBA);
 
     v4d->getSink()->operator()(
-        GlobalState::get<size_t>(GlobalState::Keys::FRAME_CNT), rgba_);
+        GlobalState::get<uint64_t>(GlobalState::Keys::FRAME_CNT), rgba_);
     return 1;
   }
   return 0;

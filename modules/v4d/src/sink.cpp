@@ -106,7 +106,7 @@ cv::Ptr<Sink> Sink::make(cv::Ptr<V4D> window, const string &outputFilename,
     try {
       return makeAnyHWSink(outputFilename, fourcc, fps, frameSize);
     } catch (...) {
-      CV_LOG_INFO(nullptr, "Failed creating hardware source");
+      CV_LOG_INFO(nullptr, "Failed creating hardware sink");
     }
   }
 

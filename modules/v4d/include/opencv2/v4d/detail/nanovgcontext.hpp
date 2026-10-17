@@ -48,14 +48,14 @@ public:
    * @param fbContext The framebuffer context
    */
   NanoVGContext(cv::Ptr<FrameBufferContext> fbContext);
-  virtual ~NanoVGContext() {};
+  virtual ~NanoVGContext();
 
   /*!
    * Execute function object fn inside a nanovg context.
    * The context takes care of setting up opengl and nanovg states.
-   * A function object passed like that can use the functions in cv::viz::nvg.
+   * A function object passed like that can use the functions in cv::v4d::nvg.
    * @param fn A function that is passed the size of the framebuffer
-   * and performs drawing using cv::viz::nvg
+   * and performs drawing using cv::v4d::nvg
    */
   virtual int execute(const cv::Rect &vp, std::function<void()> fn) override;
   int render(const cv::Rect &vp, std::function<void()> fn);

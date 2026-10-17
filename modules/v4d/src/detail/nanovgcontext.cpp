@@ -97,8 +97,23 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext)
              "V4D::init().");
 }
 
-int NanoVGContext::execute(const cv::Rect &vp, std::function<void()> fn) {
-  {
+NanoVGContext::~NanoVGContext() {
+  if (!context_)
+    return;
+  // The NanoVG GL backend owns shaders, buffers and font-atlas textures created
+  // on this framebuffer's GL context, so it has to be released while that
+  // context is current. Without this the whole backend leaked once per runtime.
+  FrameBufferContext::WindowScope winScope(fbCtx());
+  FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
+#if defined(OPENCV_V4D_USE_ES3)
+  nvgDeleteGLES3(context_);
+#else
+  nvgDeleteGL3(context_);
+#endif
+  context_ = nullptr;
+}
+
+int NanoVGContext::execute(const cv::Rect &vp, std::function<void()> fn) {  {
     FrameBufferContext::WindowScope winScope(fbCtx());
     FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
     return render(vp, fn);

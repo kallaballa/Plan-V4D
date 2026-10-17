@@ -275,12 +275,13 @@ Plan-DSL implements the full C++ operator set via operator overloading. In their
 - Bitwise: `&`, `|`, `^`, `<<`, `>>`
 - Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - Ternary select: `IF(cond, ifTrue, ifFalse)`
-- Memory: `container[i]` (`IDX`), `*ptr` (`DEREF`), `dst = src` (`ASSIGN`)
+- Memory: `container[i]` (`IDX`), `dst = src` (`ASSIGN`); `DEREF(RW(dst), R(ptr))` (no symbol form)
 - Construction: `construct(dst, args...)` (`CONSTRUCT`)
 
 ```cpp
 auto every8th = (seqCnt_ % V(uint64_t(8))) == V(uint64_t(0));   // bool edge
-auto bright   = F(&cv::mean, R(frame_)) > V(128.0);              // bool edge
+auto bright   = F([](const cv::UMat &m) { return cv::mean(m)[0]; },
+                  R(frame_)) > V(128.0);                         // bool edge
 assign(RW(x_), R(x_) + V(1));                                    // statement form: x_ += 1
 ```
 
@@ -304,7 +305,7 @@ branch(R(x_) == V(0))
 
 The predicate is re-evaluated every frame. If true, the region's nodes run; if false, they are skipped.
 
-**Chaining.** `branch`, `elseBranch`, `endBranch`, `plain`, statement-form operators, void-`F` calls, and the V4D context calls return a plan pointer (`cv::Ptr<Plan>`; most V4D context calls return `cv::Ptr<V4DPlan>`), so you can chain them with `->`. Semicolon-separated statements work equally well — chaining is sugar. A non-void `F(...)` is the exception: it returns a *result edge*, not a plan pointer.
+**Chaining.** `branch`, `elseBranch`, `endBranch`, `plain`, statement-form operators, void-`F` calls, and the V4D context calls return a plan pointer (`cv::Ptr<Plan>`; most V4D context calls return `cv::Ptr<V4DPlan>`; `imgui(...)` is the one exception — it returns `void` and installs an ImGui transaction), so you can chain them with `->`. Semicolon-separated statements work equally well — chaining is sugar. A non-void `F(...)` is the exception: it returns a *result edge*, not a plan pointer.
 
 Predicates can be bool edges (`R(x) == V(0)`), bool-returning callables (`branch(always_)`), or callables with operand edges. Predefined predicates: `always_`, `isTrue_(b)`, `isFalse_(b)`, `and_(a, b)`, `or_(a, b)`.
 
@@ -673,7 +674,7 @@ Property<uint64_t>  seqCnt_ = P<uint64_t>(GlobalState::Keys::FRAME_CNT);
 Property<size_t>    widx_   = P<size_t>(LocalState::Keys::WORKER_INDEX);
 ```
 
-V4D keys: `SIZE`, `WINDOW_SIZE`, `VIEWPORT`, `FRAMEBUFFER_SIZE`, `CLEAR_COLOR`, `NAMESPACE`, `FULLSCREEN`, `DISABLE_INPUT_EVENTS`, `VISIBLE`, `AUTO_SCALE`, `AUTO_VIEWPORT`. `AUTO_VIEWPORT` (default `true`) blits the framebuffer into the largest rectangle the visible ImGui windows leave free; set it to `false` (or `V4D_AUTO_VIEWPORT=0`) to fill the whole window and draw the GUI over the image. Core DSL keys include `FRAME_CNT`, `CAPTURE_CNT`, `FPS`, `RUN_CNT`, `TIME_TRACKER`, `WORKERS_READY`, and more (see the Plan-DSL Reference for the full lists).
+V4D keys: `SIZE`, `WINDOW_SIZE`, `VIEWPORT`, `FRAMEBUFFER_SIZE`, `CLEAR_COLOR`, `NAMESPACE`, `FULLSCREEN`, `DISABLE_INPUT_EVENTS`, `VISIBLE`, `AUTO_SCALE`, `AUTO_VIEWPORT`. `AUTO_VIEWPORT` (default `false`) blits the framebuffer into the largest rectangle the visible ImGui windows leave free; set it to `true` to letterbox the image beside the GUI instead of drawing the GUI over it. Core DSL keys include `FRAME_CNT`, `CAPTURE_CNT`, `FPS`, `RUN_CNT`, `TIME_TRACKER`, `WORKERS_READY`, and more (see the Plan-DSL Reference for the full lists).
 
 **Writing** — record a `set(key, edge)` node:
 
@@ -715,7 +716,7 @@ Notes:
 - `gl(fn, args...)` records a node that calls `fn` inside the worker's OpenGL context. Free functions, member functions and lambdas all work: `gl(&MyScene::render, R(scene_), V(false))`.
 - `nvg(...)` is implemented on top of `gl(...)` — it just manages NanoVG state for you. You can freely mix both.
 - For debugging, wrap calls in `GL_CHECK(...)`: in debug builds it checks for GL errors after the call; in release builds it compiles away.
-- **Multiple contexts.** The reference also defines `gl(idxEdge, fn, args...)`, which executes the GL commands on a selected context index so several contexts render in parallel (in the samples you will see this spelled `gl<-1>(V(ctxIdx), fn, args...)`; see `many_cubes-demo.cpp`, where ten contexts each render a cube).
+- **Multiple contexts.** Context selection uses the `gl<pos>(idxEdge, fn, args...)` overload: `gl<-1>(V(ctxIdx), fn, args...)` runs the GL commands on the context whose index is the value of `ctxIdx`, so several contexts render in parallel (with `pos < 0` the edge is used only for context selection and is not passed to `fn`; `pos == 0` also passes it to `fn` as its first argument). Plain `gl(fn, args...)` always uses context `-1`. See `many_cubes-demo.cpp`, where ten contexts each render a cube.
 
 ---
 
@@ -1003,7 +1004,7 @@ V(x)  R(x)  RW(x)  RS(x)  RWS(x)  CS(x)  P<T>(key)  E<T>(type)  F(fn, ...)  _(..
 plain(fn, args...)          // CPU
 nvg(fn, args...)            // NanoVG
 fb<pos>(fn, args...)        // framebuffer UMat auto-inserted at pos
-gl(fn, args...)             // OpenGL   (gl(idxEdge, fn, ...) selects a context index)
+gl(fn, args...)             // OpenGL   (gl<-1>(V(idx), fn, ...) selects context idx)
 imgui(fn, args...)          // inside gui() only
 set(key, edge)              // property write node
 

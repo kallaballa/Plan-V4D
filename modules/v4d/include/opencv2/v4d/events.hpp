@@ -1226,11 +1226,22 @@ init(KeyCallback keyboardCallback = KeyCallback(),
   // Cursor move / drag
   glfwSetCursorPosCallback(win, [](GLFWwindow *window, double xpos,
                                    double ypos) {
-    static Tpoint prevMousePos = point_traits<Tpoint>::make(0, 0);
+    // Per window, not a function-local static: with two windows the drag delta
+    // of one was computed against the last position reported for the other.
+    static std::map<GLFWwindow *, Tpoint> prevMousePos;
+    static std::mutex prevMousePosMtx;
 
     if (!detail::Holder::cursorPosCallback ||
         !detail::Holder::cursorPosCallback(window, xpos, ypos)) {
       Tpoint position = point_traits<Tpoint>::make(xpos, ypos);
+      // The single global click state below is not window-keyed, so a
+      // double-click in one window can be seen in another. Fixing that needs a
+      // window-keyed store like this one; leaving it as is for now.
+      Tpoint prev;
+      {
+        std::lock_guard<std::mutex> guard(prevMousePosMtx);
+        prev = prevMousePos[window];
+      }
       bool pressed = false;
       for (int button = 0; button <= GLFW_MOUSE_BUTTON_LAST; ++button) {
         if (glfwGetMouseButton(window, button) == GLFW_PRESS) {
@@ -1239,7 +1250,7 @@ init(KeyCallback keyboardCallback = KeyCallback(),
         }
       }
       if (pressed) {
-        Tpoint delta = point_traits<Tpoint>::sub(position, prevMousePos);
+        Tpoint delta = point_traits<Tpoint>::sub(position, prev);
         for (int button = 0; button <= GLFW_MOUSE_BUTTON_LAST; ++button) {
           if (glfwGetMouseButton(window, button) == GLFW_PRESS) {
             auto v4d_button = detail::v4d_mouse_button<Tpoint>(button);
@@ -1248,13 +1259,13 @@ init(KeyCallback keyboardCallback = KeyCallback(),
             detail::push(event, window);
           }
         }
-        prevMousePos = position;
       } else {
         auto event =
             std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::MOVE, position);
         detail::push(event, window);
-        prevMousePos = position;
       }
+      std::lock_guard<std::mutex> guard(prevMousePosMtx);
+      prevMousePos[window] = position;
     }
   });
 

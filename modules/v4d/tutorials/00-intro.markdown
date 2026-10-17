@@ -161,8 +161,7 @@ OpenCV.
 * \ref v4d_imshow_reimplementation
 
 # Samples without a tutorial
-Six registered samples are documented only by their own comments, because they
-compose other samples rather than introduce an API:
+Seven registered samples are documented only by their own comments:
 
 * `dock-demo.cpp` — Dear ImGui's native docking: a DockBuilder layout with dockable windows and a menu bar
 * `two-windows-demo.cpp` — two runtimes and two plans in one process
@@ -171,6 +170,7 @@ compose other samples rather than introduce an API:
 * `skeletal-tracker-demo.cpp` — MediaPipe pose detection, per-person rotated
   RoIs, a pose network and multi-person tracking
 * `shadertoy-editor.cpp` — an offline Shadertoy workbench with a GLSL editor
+* `sandcraft.cpp` — a networked voxel sandbox with host/client netplay
 
 Two more, `bgfx-demo.cpp` and `bgfx-demo2.cpp`, need
 `OPENCV_V4D_ENABLE_BGFX=ON`.

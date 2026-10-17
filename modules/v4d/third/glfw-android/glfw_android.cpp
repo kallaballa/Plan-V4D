@@ -392,15 +392,33 @@ bool isPointerSource(int32_t source) {
   return (source & AINPUT_SOURCE_CLASS_MASK) == AINPUT_SOURCE_CLASS_POINTER;
 }
 
+/// The target of an input event: the window that owns the activity's surface.
+///
+/// Android hands an app exactly one surface-owning window (the first one
+/// glfwCreateWindow() made) and attaches the single AInputQueue to it. Every
+/// other window this process created -- NanoVG's framebuffer context, each
+/// plan worker's -- is an offscreen EGL pbuffer with no input channel at all.
+///
+/// Routing used to prefer the current EGL/GL context, but egMakeCurrent() is a
+/// rendering state, not an input target: it changes as the display thread and
+/// the workers render, so it is usually an offscreen window by the time input
+/// is drained. V4D installs the plan's GLFW input callbacks on the surface
+/// owner only (FrameBufferContext::init() guards gwe::init with if (!parent_)),
+/// so events dispatched to any other window hit null callbacks and vanished --
+/// the GUI kept working because it is fed the raw AInputEvent directly, while
+/// the plan received nothing. Deliver to the surface owner instead, exactly as
+/// the framework (and desktop GLFW, which targets the focused window) does.
 GLFWwindow *dispatchTarget() {
   Platform &p = platform();
   std::lock_guard<std::recursive_mutex> lock(p.mutex);
-  if (p.currentContext)
-    return p.currentContext;
   for (GLFWwindow *candidate : p.windows) {
     if (candidate->ownsSurface)
       return candidate;
   }
+  // No surface published yet (the activity has not resumed): the current
+  // context is the best remaining guess, so key events still have a target.
+  if (p.currentContext)
+    return p.currentContext;
   return p.windows.empty() ? nullptr : p.windows.front();
 }
 

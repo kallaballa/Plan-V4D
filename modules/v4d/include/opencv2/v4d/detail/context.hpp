@@ -3,11 +3,11 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
-#include <functional>
-#include <opencv2/core/types.hpp>
-
 #ifndef MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_V4DCONTEXT_HPP_
 #define MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_V4DCONTEXT_HPP_
+
+#include <functional>
+#include <opencv2/core/types.hpp>
 
 namespace cv {
 namespace v4d {

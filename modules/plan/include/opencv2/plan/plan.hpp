@@ -152,17 +152,16 @@ public:
   virtual void runFrameLoop(std::function<void()> frameFn) = 0;
 
   /*!
-   * Called on the display thread after the worker threads were spawned but
-   * before they synchronize. Runtimes recreate their frame-synchronization
-   * primitives here: they belong to a single run and must never be shared
-   * between two plans, otherwise a second plan would resequence against the
-   * first one's frames.
+   * Called on the display thread before the worker threads are spawned.
+   * Runtimes recreate their frame-synchronization primitives here: they belong
+   * to a single run and must never be shared between two plans, otherwise a
+   * second plan would resequence against the first one's frames.
    */
   virtual void onRunStart(int32_t workers) { CV_UNUSED(workers); }
 
   /*!
-   * Called after the frame loop finished, on every participating thread
-   * (release per-thread IO resources here).
+   * Called once, on the display thread, after the frame loop finished and the
+   * worker threads have been joined (release per-run IO resources here).
    */
   virtual void releaseIo() {}
 
@@ -191,6 +190,11 @@ protected:
     bool isSingle_ = false;
     bool condition_ = false;
     bool isLocked_ = false;
+    // Whether the branch that encloses this one was enabled. Kept separately
+    // from isEnabled_ (which is parentEnabled_ && condition_) so that the
+    // [else] arm can tell "the branch predicate was false" from "the whole
+    // branch was skipped because an enclosing branch was not taken".
+    bool parentEnabled_ = true;
   };
 
 protected:
@@ -208,6 +212,13 @@ protected:
   std::vector<cv::Ptr<Node>> allNodes_;
   std::deque<BranchState> branchStateStack_;
   std::deque<std::pair<string, BranchType::Enum>> branchStack_;
+
+  // Process-wide, not per-Tplan. They used to be function-local statics inside
+  // the run<Tplan> template, which made one instantiation per plan type: two
+  // plans of different types would not serialize their startup, and each would
+  // re-apply cv::setNumThreads. Defined in src/plan.cpp.
+  CV_EXPORTS static std::mutex runMtx_;
+  CV_EXPORTS static std::once_flag cvThreadsOnce_;
 
   template <typename Tedge> void emit_access(const string &context, Tedge tp) {
     accesses_.push_back(
@@ -347,12 +358,20 @@ protected:
         bool isEnd = n->name_.substr(0, 5) == "[end]";
         bool isElseIf = n->name_.substr(0, 8) == "[elseif]";
         if (btype != BranchType::NONE) {
-          CV_Assert((((isBranch != isElse) != isEnd) != isElseIf));
+          // Exactly one marker kind ("branch", "[else]", "[end]", "[elseif]")
+          // must be on a control-flow node. The previous xor chain was true for
+          // any odd number of matches, so it never actually checked that.
+          CV_Assert((int(isBranch) + int(isElse) + int(isEnd) +
+                     int(isElseIf)) == 1);
           if (isBranch) {
             if (!branchStateStack_.empty())
               currentState = branchStateStack_.front();
             else
               currentState = BranchState();
+            // currentState.isEnabled_ is still the enclosing branch's state
+            // here; remember it before it is folded into this branch's own
+            // outcome.
+            currentState.parentEnabled_ = currentState.isEnabled_;
             currentState.branchID_ = n->name_;
 
             if (currentState.isEnabled_) {
@@ -398,7 +417,12 @@ protected:
             if (branchStateStack_.empty())
               continue;
             currentState = branchStateStack_.front();
-            currentState.isEnabled_ = !currentState.condition_;
+            // The [else] arm runs only when the branch's own predicate was
+            // false AND the branch was reachable at all. isEnabled_ alone is
+            // parentEnabled_ && condition_, so it is false in both cases; the
+            // parent flag distinguishes them.
+            currentState.isEnabled_ =
+                currentState.parentEnabled_ && !currentState.condition_;
             currentState.isOnce_ = false;
             currentState.condition_ = !currentState.condition_;
             currentState.isSingle_ = false;
@@ -457,21 +481,21 @@ protected:
       CV_Assert(lockCnt == 0);
     } catch (std::runtime_error &ex) {
       if (!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
-        if (GlobalState::tryUnlockNode(currentState.branchID_)) {
-        }
+        // currentState was reset to its default in the loop above, so the
+        // branch that still holds the node lock -- and its id -- is the one on
+        // the stack.
+        GlobalState::tryUnlockNode(branchStateStack_.front().branchID_);
       }
       throw;
     } catch (std::exception &ex) {
       CV_UNUSED(ex);
       if (!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
-        if (GlobalState::tryUnlockNode(currentState.branchID_)) {
-        }
+        GlobalState::tryUnlockNode(branchStateStack_.front().branchID_);
       }
       throw;
     } catch (...) {
       if (!branchStateStack_.empty() && branchStateStack_.front().isLocked_) {
-        if (GlobalState::tryUnlockNode(currentState.branchID_)) {
-        }
+        GlobalState::tryUnlockNode(branchStateStack_.front().branchID_);
       }
       throw std::runtime_error("Unkown error.");
     }
@@ -772,6 +796,7 @@ public:
   }
 
   cv::Ptr<Plan> endBranch() {
+    CV_Assert(!branchStack_.empty());
     auto current = branchStack_.front();
     branchStack_.pop_front();
     string id = "[end]" + current.first;
@@ -782,6 +807,7 @@ public:
   }
 
   cv::Ptr<Plan> elseBranch() {
+    CV_Assert(!branchStack_.empty());
     auto current = branchStack_.front();
     string id = "[else]" + current.first;
     emit_access(id, R(*this));
@@ -1217,8 +1243,7 @@ public:
       // Only guards plan construction and worker spawning. Held for as
       // long as it takes to hand work to the workers, never across a
       // frame loop, so plans running in parallel only serialize on start.
-      static std::mutex runMtx;
-      std::lock_guard<std::mutex> lock(runMtx);
+      std::lock_guard<std::mutex> lock(runMtx_);
 
       GlobalState::init_keys();
       LocalState::init_keys();
@@ -1226,8 +1251,7 @@ public:
       // runs decides it. Two concurrent plans must not keep overwriting each
       // other's setting; a plan that spawns its own workers disables the
       // internal pool, one that wants OpenCV's pool takes all cores.
-      static std::once_flag cvThreadsOnce;
-      std::call_once(cvThreadsOnce, [extra_workers]() {
+      std::call_once(cvThreadsOnce_, [extra_workers]() {
         cv::setNumThreads(extra_workers == -1 ? -1 : 0);
       });
 
@@ -1360,6 +1384,10 @@ public:
       CV_LOG_DEBUG(nullptr,
                    "Teardown complete on worker: " << LocalState::get<size_t>(
                        LocalState::Keys::WORKER_INDEX));
+      // Break the Plan <-> Edge reference cycles so this worker's plan (and its
+      // whole graph) is actually freed when `plan` goes out of scope instead of
+      // being kept alive by the self_ handle and the Edge back-refs.
+      plan->release();
     }
 
     // The spawned worker threads were never joined, so their teardown worked
@@ -1377,6 +1405,9 @@ public:
       }
       threads.clear();
       plan->runtime()->releaseIo();
+      // Same cycle-breaking as the worker path above: the display plan owns the
+      // gui() graph and must not be kept alive by self_/Edge back-references.
+      plan->release();
       // Detach the finished run's session: this thread may start another
       // plan later, and a leftover session would be picked up again.
       GlobalState::setSession(previousSession);

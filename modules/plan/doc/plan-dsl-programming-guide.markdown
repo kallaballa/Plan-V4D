@@ -328,7 +328,11 @@ Here, `x` is any C++ lvalue that the plan owns or has registered.
 
 ### Access intent enables optimization and safety
 
-The intent is not just notation. It lets the runtime reason about dependencies.
+The intent is not just notation. Each node records its read and write sets, and
+the access type also picks the synchronization strategy (a plain edge versus a
+lock-protected shared edge). The current runtime executes nodes in record order —
+it does not reschedule on those sets — but the intent is what makes correct
+sharing expressible and lets a future scheduler reason about dependencies.
 
 If a node uses only `R(x)`, the runtime knows it only reads `x`.
 
@@ -505,14 +509,16 @@ IF(cond, a, b)
 
 ```cpp
 container[i]   // IDX
-*ptr           // DEREF
 dst = src      // ASSIGN
 ```
+
+`DEREF` has no symbol form — there is no unary `operator*` in the DSL (`*` is the
+binary `MUL`). Write it as `DEREF(RW(dst), R(ptr))`.
 
 #### Construction
 
 ```cpp
-T(args...)     // CONSTRUCT
+construct(dst, args...)   // CONSTRUCT (the plan's operator()(...) is the symbol form)
 ```
 
 ### Statement form
@@ -830,6 +836,7 @@ V4D adds the following keys:
 | `DISABLE_INPUT_EVENTS` | `bool` |
 | `VISIBLE` | `bool` |
 | `AUTO_SCALE` | `bool` |
+| `AUTO_VIEWPORT` | `bool` |
 
 Writable V4D properties fire runtime callbacks when they are set, for example `WINDOW_SIZE` resizes the window and `FULLSCREEN` toggles fullscreen.
 
@@ -989,7 +996,7 @@ Runtimes such as V4D add additional contexts.
 | `imgui(fn, args...)` | ImGui | Install UI transaction |
 | `set(key, edge)` | CPU | Property write node (`V4D::Keys` or `GlobalState::Keys`) |
 
-Sources and sinks are handled automatically by the runtime. When a source is set, its frame is loaded into the framebuffer before the plan runs; when a sink is set, the framebuffer content is written to it after the plan runs. Plans access the frame using `fb(...)` — there is no need for explicit `capture()` or `write()` calls, and a plan must not make them: `Plan::run` already emits both nodes around `infer()`, so calling them from a plan records a second copy of work the runtime is doing.
+Sources and sinks are handled automatically by the runtime. When a source is set, its frame is loaded into the framebuffer before the plan runs; when a sink is set, the framebuffer content is written to it after the plan runs. Plans access the frame using `fb(...)` — there is no need for explicit `capture()` or `write()` calls, and a plan must not make them: `Plan::run` already calls the runtime's `captureInput()` / `writeOutput()` hooks around `infer()` (V4D's implementations of those hooks record the `capture()` / `write()` nodes), so calling them from a plan records a second copy of work the runtime is doing.
 
 Most context calls return `cv::Ptr<V4DPlan>` and can be chained. `imgui` is the exception: it returns `void` and installs a transaction for the ImGui frame instead.
 
@@ -1014,6 +1021,9 @@ void infer() override {
           V(cv::ALGO_HINT_DEFAULT));
 }
 ```
+
+(`UMAT_COPY_TO_` is the sample-local copy helper built with the `_OLMC_` macro;
+see the V4D application guide, "Copying the framebuffer out".)
 
 Each C++ function is wrapped into a node that the runtime dispatches to the correct context.
 
@@ -1346,9 +1356,9 @@ void infer() override {
 ### Context calls
 
 ```cpp
-nvg({ /* draw */ }, size_, R(text_));
+nvg([](const cv::Size &sz, const std::string &txt) { /* draw */ }, size_, R(text_));
 
-gl({ /* OpenGL commands */ });
+gl([]() { /* OpenGL commands */ });
 
 fb<1>(cv::cvtColor, R(src_), V(cv::COLOR_BGR2RGBA));
 ```

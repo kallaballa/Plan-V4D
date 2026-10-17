@@ -21,9 +21,14 @@ DEMO="${1:-font_rendering}"
 ABI="${2:-arm64-v8a}"
 WAIT="${3:-12}"
 LOG_DIR="$REPO_DIR/build/android/log"
-PACKAGE_ID="com.opencv.v4d.$DEMO"
 STAGE="${ANDROID_STAGE:-$REPO_DIR/build/android}"
 APK="$STAGE/apk/$DEMO-$ABI.apk"
+# The package id and the launcher activity come from the same helpers run-demo.sh
+# and smoke-test.sh use: a demo whose name has a hyphen maps to an underscored
+# package id, and the activity is V4DCameraActivity (the NativeActivity subclass
+# that requests the camera permission), not android.app.NativeActivity.
+PACKAGE_ID="$("$SCRIPT_DIR/package-id.sh" "$DEMO")"
+ACTIVITY="$PACKAGE_ID/org.opencv.v4d.V4DCameraActivity"
 
 # adb is normally on PATH; when it is not, fall back to the same SDK the build
 # uses so the two cannot disagree about which device is being talked to.
@@ -67,7 +72,7 @@ echo "==> installing $APK"
 adb install -r -d "$APK" >/dev/null || { echo "debug-device: install failed" >&2; exit 1; }
 adb shell am force-stop "$PACKAGE_ID" >/dev/null 2>&1 || true
 adb logcat -c
-adb shell am start -n "$PACKAGE_ID/android.app.NativeActivity" >/dev/null
+adb shell am start -n "$ACTIVITY" >/dev/null
 
 # ---- collect ----------------------------------------------------------------
 echo "==> waiting ${WAIT}s"

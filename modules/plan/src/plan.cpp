@@ -57,6 +57,11 @@ Transaction::getContextCallback() {
 CV_EXPORTS thread_local anyproperty::ThreadSafeAnyMap<LocalState::Keys::Enum>
     LocalState::map_;
 
+// Process-wide startup guards shared by every Plan::run<Tplan> instantiation
+// (see the comment on the declarations in plan.hpp).
+std::mutex Plan::runMtx_;
+std::once_flag Plan::cvThreadsOnce_;
+
 CV_EXPORTS size_t cnz(const cv::UMat &m) {
   cv::UMat grey;
   if (m.channels() == 1) {

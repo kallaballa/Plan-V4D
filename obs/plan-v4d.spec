@@ -187,7 +187,7 @@ detection, optical flow, and shader demos.
 # ====================================================================
 
 %description
-Custom build of OpenCV 4.13.0 with Plan-DSL (compile-time task-graph language)
+Custom build of OpenCV 5.x with Plan-DSL (compile-time task-graph language)
 and V4D (GPU visualization runtime) modules from the kallaballa fork.
 Built with FFmpeg, Qt5, OpenGL, OpenCL, and VA-API support.
 
@@ -468,5 +468,5 @@ install -m 0644 %{_builddir}/extra_modules/v4d/assets/fonts/*.ttf \
 %changelog
 * Tue Sep 01 2026 elchaschab <elchaschab@users.noreply.github.com> - 5.x.x~beta~kallaballa-1
 - Initial release for openSUSE Tumbleweed / Fedora
-- Custom build of OpenCV 4.13.0 with Plan-DSL and V4D visualization modules
+- Custom build of OpenCV 5.x with Plan-DSL and V4D visualization modules
 - Built with Qt5, OpenGL, and OpenCL support

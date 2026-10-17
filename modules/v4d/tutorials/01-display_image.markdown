@@ -24,7 +24,8 @@ plan->makeGraph();
 ```
 
 The convenience is that the runtime does the awkward part: it resizes the frame
-to the viewport (preserving aspect ratio) and converts it to BGRA, because the
+to the viewport (a plain stretch — the aspect ratio is not preserved) and
+converts it to BGRA, because the
 framebuffer is BGRA while video frames arrive as BGR. It also flips the frame
 into OpenGL's bottom-up coordinate system. A plan therefore never resizes or
 converts anything to *display* a frame — it only draws on top of it.

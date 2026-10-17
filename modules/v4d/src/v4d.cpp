@@ -125,8 +125,7 @@ V4D::V4D(const V4D &other, const string &title)
       configFlags_(other.configFlags_), debugFlags_(other.debugFlags_),
       samples_(other.samples_) {
   int fbFlags =
-      (configFlags() & ConfigFlags::DISPLAY_MODE ? FBConfigFlags::DISPLAY_MODE
-                                                 : 0) |
+      (configFlags() & ConfigFlags::DISPLAY_MODE ? FBConfigFlags::VSYNC : 0) |
       (debugFlags() & DebugFlags::DEBUG_GL_CONTEXT
            ? FBConfigFlags::DEBUG_GL_CONTEXT
            : 0) |
@@ -277,18 +276,24 @@ bool V4D::getShowTracking() { return showTracking_; }
 void V4D::swapContextBuffers() {
   cv::Rect fbViewport(0, 0, mainFbContext_->size().width,
                       mainFbContext_->size().height);
-  int32_t numGl = std::max(off_t(0), off_t(glContexts_.size()) - 1);
-  for (int32_t i = -1; i < numGl; ++i) {
-    FrameBufferContext::WindowScope winScope(glContexts_[i]->fbCtx());
-    FrameBufferContext::GLScope glScope(glContexts_[i]->fbCtx(),
-                                        GL_READ_FRAMEBUFFER);
+  // Iterate the GL contexts that actually exist. The old loop walked the index
+  // range [-1, glContexts_.size() - 1) and indexed the map with operator[],
+  // which only covered the right keys when a -1 ("all GL contexts") entry was
+  // present -- and silently inserted a null Ptr for the missing -1, then
+  // dereferenced it on the next line whenever a plan used gl<0>(...) alone.
+  for (auto &entry : glContexts_) {
+    cv::Ptr<GLContext> glCtx = entry.second;
+    if (!glCtx)
+      continue;
+    FrameBufferContext::WindowScope winScope(glCtx->fbCtx());
+    FrameBufferContext::GLScope glScope(glCtx->fbCtx(), GL_READ_FRAMEBUFFER);
     GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
     assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) ==
            GL_FRAMEBUFFER_COMPLETE);
-    glContexts_[i]->fbCtx()->blitFrameBufferToFrameBuffer(
-        fbViewport, mainFbContext_->size(), false);
+    glCtx->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport,
+                                                 mainFbContext_->size(), false);
     GL_CHECK(glFinish());
-    glfwSwapBuffers(glContexts_[i]->fbCtx()->getGLFWWindow());
+    glfwSwapBuffers(glCtx->fbCtx()->getGLFWWindow());
   }
 
   if (hasNvgCtx()) {
@@ -584,11 +589,11 @@ void V4D::run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
                                        return s;
                                      });
 
-          size_t seq = GlobalState::apply<size_t>(GlobalState::Keys::FRAME_CNT,
-                                                  [runtime](size_t &s) {
-                                                    ++s;
-                                                    return s;
-                                                  });
+          uint64_t seq = GlobalState::apply<uint64_t>(
+              GlobalState::Keys::FRAME_CNT, [runtime](uint64_t &s) {
+                ++s;
+                return s;
+              });
 
           if (runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
             state.frameSyncSemaSwap.release();

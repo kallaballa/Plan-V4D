@@ -26,7 +26,9 @@
 #include <iostream>
 #include <mutex>
 #include <regex>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 using std::cerr;
 using std::endl;
@@ -67,13 +69,19 @@ typedef struct tagTHREADNAME_INFO {
 #pragma pack(pop)
 
 void setThreadName(const char *threadName) {
-  setThreadName(GetCurrentThreadId(), threadName);
-}
-
-void setThreadName(const char *threadName) {
-  DWORD threadId =
-      ::GetThreadId(static_cast<HANDLE>(std::this_thread::.native_handle()));
-  setThreadName(threadId, threadName);
+  // The classic MSVC mechanism: raising this exception from inside the thread
+  // is how the debugger learns its name. There is no other way on the MSVC
+  // runtime, and no second definition is needed.
+  THREADNAME_INFO info;
+  info.dwType = 0x1000;
+  info.szName = threadName;
+  info.dwThreadID = ::GetCurrentThreadId();
+  info.dwFlags = 0;
+  __try {
+    ::RaiseException(MS_VC_EXCEPTION, 0, sizeof(info) / sizeof(ULONG_PTR),
+                     reinterpret_cast<ULONG_PTR *>(&info));
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
 }
 
 #else
@@ -231,13 +239,15 @@ void init_fragment_shader(unsigned int handles[2], const char *fshader) {
   glGetShaderiv(handles[1], GL_COMPILE_STATUS, &compiled);
   if (!compiled) {
     std::cerr << " failed to compile:" << std::endl;
-    GLint logSize;
+    GLint logSize = 0;
     glGetShaderiv(handles[1], GL_INFO_LOG_LENGTH, &logSize);
-    char *logMsg = new char[logSize];
-    glGetShaderInfoLog(handles[1], logSize, NULL, logMsg);
-    std::cerr << logMsg << std::endl;
-
-    delete[] logMsg;
+    // logSize can be 0 (nothing logged); the buffer is always NUL-terminated so
+    // streaming it cannot over-read either way.
+    std::vector<char> logMsg(static_cast<size_t>(std::max(logSize, 0)) + 1,
+                             '\0');
+    if (logSize > 0)
+      glGetShaderInfoLog(handles[1], logSize, NULL, logMsg.data());
+    std::cerr << logMsg.data() << std::endl;
 
     exit(EXIT_FAILURE);
   }
@@ -250,13 +260,13 @@ void init_fragment_shader(unsigned int handles[2], const char *fshader) {
   glGetProgramiv(handles[0], GL_LINK_STATUS, &linked);
   if (!linked) {
     std::cerr << "Shader program failed to link: " << fshader << std::endl;
-    GLint logSize;
+    GLint logSize = 0;
     glGetProgramiv(handles[0], GL_INFO_LOG_LENGTH, &logSize);
-    char *logMsg = new char[logSize];
-    glGetProgramInfoLog(handles[0], logSize, NULL, logMsg);
-    std::cerr << logMsg << std::endl;
-
-    delete[] logMsg;
+    std::vector<char> logMsg(static_cast<size_t>(std::max(logSize, 0)) + 1,
+                             '\0');
+    if (logSize > 0)
+      glGetProgramInfoLog(handles[0], logSize, NULL, logMsg.data());
+    std::cerr << logMsg.data() << std::endl;
 
     exit(EXIT_FAILURE);
   }
@@ -290,22 +300,23 @@ void init_shaders(unsigned int handles[3], const string vShader,
     glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
     if (!compiled) {
       std::cerr << " failed to compile:" << std::endl;
-      GLint logSize;
+      GLint logSize = 0;
       glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logSize);
-      char *logMsg = new char[logSize];
-      glGetShaderInfoLog(shader, logSize, NULL, logMsg);
+      std::vector<char> logMsg(static_cast<size_t>(std::max(logSize, 0)) + 1,
+                               '\0');
+      if (logSize > 0)
+        glGetShaderInfoLog(shader, logSize, NULL, logMsg.data());
 
-      std::cerr << shaders[i].source << std::endl << logMsg << std::endl;
+      std::cerr << shaders[i].source << std::endl << logMsg.data() << std::endl;
       std::regex rex(R"(\d+:(\d+)\(\d+\))");
 
       std::cmatch cm;
-      if (std::regex_search(logMsg, cm, rex)) {
-        for (size_t j = 0; j < cm.size(); ++j)
-          print_nth_line(shaders[j].source, atoi(std::string(cm[1]).c_str()));
+      if (std::regex_search(logMsg.data(), cm, rex)) {
+        // The driver names the failing line of the shader that failed (i), not
+        // of every shader in the file.
+        print_nth_line(shaders[i].source, atoi(std::string(cm[1]).c_str()));
       }
       std::cerr << std::endl;
-
-      delete[] logMsg;
 
       exit(EXIT_FAILURE);
     }
@@ -333,14 +344,14 @@ void init_shaders(unsigned int handles[3], const string vShader,
   glGetProgramiv(program, GL_LINK_STATUS, &linked);
   if (!linked) {
     std::cerr << "Shader program failed to link: " << fShader << std::endl;
-    GLint logSize;
+    GLint logSize = 0;
     glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logSize);
-    char *logMsg = new char[logSize];
-    glGetProgramInfoLog(program, logSize, NULL, logMsg);
+    std::vector<char> logMsg(static_cast<size_t>(std::max(logSize, 0)) + 1,
+                             '\0');
+    if (logSize > 0)
+      glGetProgramInfoLog(program, logSize, NULL, logMsg.data());
 
-    std::cerr << logMsg << std::endl;
-
-    delete[] logMsg;
+    std::cerr << logMsg.data() << std::endl;
 
     exit(EXIT_FAILURE);
   }

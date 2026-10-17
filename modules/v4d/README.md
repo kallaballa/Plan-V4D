@@ -71,7 +71,7 @@ V4D adds a set of side-effect contexts on top of the DSL's `plain(...)`:
 
 | Call                | Context         | Purpose                                  |
 |---------------------|-----------------|------------------------------------------|
-| `gl(fn, args...)`   | OpenGL          | Raw GL commands on context `idx` (`gl<-1>`, `gl<0>`, …) |
+| `gl(fn, args...)`   | OpenGL          | Raw GL commands (context `-1`); `gl<-1>(V(idx), fn, …)` selects context `idx` |
 | `fb<pos>(fn, args...)` | Framebuffer  | Framebuffer access; the `UMat&` is auto-inserted at argument position `pos` |
 | `nvg(fn, args...)`  | NanoVG          | Vector graphics on top of GL             |
 | `bgfx(fn, args...)` | bgfx            | bgfx rendering (alternative to GL)       |
@@ -125,7 +125,9 @@ thread** every display refresh. Mutate shared state from inside
 
 * **`AllocateFlags`** — which contexts to allocate: `NONE` (= `DEFAULT`),
   `NANOVG`, `IMGUI`, `BGFX`. Pick what you use; nothing is allocated unless you
-  ask for it.
+  ask for it. `BGFX` is honoured on the per-worker runtime clones, which is where
+  the `bgfx(...)` nodes run; the display runtime that `V4D::init` returns does not
+  get a bgfx context.
 * **`ConfigFlags`** — `DEFAULT`, `OFFSCREEN` (no visible window),
   `DISPLAY_MODE` (semaphore-synchronized display thread,
   required for `imshow`-style programs), `RESIZEABLE`.
@@ -141,18 +143,17 @@ thread** every display refresh. Mutate shared state from inside
 `AUTO_SCALE=true` makes the runtime blit its framebuffer into the window
 scaled to fit, preserving the source's aspect ratio (centred letterbox /
 pillarbox) rather than stretching it to the window's size. It defaults to
-`true` on Android, where the surface is always the whole screen, and `false`
-on desktop.
+`true` on every platform (an Android window is always the whole screen, and on
+desktop windows are normally sized to the framebuffer, where the fit is a
+no-op).
 
-`AUTO_VIEWPORT=true` (the default) additionally makes that destination the
+`AUTO_VIEWPORT=true` (default `false`) additionally makes that destination the
 largest rectangle the visible ImGui windows leave free, so a GUI panel
-letterboxes the image beside itself instead of covering it. Set it to `false`
-to always fill the window and let the GUI draw over the image — the default
-ImGui behaviour. `V4D_AUTO_VIEWPORT=0` in the environment does the same
-without touching the code:
+letterboxes the image beside itself instead of covering it. Set it from a plan
+or a program to opt in:
 
 ```cpp
-V4D::set<bool>(V4D::Keys::AUTO_VIEWPORT, false);   // or P<bool>(V4D::Keys::AUTO_VIEWPORT) in a plan
+V4D::set<bool>(V4D::Keys::AUTO_VIEWPORT, true);   // or P<bool>(V4D::Keys::AUTO_VIEWPORT) in a plan
 ```
 
 ## Sources and sinks
@@ -241,11 +242,12 @@ std::string video = cv::samples::findFile("videos/bunny.mp4");
 
 The search path is a list of directories, not a single directory. It contains
 the build tree (`<build>/modules/v4d/assets`, `<build>/modules/v4d/samples/data`),
- the source tree (`modules/v4d/assets`,`modules/v4d/samples/data`, and the install
-directory (`share/opencv4`), in that order of priority — so the samples
-find their assets with or without `make install`. Only existing directories are
-searched. Directories that do not exist at build time but appear later are still
-searched for, as long as they exist at startup.
+the source tree (`modules/v4d/assets`, `modules/v4d/samples/data`,
+`modules/v4d/assets/fonts`) and the install directory
+(`<prefix>/share/opencv4`, plus `/usr/local/share/opencv4`), in that order of
+priority — so the samples find their assets with or without `make install`. Only
+existing directories are searched. Directories that do not exist at build time
+but appear later are still searched for, as long as they exist at startup.
 
 Additional directories can be given at runtime with the `V4D_ASSET_PATH`
 environment variable, as a `:`-separated list (`;` on Windows). They take
@@ -274,11 +276,12 @@ checkout already has them.
 
 ## Samples
 
-26 samples are registered as CMake targets in
+27 samples are registered as CMake targets in
 [modules/v4d/CMakeLists.txt](CMakeLists.txt) (`BUILD_EXAMPLES=ON`), plus two more
 behind `OPENCV_V4D_ENABLE_BGFX=ON`. All of them link `opencv_v4d`,
 `opencv_plan`, core, imgproc, ximgproc, videoio, video, imgcodecs, objdetect,
-xobjdetect, optflow, tracking, stitching, face, features, dnn, glfw and nanovg.
+xobjdetect, optflow, tracking, stitching, face, features, dnn, glfw and nanovg
+(`sandcraft` additionally links the vendored zstd).
 
 | Target | Source | What it shows |
 |---|---|---|
@@ -292,22 +295,23 @@ xobjdetect, optflow, tracking, stitching, face, features, dnn, glfw and nanovg.
 | `example_v4d_custom_source_and_sink` | `custom_source_and_sink.cpp` | custom functors for I/O, conditional output |
 | `example_v4d_font_with_gui` | `font_with_gui.cpp` | an ImGui panel feeding NanoVG |
 | `example_v4d_cube-demo` | `cube-demo.cpp` | pure GL, `teardown()` |
-| `example_v4d_many-cubes-demo` | `many_cubes-demo.cpp` | `gl<-1>`: several GL contexts in parallel |
+| `example_v4d_many_cubes-demo` | `many_cubes-demo.cpp` | `gl<-1>`: several GL contexts in parallel |
 | `example_v4d_two-windows-demo` | `two-windows-demo.cpp` | two `V4D` runtimes and two plans in one process |
 | `example_v4d_video-demo` | `video-demo.cpp` | compositing GL geometry on video |
 | `example_v4d_nanovg-demo` | `nanovg-demo.cpp` | the NanoVG showcase |
 | `example_v4d_shader-demo` | `shader-demo.cpp` | a GLSL fragment shader over video, with events |
-| `example_v4d_font-demo` | `font-demo.cpp` | render-to-texture, warping, several sub-plans |
+| `example_v4d_font-demo` | `font-demo.cpp` | render-to-texture, warping and a GUI |
 | `example_v4d_pedestrian-demo` | `pedestrian-demo.cpp` | HOG + NMS detection, multi-target KCF tracking, ImGui controls |
 | `example_v4d_skeletal-tracker-demo` | `skeletal-tracker-demo.cpp` | MediaPipe pose: detector → per-person RoI → pose net → tracking |
-| `example_v4d_optflow-demo` | `optflow-demo.cpp` | Farneback optical flow |
+| `example_v4d_optflow-demo` | `optflow-demo.cpp` | sparse Lucas–Kanade optical flow with moving-point tracking |
 | `example_v4d_beauty-demo` | `beauty-demo.cpp` | the kitchen sink: shared state, sub-plans, branching, events, ImGui |
 | `example_v4d_imshow_reimplementation` | `imshow_reimplementation.cpp` | a full GUI image viewer with deep zoom |
 | `example_v4d_image_carousel-demo` | `image_carousel-demo.cpp` | an animated glossy carousel, `_shared`, event lists |
-| `example_v4d_pipeline-demo` | `pipeline-demo.cpp` | composes five other samples as sub-plans |
+| `example_v4d_pipeline-demo` | `pipeline-demo.cpp` | composes four other samples as sub-plans (a fifth is included but not spliced in) |
 | `example_v4d_montage-demo` | `montage-demo.cpp` | nine samples side by side in one window |
 | `example_v4d_shadertoy-editor` | `shadertoy-editor.cpp` | an offline Shadertoy workbench with a GLSL editor |
 | `example_v4d_dock-demo` | `dock-demo.cpp` | Dear ImGui docking: a dockspace built with DockBuilder, tab splitting and a persisted layout |
+| `example_v4d_sandcraft` | `sandcraft.cpp` | a networked voxel sandbox; host/client netplay with a zstd delta codec, ImGui menu |
 | `example_v4d_bgfx-demo` | `bgfx-demo.cpp` | bgfx only (`OPENCV_V4D_ENABLE_BGFX=ON`) |
 | `example_v4d_bgfx-demo2` | `bgfx-demo2.cpp` | bgfx over a source, with a sink and ImGui (`OPENCV_V4D_ENABLE_BGFX=ON`) |
 
@@ -324,7 +328,8 @@ theme headers.
 Thirteen samples take no arguments at all. Nine take one optional input video,
 two take an optional input plus an optional output video, one takes a single
 image path, one takes any number of image paths, one takes a single
-`--no-auto-close` flag, and one (`shadertoy-editor`) has a full option set.
+`--no-auto-close` flag, one (`sandcraft`) takes netplay options, and one
+(`shadertoy-editor`) has a full option set.
 
 | Sample | `[args]` |
 |---|---|
@@ -335,6 +340,7 @@ image path, one takes any number of image paths, one takes a single
 | `imshow_reimplementation` | `[image]` (default `lena.png`) |
 | `image_carousel-demo` | `[image-or-dir]…` — any number; directories are scanned non-recursively |
 | `two-windows-demo` | `--no-auto-close` (otherwise both windows close after 5 seconds) |
+| `sandcraft` | `--host` / `--serve [host[:port]]` / `--connect <host[:port]>` / `--single-player`, `--no-menu`, `--port <n>`, `--name <n>`, `--token <s>`, `--net-stats`, `--net-selftest`, `--net-tcp-selftest`, `-h`/`--help` |
 | `shadertoy-editor` | see below |
 
 The one-video samples resolve `argv[1]` through `demo_video_input()`, which falls
@@ -381,6 +387,7 @@ local files, and the 256x3 `iChannelKeyboard` texture.
 | `--export <file>` | write the project back out as Shadertoy JSON |
 | `--size <WxH>` | window size (default 1280x720; in `--shot` mode it is the size of the PNG that is written) |
 | `--fullscreen` | the render fills the window instead of being inset by the panel |
+| `-h`, `--help` | print the usage and exit |
 
 Both `--name value` and `--name=value` are accepted. An unrecognized option
 prints the usage and exits 1.
@@ -441,7 +448,10 @@ modules/v4d/
 │               ├── cl.hpp
 │               ├── gl.hpp
 │               ├── resequence.hpp
-│               └── timetracker.hpp
+│               ├── timetracker.hpp
+│               ├── timetrackerwidget.hpp
+│               ├── transaction.hpp
+│               └── context.hpp
 ├── samples/
 │   ├── samples.hpp                  V4D_DEMO_MAIN and the Android entry point
 │   ├── cubescene.hpp                the shared OpenGL cube
@@ -451,29 +461,36 @@ modules/v4d/
 │   ├── render_opengl.cpp          minimum OpenGL program
 │   ├── display_image_fb.cpp       imshow-style, direct fb access
 │   ├── display_image_nvg.cpp      imshow-style, via NanoVG
+│   ├── vector_graphics.cpp        NanoVG vector shapes
+│   ├── vector_graphics_and_fb.cpp NanoVG and direct framebuffer access together
 │   ├── video_editing.cpp          source → nvg → sink (read this first)
 │   ├── video-demo.cpp             capture → gl → write
 │   ├── cube-demo.cpp              pure GL rendering
 │   ├── many_cubes-demo.cpp        multiple GL contexts in parallel
-│   ├── font-demo.cpp              warping + GUI + multiple sub-plans
+│   ├── two-windows-demo.cpp       two runtimes and two plans in one process
+│   ├── font-demo.cpp              warping + GUI
 │   ├── font_with_gui.cpp          GUI feeding NanoVG
 │   ├── nanovg-demo.cpp            NanoVG showcase
 │   ├── shader-demo.cpp            GLSL fragment shader on a quad
 │   ├── custom_source_and_sink.cpp custom I/O + conditional writing
 │   ├── montage-demo.cpp           many windows in one process
+│   ├── pipeline-demo.cpp          other samples composed as sub-plans
 │   ├── pedestrian-demo.cpp        HOG/NMS detection + KCF tracking + ImGui controls
 │   ├── skeletal-tracker-demo.cpp  MediaPipe pose: detection, per-person RoI,
 │   │                              pose net, multi-person tracking, 1 Euro smoothing
 │   ├── skeletal-tracker-pipeline.hpp  its pipeline, tracker and shared state
 │   ├── skeletal-tracker-anchors.hpp   the detector's anchors, computed
-│   ├── optflow-demo.cpp           Farneback optical flow
+│   ├── optflow-demo.cpp           sparse Lucas–Kanade optical flow
 │   ├── beauty-demo.cpp            the kitchen sink (read this second)
 │   ├── imshow_reimplementation.cpp   full GUI image viewer
 │   ├── image_carousel-demo.cpp    animated glossy image carousel
 │   ├── dock-demo.cpp              Dear ImGui docking layout
+│   ├── sandcraft.cpp              networked voxel sandbox (netplay)
+│   ├── sandcraft/netplay/         the netplay protocol, delta codec and tests
 │   ├── shadertoy-editor.cpp       offline Shadertoy editor: JSON projects,
 │   │                              per-pass code, recompile as you type
-│   └── shadertoy-editor-test.sh   compile / export / screenshot smoke test
+│   ├── bgfx-demo.cpp              bgfx rendering (OPENCV_V4D_ENABLE_BGFX=ON)
+│   └── bgfx-demo2.cpp             bgfx over a source, with a sink and ImGui
 ├── src/
 │   ├── v4d.cpp                     V4D runtime lifecycle
 │   ├── nvg.cpp                     NanoVG wrapper
@@ -484,7 +501,7 @@ modules/v4d/
 │   └── detail/                     per-context implementations
 ├── third/                          glfw, glfw-android, nanovg, imgui, glad,
 │                                   imgui-color-text-edit, AnyProperty,
-│                                   PerlinNoise, stb, clvk
+│                                   PerlinNoise, stb, zstd, clvk, kallaballa
 │   (bgfx.cmake is *not* vendored in this checkout; turning
 │    OPENCV_V4D_ENABLE_BGFX=ON needs a third/bgfx.cmake tree)
 └── tools/
@@ -544,7 +561,7 @@ cmake --build . --target example_v4d_video_editing
 
 GLFW is vendored: `third/glfw` is a submodule, built together with the module
 and installed next to `libnanovg.so`, so no GLFW package is needed. Its
-include, library and pkg-config files land in `${prefix}/include/GLFW` and
+include and library files land in `${prefix}/include/GLFW` and
 `${prefix}/lib`/`${prefix}/lib64`. Configure with `-DOPENCV_V4D_USE_SYSTEM_GLFW=ON`
 to link a system GLFW instead. Wayland support in the vendored copy follows
 OpenCV's `-DWITH_WAYLAND`; X11 support needs the usual X11 development files.
@@ -604,9 +621,10 @@ macOS-specific behavior and notes:
 * OpenCL/GL sharing is not exercised in the headless CI runners; if
   you rely on it, test locally on a real Mac.
 
-macOS builds of V4D (with the samples) are verified continuously in
-CI via the `macOS-ARM64` and `macOS-X64` jobs in
-`.github/workflows/PR-5.x.yaml`.
+macOS builds of V4D are **not** covered by the shared contrib workflows in
+`.github/workflows/PR-5.x.yaml` — the `macOS-ARM64` and `macOS-X64` jobs there
+run the upstream opencv_contrib CI. Build the modules locally on macOS to
+exercise them (see [Building on macOS](#building-on-macos)).
 
 ## License
 

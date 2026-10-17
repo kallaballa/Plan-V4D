@@ -36,6 +36,10 @@ class CV_EXPORTS ImGuiContextImpl : public cv::plan::detail::PlanContext {
   // the state of its filter field across frames.
   TimeTrackerWidget timeTrackerWidget_;
   bool firstFrame_ = true;
+  // Whether the GLFW/OpenGL backends were initialized for this context. The
+  // destructor only shuts them down when they were, so a constructor that threw
+  // halfway does not call into a backend that was never set up.
+  bool backendInitialized_ = false;
 #if defined(__ANDROID__)
   // Whether the previous frame wanted text input. Drives the on-screen keyboard
   // on focus changes and gates the Unicode poll, so neither costs a JNI round

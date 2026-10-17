@@ -32,9 +32,9 @@ PROJECTS=("${TOP_PROJECT}:Plan-V4D:openSUSE_Tumbleweed" "${TOP_PROJECT}:Plan-V4D
 # OBS repository names and architectures per target (project path suffix)
 declare -A REPO_NAME=(
     [openSUSE_Tumbleweed]="openSUSE_Tumbleweed"
-    [Fedora]="standard"
+    [Fedora]="Fedora"
     [Ubuntu_24.04]="Ubuntu_24.04"
-    [Raspbian_12]="Debian_12"
+    [Raspbian_12]="Raspbian_12"
 )
 declare -A REPO_ARCHS=(
     [openSUSE_Tumbleweed]="x86_64"
@@ -102,9 +102,9 @@ do_rebuild() {
     # Map target names to the actual OBS repository names (from 'osc results')
     declare -A TARGET_REPO=(
         [openSUSE_Tumbleweed]="openSUSE_Tumbleweed"
-        [Fedora]="standard"
+        [Fedora]="Fedora"
         [Ubuntu_24.04]="Ubuntu_24.04"
-        [Raspbian_12]="Debian_12"
+        [Raspbian_12]="Raspbian_12"
     )
 
     for proj in "${PROJECTS[@]}"; do

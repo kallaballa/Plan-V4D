@@ -301,8 +301,9 @@ function(v4d_copy_model_asset source relative)
 endfunction()
 
 # Fetch a font the editor samples need (the code pane wants a monospace face).
-# The files are checked in, so this only ever runs on a checkout that predates
-# them; when they are already there the build costs nothing.
+# The files are git-ignored and downloaded on the first configure, so this only
+# runs when they are not on disk yet; when they are already there the build
+# costs nothing.
 #   v4d_fetch_font(<name> <url> <sha256>)
 function(v4d_fetch_font name url sha)
   set(dst "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/${name}")

@@ -177,7 +177,8 @@ rt->setSink(sink);
 
 ## Samples
 
-Twenty-eight sample programs are registered as CMake targets in
+Twenty-nine sample programs are registered as CMake targets in
+[modules/v4d/CMakeLists.txt](modules/v4d/CMakeLists.txt); their sources live in
 [modules/v4d/samples/](modules/v4d/samples/) (two of them only behind
 `OPENCV_V4D_ENABLE_BGFX=ON`):
 
@@ -191,6 +192,7 @@ Twenty-eight sample programs are registered as CMake targets in
 | `imshow_reimplementation.cpp` | a full GUI image viewer |
 | `image_carousel-demo.cpp` | a glossy animated image carousel |
 | `shadertoy-editor.cpp` | an offline Shadertoy workbench with a GLSL editor and batch modes |
+| `sandcraft.cpp` | a networked voxel sandbox (netplay codec, host/client) |
 
 The full list, with a target name, a description, and the arguments each one
 takes, is in the [V4D module README](modules/v4d/README.md#samples).
@@ -255,6 +257,11 @@ below, or add them to an existing OpenCV build via `OPENCV_EXTRA_MODULES_PATH`
 | `plan`                    | Configure, build and run the plan tests (the default) |
 | `plan+v4d`                | Configure, build and install the plan+v4d stack (`v4d` is a shorthand) |
 | `android`                 | Cross-compile the V4D demos for Android               |
+| `deploy`                  | Install a packaged demo APK on a device and start it  |
+| `debug`                   | Install and start a demo, then capture logcat, a screencap and the device GL properties |
+| `smoke`                   | Install, launch and judge every packaged demo on the device |
+| `sdk`                     | Install the Android SDK/NDK pieces the build needs    |
+| `devices`                 | List attached devices/emulators plus the SDK/NDK the build would use |
 | `configure`               | Configure the build directory, nothing else           |
 | `build`                   | Compile an already-configured build directory         |
 | `test`                    | Run the plan test and perf binaries                   |
@@ -263,9 +270,10 @@ below, or add them to an existing OpenCV build via `OPENCV_EXTRA_MODULES_PATH`
 
 `./build.sh --help` is the authoritative list. The options are `-t/--target`,
 `-b/--build-type`, `-j/--jobs`, `-d/--dnn-backend`, `-r/--rebuild` and
-`-h/--help`, plus `--abi`, `--api-level`, `--demo`, `--apk` and
-`--configure-only` for the `android` command. Arguments after `--` are passed to
-the test binaries:
+`-h/--help`, plus the Android options `--abi`, `--api-level`, `--demo`,
+`--configure-only`, `--apk`, `--serial`, `--log`, `--wait`, `--settle` and
+`--keep-log`, and the SDK options `--ndk`, `--build-tools`, `--platform` and
+`--minimal`. Arguments after `--` are passed to the test binaries:
 
 ```bash
 ./build.sh plan -b release -- --gtest_filter=Plan.*
@@ -292,8 +300,8 @@ the test binaries:
 | `OPENCV_V4D_SAMPLES`            | Android only: which samples to build as shared objects. |
 | `BUILD_EXAMPLES`                | Build the programs in `modules/v4d/samples/`. |
 
-Note that a locally built **Release** build of the **plan** module (and its
-test/perf binaries) is compiled with `-march=native` — see
+Note that a locally built **Release**/**RelWithDebInfo** build of the **plan**
+module (and its test/perf binaries) is compiled with `-march=native` — see
 `modules/plan/CMakeLists.txt` — so it is pinned to the build machine's CPU.
 Rebuild for the target host rather than shipping such a binary.
 
@@ -349,10 +357,12 @@ was found.
 
 Because OpenCV builds its OpenCL C kernels at runtime (`clBuildProgram`),
 clvk is built with clspv as an **in-process** compiler
-(`CLVK_COMPILER_AVAILABLE=ON`, `CLVK_CLSPV_ONLINE_COMPILATOR=ON`): the NDK
+(`CLVK_COMPILER_AVAILABLE=ON`, `CLVK_CLSPV_ONLINE_COMPILER=ON`): the NDK
 cross-built LLVM/clang and `libclc` are linked into `libOpenCL.so`. That costs
 a large first build — the pinned LLVM is checked out by clspv's
-`fetch_sources.py` under `build/android/` (cached and resumable) — and it needs
+`fetch_sources.py` under
+`modules/v4d/third/clvk/external/clspv/third_party/llvm` (build artefacts are
+cached and resumable under `build/android/`) — and it needs
 no `exec` from the app sandbox. The build is Arm/x86 ABI-specific (the
 *libclc* step is a host build shared by all ABIs). `V4D_SKIP_CLVK=1` skips it
 when a plain, CPU-only Android build is enough.
@@ -365,9 +375,10 @@ when a plain, CPU-only Android build is enough.
   the canonical edge-by-edge, operator-by-operator reference.
 * [V4D Application Programming Guide](modules/v4d/doc/v4d-application-programming-guide.markdown) —
   the V4D tutorial, milestone by milestone.
-* [Sample walkthroughs](modules/v4d/doc/samples/README.md) — annotated walkthroughs
-  `00`–`20`, one per sample, with the full code inline. The samples with no
-  walkthrough yet are listed in the coverage table at the end of that file.
+* [Sample walkthroughs](modules/v4d/doc/samples/README.md) — an introduction
+  plus 20 annotated sample walkthroughs (`00`–`20`), with the full code inline.
+  The samples with no walkthrough yet are listed in the coverage table at the
+  end of that file.
 * [V4D doxygen tutorials](modules/v4d/tutorials/) — the short stubs the OpenCV
   doc build renders. The two numbering systems do not map one to one; see
   [the walkthroughs' introductory note](modules/v4d/doc/samples/README.md).
@@ -402,7 +413,7 @@ What each package provides:
 | `plan-v4d-devel` / `plan-v4d-dev` | Headers (`nanovg/`, plus the vendored `GLFW/` on RPM), pkgconfig and CMake config for building against the modules. |
 | `plan-v4d-data` | Pre-trained models, cascade classifiers (`/usr/share/opencv5`), V4D fonts, models and videos (`/usr/share/opencv4`). |
 | `plan-v4d-docs` (RPM only) | Programming guides and module documentation. |
-| `plan-v4d-samples` | `example_v4d_*` binaries plus sample sources. |
+| `plan-v4d-samples` | `example_v4d_*` binaries (RPM: plus the fonts; DEB: plus the sample sources). |
 
 ### From the OBS repository
 
