@@ -3,18 +3,22 @@
 // directory of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 //
-// The scene: the world slab, the emitters, the in-world annotations, and the
-// chrome that stays crisp.
+// The scene: the world, the emitters, the in-world annotations, and the chrome
+// that stays crisp.
 //
 // Everything is in framebuffer pixels derived from the fitted cell size, so it
 // is correct at any window size.
 //
+// The world fills the window: there is no frame, no studio wall around the
+// slab and no reserved band for the chrome, so the painting runs edge to edge.
+// The chrome that used to live outside the world -- the emitter nozzles and the
+// HUD -- is drawn as a translucent overlay inside it instead.
+//
 // Two styles, one function. The band path is the original: it is where small
 // windows fall back to (below ~2.6 px a cell there is no room for a stroke),
 // and where the panel's checkbox returns to. The painter's path stages the
-// scene instead -- linen on the studio wall, a gilded frame, a night the world
-// hangs in, the world as strokes over the stars, the canvas weave once more
-// over the paint and the varnish last.
+// scene instead -- a night the world hangs in, the world as strokes over the
+// stars, and the varnish last.
 //
 // drawChrome is the second half: the brush ring and the HUD, drawn on top of
 // the finished painting -- after the gl() varnish pass -- so the cursor and
@@ -39,83 +43,37 @@
 
 namespace sandcraft {
 
-inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
-                      const cv::Size &sz, double timeSec) {
+// The emitter nozzles and their names, painted as a translucent overlay onto
+// the top of the world. They used to sit in a strip reserved above the slab;
+// now that the world fills the window there is no such strip, so they hang
+// from the top edge of the painting instead -- a soft scrim seats the names so
+// a cream label reads over a starry sky or over a heap of sand alike.
+//
+// Drawn *after* the world (sky and grid), because unlike before it is now over
+// the play area rather than beside it.
+inline void drawEmittersOverlay(const Palette &pal, Sandbox &sb, const View &v,
+                                double timeSec) {
   using namespace cv::v4d::nvg;
   const float cell = v.cell_;
   const float w = cell * v.width_;
-  const float h = cell * v.height_;
   const cv::Point2f o = v.origin_;
   const bool vg = sb.local_.vanGogh;
   const float tsec = float(timeSec);
   const cv::Scalar cream = vg::cream();
 
-  // ---- the studio wall -----------------------------------------------------
-  if (vg) {
-    // Linen over the whole window, well under the paint: it should be felt
-    // rather than seen, and a weave that competes with the brushwork is a
-    // texture, not a canvas.
-    vg::paintCanvas(0.0f, 0.0f, float(sz.width), float(sz.height), 0.055f);
-  }
-
-  // The slab the world sits in: a rounded frame over a soft shadow, so the
-  // automaton reads as an object on the window rather than as the window.
+  // The strip the nozzles and their names live in, and the wash that seats them
+  // over whatever the world has piled up underneath.
+  const float band = std::max(28.0f, cell * 7.0f);
   {
-    const Paint shadow = boxGradient(o.x, o.y + h * 0.02f, w, h, 12.0f, 18.0f,
-                                     cv::Scalar(0, 0, 0, 170),
-                                     cv::Scalar(0, 0, 0, 0));
+    const Paint seat = linearGradient(
+        0.0f, o.y, 0.0f, o.y + band,
+        cv::Scalar(0, 0, 0, vg ? 110.0f : 130.0f), cv::Scalar(0, 0, 0, 0));
     beginPath();
-    roundedRect(o.x - 6.0f, o.y - 2.0f, w + 12.0f, h + 18.0f, 10.0f);
-    fillPaint(shadow);
+    rect(o.x, o.y, w, band);
+    fillPaint(seat);
     fill();
-
-    if (vg) {
-      // A frame, not a tray: an ivory-black ground under three passes of the
-      // chrome yellow the painting itself is made of, so the line reads as
-      // gilding laid on with a knife rather than printed around the edge.
-      beginPath();
-      roundedRect(o.x - 7.0f, o.y - 7.0f, w + 14.0f, h + 14.0f, 8.0f);
-      fillColor(cv::Scalar(16, 12, 6, 255));
-      fill();
-
-      const cv::Scalar gold(60, 169, 231, 255);
-      beginPath();
-      roundedRect(o.x - 4.5f, o.y - 4.5f, w + 9.0f, h + 9.0f, 6.0f);
-      strokeColor(vg::withAlpha(gold, 90.0f));
-      strokeWidth(3.2f);
-      stroke();
-
-      beginPath();
-      roundedRect(o.x - 3.5f, o.y - 3.5f, w + 7.0f, h + 7.0f, 5.0f);
-      strokeColor(vg::withAlpha(gold, 170.0f));
-      strokeWidth(1.4f);
-      stroke();
-
-      beginPath();
-      roundedRect(o.x - 2.0f, o.y - 2.0f, w + 4.0f, h + 4.0f, 6.0f);
-      strokeColor(vg::withAlpha(vg::mix(gold, cream, 0.25f), 215.0f));
-      strokeWidth(1.0f);
-      stroke();
-    } else {
-      beginPath();
-      roundedRect(o.x - 2.0f, o.y - 2.0f, w + 4.0f, h + 4.0f, 6.0f);
-      fillColor(cv::Scalar(30, 30, 38, 255));
-      fill();
-
-      beginPath();
-      roundedRect(o.x - 2.0f, o.y - 2.0f, w + 4.0f, h + 4.0f, 6.0f);
-      strokeColor(cv::Scalar(90, 90, 110, 255));
-      strokeWidth(1.5f);
-      stroke();
-    }
   }
 
-  // --- the emitters, as nozzles above the play area ---
-  //
-  // The nozzle sits in the header band above the slab and its name above that.
-  // Both offsets are relative to the nozzle mouth, not to the slab edge, so
-  // that a world fitted at any size still leaves the label on screen: the
-  // band is as tall as the label needs plus the nozzle plus the world margin.
   fontFace("sans");
   const float nozzleFont = std::max(11.0f, std::min(cell * 1.4f, 20.0f));
   fontSize(nozzleFont);
@@ -123,7 +81,9 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
   for (size_t i = 0; i < sb.world_.emitters.size(); ++i) {
     const Emitter &e = sb.world_.emitters[i];
     const float cx = o.x + (emitterColumn(sb.width_, i) + 0.5f) * cell;
-    const float cy = o.y - 8.0f;
+    // The mouth hangs just inside the top edge; the stem and the name sit above
+    // it within the band, so the whole fixture stays on screen at any size.
+    const float cy = o.y + band - 6.0f;
     const cv::Scalar col = pal[e.type];
 
     if (vg) {
@@ -165,7 +125,8 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
         const float gy = cy - cell * 0.55f;
         beginPath();
         circle(cx, gy, cell * 1.0f);
-        fillPaint(radialGradient(cx, gy, 0.0f, cell * 1.0f, g, cv::Scalar(0, 0, 0, 0)));
+        fillPaint(radialGradient(cx, gy, 0.0f, cell * 1.0f, g,
+                                 cv::Scalar(0, 0, 0, 0)));
         fill();
       }
     }
@@ -182,7 +143,26 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
       fillColor(label);
     text(cx, cy - cell * 1.1f - 3.0f, e.name, e.name + std::strlen(e.name));
   }
+}
 
+inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
+                      double timeSec) {
+  using namespace cv::v4d::nvg;
+  const float cell = v.cell_;
+  const float w = cell * v.width_;
+  const float h = cell * v.height_;
+  const cv::Point2f o = v.origin_;
+  const bool vg = sb.local_.vanGogh;
+  const float tsec = float(timeSec);
+
+  // ---- the studio wall and the frame are gone ------------------------------
+  //
+  // The world used to hang on a linen studio wall inside a gilded frame, with
+  // the wall showing around the slab. The world now *is* the window, so there is
+  // no around: the linen would be fully overdrawn by the sky (and the frame
+  // would sit on top of the painting), so neither is drawn. What decoration
+  // remains is the gl() varnish, which vignettes the corners of the finished
+  // canvas (sandcraft_post.hpp).
   // --- what the world is painted on, and over ------------------------------
   if (vg) {
     // Starry Night, as the empty cells: the painted night is laid down first
@@ -231,11 +211,13 @@ inline void drawWorld(const Palette &pal, Sandbox &sb, const View &v,
 
   if (vg) {
     // The linen weave is intentionally NOT laid over the paint here: on the
-    // heaps it reads as a greyish criss-cross that fights the brushwork. A faint
-    // canvas is still felt behind the slab (the studio-wall weave drawn at the
-    // top of this function); the paint itself is left clean.
+    // heaps it reads as a greyish criss-cross that fights the brushwork. The
+    // paint is left clean.
     resetScissor();
   }
+
+  // The emitter nozzles and their names, over the top of the painting.
+  drawEmittersOverlay(pal, sb, v, timeSec);
 }
 
 // The chrome that stays crisp: the brush ring and the HUD. It is drawn on top
@@ -296,13 +278,22 @@ inline void drawChrome(const Palette &pal, Sandbox &sb, const View &v,
     }
   }
 
-  // --- the HUD, in the framebuffer's own coordinates and in the footer band ---
+  // --- the HUD, an overlay along the foot of the world ----------------------
   //
-  // Anchored to the foot of the reserved band rather than to a fixed offset
-  // below the slab: `o.y + h` is the bottom of the world, and a stats line
-  // placed a constant distance under it lands outside the framebuffer on any
-  // window short enough that the fit leaves less room than that distance.
-  const float hudTop = o.y + h + 6.0f;
+  // The world fills the window, so the HUD is painted onto its foot rather than
+  // into a band under it: a scrim darkens the last rows of the painting and the
+  // readouts sit on that, legible over sky or over a heap of sand.
+  const float bandH = std::max(40.0f, 46.0f * chromeScale(sz));
+  const float hudTop = o.y + h - bandH;
+  {
+    const Paint seat = linearGradient(
+        0.0f, hudTop, 0.0f, o.y + h, cv::Scalar(0, 0, 0, 0),
+        cv::Scalar(0, 0, 0, vg ? 120.0f : 140.0f));
+    beginPath();
+    rect(o.x, hudTop, w, bandH);
+    fillPaint(seat);
+    fill();
+  }
   // Cream over umber, with a dark passage a pixel underneath: the same trick as
   // the brush ring. A flat fill over a weave is unreadable at this size.
   const auto paintText = [&](const char *s, const char *e, float x, float y,
@@ -318,7 +309,7 @@ inline void drawChrome(const Palette &pal, Sandbox &sb, const View &v,
   fontSize(16.0f);
   textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
   const std::string title = "Sandcraft";
-  paintText(title.c_str(), title.c_str() + title.size(), o.x, hudTop,
+  paintText(title.c_str(), title.c_str() + title.size(), o.x, hudTop + 6.0f,
             vg ? cream : cv::Scalar(225, 225, 240, 235));
 
   fontFace("sans");
@@ -328,13 +319,13 @@ inline void drawChrome(const Palette &pal, Sandbox &sb, const View &v,
                 "%d particles   %.0f fps   %dx%d cells   %s, size %d",
                 sb.particleCount_, sb.local_.fps, sb.width_, sb.height_,
                 brushName(me.brush), me.penSize);
-  paintText(stats, stats + std::strlen(stats), o.x, hudTop + 20.0f,
+  paintText(stats, stats + std::strlen(stats), o.x, hudTop + 26.0f,
             vg ? vg::withAlpha(cream, 215.0f) : cv::Scalar(150, 150, 170, 230));
 
   textAlign(NVG_ALIGN_RIGHT | NVG_ALIGN_TOP);
   constexpr const char *kHint =
       "drag to paint   wheel: brush   SHIFT+wheel: pen   DELETE: clear";
-  paintText(kHint, kHint + std::strlen(kHint), sz.width - o.x, hudTop + 20.0f,
+  paintText(kHint, kHint + std::strlen(kHint), sz.width - o.x, hudTop + 26.0f,
             vg ? vg::withAlpha(cream, 165.0f) : cv::Scalar(120, 120, 140, 200));
 
   // The varnish -- the lit-from-the-room vignette -- is not chrome: the gl()

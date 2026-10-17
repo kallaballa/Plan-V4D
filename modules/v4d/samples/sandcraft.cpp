@@ -511,7 +511,7 @@ public:
     }
     sb.local_.lastFrameTime = timeSec;
 
-    drawWorld(pal, sb, v, sz, timeSec);
+    drawWorld(pal, sb, v, timeSec);
   }
 };
 
@@ -674,7 +674,7 @@ public:
     branch(RWS(sandbox_.local_.vanGogh))
       ->gl(&VanGoghPost::process, RW(post_), "GlVgPost")
     ->endBranch();
-//    ->nvg(&SandcraftPlan::overlayDraw, RWS(sandbox_), size_, "NvgOverlayDraw");      // nvg: crisp chrome
+    nvg(&SandcraftPlan::overlayDraw, RWS(sandbox_), size_, "NvgOverlayDraw"); // nvg: crisp chrome
   }
 };
 
