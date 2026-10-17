@@ -5,33 +5,35 @@
 //
 // Sandcraft -- a falling-sand cellular automaton, ported to Plan-V4D.
 //
-// Upstream is https://github.com/kallaballa/Sandcraft: an SDL2 + agar program
+// Upstream is https://github.com/kallaballa/Sandcraft: an SDL 1.2 + agar program
 // that Emscripten compiled to WebAssembly and that paired two players over a
-// websocket signalling server and a WebRTC data channel. Three things changed
-// in the port:
+// websocket signalling server and a WebRTC data channel. The port changes the
+// presentation and the transport:
 //
-//   * The networking is gone. Nexus, WebRTC, the line-event queue that fed
-//     them and the host/guest split (GameState::isHost_) have no meaning in a
-//     single-process demo, so what is left of Particles.cpp is the automaton.
+//   * The transport is TCP netplay (netplay/), not Nexus/WebRTC -- host
+//     authoritative keyframes and deltas instead of a raw grid broadcast -- but
+//     the automaton under it (Particles.cpp) is transcribed unchanged.
 //   * The agar GUI is ImGui. The vertical button strip becomes a material
 //     palette, the grey bar along the bottom becomes the panel's sections, and
 //     the modal "about" window becomes a closable ImGui window.
 //   * The world is drawn with nvg(), not blitted. Upstream set one SDL pixel
 //     per particle. Here the world is a grid of cells that is *fitted* to the
-//     viewport, so the same program is correct at 640x360, at 4K, and after a
+//     viewport, so the same program is correct at 320x180, at 4K, and after a
 //     window resize, and every material gets vector treatment: merged scanline
 //     runs instead of per-cell quads, lit-from-above shading, gradients for the
 //     liquids, and additive glow for fire, embers and electricity.
 //
 // The automaton itself is a direct transcription of Particles.cpp, including
 // its naming (MOVED-prefixed types, "virtual screen", the inert and floating
-// bounds), so the two can be diffed against each other. Where the transcription
-// needed to depart from a literal reading -- the original's `rand() >=
-// RAND_MAX / 13` is a twelve-in-thirteen gate and not the one-in-thirteen it
-// looks like, and its odd-inert types are exempt from the moved/unmoved
-// settle -- the departure is called out at the site with the reason, because
-// both are silent when you get them wrong: one makes the automaton an order of
-// magnitude too slow to settle, the other deletes half the materials.
+// bounds) and its arithmetic quirks, so the two can be diffed against each
+// other. The RNG is the original's rotate/cross-add generator
+// (sandcraft_sandbox.hpp), the movement gate and emit() keep the original's
+// `RAND_MAX` expressions verbatim (the gate is about 25-in-26 and emit about
+// p/2, and the gate draws before the parity test), and the odd-inert types are
+// exempt from the moved/unmoved settle -- each called out at the site, because
+// they are silent when you get them wrong. The one deliberate departure is the
+// grid size and the dashboard: the ImGui panel replaces the original's 28-row
+// dashboard strip, so the drain row is expressed as one unscanned scratch row.
 //
 // The sample is split into modules under sandcraft/, each in its own file with
 // the section it came from above it; this file is the pipeline that wires them
@@ -118,13 +120,7 @@ public:
   explicit LocalInputPlan(Sandbox &sb) : sb_(sb) { _shared(sb_); }
 
   void infer() override {
-    plain([this](Sandbox &sb, const cv::Size &fbSz, const cv::Size &winSz,
-                 const Mouse::List &press, const Mouse::List &drag,
-                 const Mouse::List &scroll, const Keyboard::List &keys,
-                 const Mouse::List &move) {
-            apply(sb, fbSz, winSz, press, drag, scroll, keys, move);
-          },
-          RWS(sb_), size_, windowSize_, press_, drag_, scroll_, keys_, move_);
+    plain(&LocalInputPlan::apply, RW(*this), RWS(sb_), size_, windowSize_, press_, drag_, scroll_, keys_, move_, "PlainInputApply");
   }
 
   // The pointer and the view have to agree, so the view is recomputed here
@@ -370,7 +366,7 @@ public:
   Sandbox &sb_;
   SandSimulationPlan(Sandbox &sb) : sb_(sb) { _shared(sb_); }
 
-  void infer() override { plain(&SandSimulationPlan::step, RWS(sb_)); }
+  void infer() override { plain(&SandSimulationPlan::step, RWS(sb_), "PlainStep"); }
 
   static void step(Sandbox &sb) {
     // The authority's tick drains every input event queued since the last tick
@@ -408,12 +404,15 @@ public:
         emit(sb, emitterColumn(sb.width_, i), 20, e.type, e.density);
     }
 
-    // Keep the top and bottom rows clear so nothing piles against the frame --
-    // Particles::logic() does exactly this before stepping, and
-    // updateVirtualScreen() then leaves the bottom one alone.
+    // Keep row 0 and the last *scanned* row (height_-2) clear, exactly as
+    // Particles::logic() clears row 0 and row height-dboard_height-1 before
+    // stepping. updateVirtualScreen() scans up to height_-2, so the cleared
+    // floor row is itself scanned (and is empty at scan time); height_-1 is the
+    // unscanned scratch row that stands in for the original's dashboard and
+    // keeps every `below` index of the last scanned row in bounds.
     for (int x = 0; x < sb.width_; ++x) {
       sb.cells_[sb.index(x, 0)] = NOTHING;
-      sb.cells_[sb.index(x, sb.height_ - 1)] = NOTHING;
+      sb.cells_[sb.index(x, sb.height_ - 2)] = NOTHING;
     }
 
     updateVirtualScreen(sb);
@@ -444,7 +443,7 @@ public:
   NetApplyPlan(Sandbox &sb) : sb_(sb) { _shared(sb_); }
 
   void infer() override {
-    plain([this](Sandbox &sb) { apply(sb); }, RWS(sb_));
+    plain(&NetApplyPlan::apply, RW(*this), RWS(sb_), "PlainNetApply");
   }
 
   void apply(Sandbox &sb) {
@@ -480,7 +479,7 @@ public:
   SandRenderPlan(Sandbox &sb) : sb_(sb) { _shared(sb_); }
 
   void infer() override {
-    nvg(&SandRenderPlan::draw, RWS(sb_), size_, F(seconds));
+    nvg(&SandRenderPlan::draw, RWS(sb_), size_, F(seconds), "NvgRenderDraw");
   }
 
   Property<cv::Size> size_ = P<cv::Size>(V4D::Keys::SIZE);
@@ -570,12 +569,17 @@ public:
     // makes "the world is allocated and seeded exactly once" a property of the
     // code rather than a property of the runtime's construction order.
     //
-    // 640x360, the original's resolution; nothing in the
-    // automaton depends on it, and the renderer fits whatever it is given to
-    // the viewport.
+    // 320x180 -- smaller than the original's 640x360 default, but nothing in
+    // the automaton depends on the size, and the renderer fits whatever it is
+    // given to the viewport.
     if (sandbox_.cells_.empty()) {
-      sandbox_.allocate(640, 360);
+      sandbox_.allocate(320, 180);
       seed();
+      // Seed the RNG once, exactly like main()'s utils::srand(): time(0) based,
+      // so every run differs. The generator itself is the original's (see
+      // sandcraft_sandbox.hpp), which is what makes a fixed seed reproduce a
+      // run bit for bit.
+      sandbox_.srand();
     }
     // Player 0 is the local player and always present (spec §5); the flag is
     // what puts it in the roster a joining client receives.
@@ -591,14 +595,14 @@ public:
   // box: a stone floor, a bank of sand, a pool of water and an iron pillar with
   // a torch on it.
   //
-  // The floor spans the full width and sits on the last simulated row, because
-  // the row under it is the one the simulation clears every frame -- a floor
-  // that stops short of the edges, or that floats above the drain, lets the
-  // material the emitters lay down pour off the sides and disappear instead of
-  // piling up in front of it.
+  // The floor spans the full width and sits on the last *durable* row, because
+  // the row under it (h-2) is the one the simulation clears every frame and h-1
+  // is the unscanned scratch row below it -- a floor that stops short of the
+  // edges, or that floats above the drain, lets the material the emitters lay
+  // down pour off the sides and disappear instead of piling up in front of it.
   static void seed() {
     const int w = sandbox_.width_, h = sandbox_.height_;
-    const int floorY = h - 2; // the last row the scan reaches; h-1 is drained
+    const int floorY = h - 3; // h-2 is drained, h-1 is unscanned scratch
     for (int x = 0; x < w; ++x) {
       sandbox_.put(x, floorY, WALL);
       sandbox_.put(x, floorY - 1, WALL);
@@ -623,10 +627,6 @@ public:
   // Between the two nvg() passes: read the painting back and lay the varnish,
   // the bloom, the living-paint swirl and the impasto sheen over it -- in raw
   // GL, never fb(). Only in Van Gogh mode; the diagram mode keeps its flat cells.
-  static void postProcess(Sandbox &sb, VanGoghPost &post) {
-    if (sb.local_.vanGogh)
-      post.process();
-  }
 
   // The second nvg() pass: the crisp chrome (brush ring + HUD), laid on top of
   // the finished painting so the cursor and the readouts stay legible.
@@ -637,16 +637,17 @@ public:
   }
 
   void setup() override {
+    set(GlobalState::Keys::TIME_TRACKER, V(true));
     set(GlobalState::Keys::SHOW_FRAME_TIME, V(false));
     // The offscreen texture + composite shader for the gl() pass, created once
     // per instance in this instance's GL context (the CubeScene pattern).
-    gl(&VanGoghPost::init, RW(post_));
+    gl(&VanGoghPost::init, RW(post_), "GlVgInit");
     std::cerr << "sandcraft: fb=" << V4D::get<cv::Size>(V4D::Keys::SIZE)
               << " win=" << V4D::get<cv::Size>(V4D::Keys::WINDOW_SIZE)
               << std::endl;
   }
 
-  void teardown() override { gl(&VanGoghPost::destroy, RW(post_)); }
+  void teardown() override { gl(&VanGoghPost::destroy, RW(post_), "GlVgDestroy"); }
 
   void infer() override {
     set(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(10, 10, 14, 255)));
@@ -668,9 +669,12 @@ public:
     ->elseBranch()
         ->subInfer(netApply_)
     ->endBranch();
+    
     subInfer(render_);                                          // nvg: the painting
-    gl(&SandcraftPlan::postProcess, RWS(sandbox_), RW(post_));  // gl: varnish + glow
-    nvg(&SandcraftPlan::overlayDraw, RWS(sandbox_), size_);      // nvg: crisp chrome
+    branch(RWS(sandbox_.local_.vanGogh))
+      ->gl(&VanGoghPost::process, RW(post_), "GlVgPost")
+    ->endBranch();
+//    ->nvg(&SandcraftPlan::overlayDraw, RWS(sandbox_), size_, "NvgOverlayDraw");      // nvg: crisp chrome
   }
 };
 
@@ -741,15 +745,15 @@ V4D_DEMO_MAIN(int argc, char **argv) {
     std::cerr << " (single player)";
   std::cerr << " name=" << net.name << std::endl;
 
-  // The Van Gogh brush path only engages above ~2.6 px/cell, so a 640x360 grid
+  // The Van Gogh brush path only engages above ~2.6 px/cell, so a 320x180 grid
   // needs a large window to keep the ~3.4 px/cell stroke scale the demo was
   // tuned at (2x the grid => 2x the old 1280x720 canvas). A smaller window just
   // falls through to the banded diagram; the renderer refits on resize, so a
   // user may still shrink it on a modest screen.
-  cv::Rect viewport(0, 0, 1920, 1080);
+  cv::Rect viewport(0, 0, 1280, 720);
   cv::Ptr<V4D> runtime = V4D::init(
       viewport, "Sandcraft", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT | ConfigFlags::DISPLAY_MODE);
-  V4DPlan::run<SandcraftPlan>(0);
+  V4DPlan::run<SandcraftPlan>(2);
   netplay::netRuntime().stop();
   return 0;
 }

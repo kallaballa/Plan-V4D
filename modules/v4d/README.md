@@ -83,6 +83,21 @@ V4D adds a set of side-effect contexts on top of the DSL's `plain(...)`:
 A context may not be nested. A context call takes a functor, sets up the
 subsystem, runs the functor, and tears the subsystem down again.
 
+Every context call also takes an optional, **trailing** string that names the
+node. Without it the node is named after its context and its generated id
+(`gl::BeautyDemo [0x5583c41f2a10] cv::UMat(0x7f2c0c0a2b40) - 2`); with it the
+string takes the place of the context tag, so the same node reads
+`GL post processing::BeautyDemo [0x5583c41f2a10] cv::UMat(0x7f2c0c0a2b40) - 2`
+in error messages, the graph dump and the time tracker:
+
+```cpp
+gl([](const int &i) { /* ... */ }, R(i), "GL post processing");
+```
+
+The rest of the generated id is still appended, so nodes stay unique. See
+[Naming context nodes](../plan/doc/plan-dsl-reference.markdown#naming-context-nodes)
+for the details.
+
 A typical frame looks like:
 
 ```cpp

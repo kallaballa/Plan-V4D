@@ -701,11 +701,7 @@ public:
   typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value,
                           cv::Ptr<V4DPlan>>::type
   gl(Tfn fn, Args... args) {
-    auto argsTuple = std::make_tuple(args...);
-    call(runtime()->glCtx(-1), "gl", fn,
-         std::forward<decltype(argsTuple)>(argsTuple),
-         std::make_index_sequence<
-             std::tuple_size<decltype(argsTuple)>::value>());
+    callContext(runtime()->glCtx(-1), "gl", fn, args...);
     return self<V4DPlan>();
   }
 
@@ -717,22 +713,25 @@ public:
       Tedge copy = indexEdge;
       return runtime()->glCtx(copy.ref());
     };
-    auto argsTuple = std::make_tuple(args...);
+    auto [id, argsTuple] = cv::plan::detail::slice_node_args(args...);
+    const string name = id.empty() ? "gl-i" : id;
     if constexpr (pos > 0) {
       auto beforePos = sub_tuple<0, pos>(argsTuple);
-      auto afterPos = sub_tuple<pos, sizeof...(args) - pos>(argsTuple);
-      auto allTuple = std::tuple_cat(beforePos, indexEdge, afterPos);
-      call(ctxCallback, "gl-i", fn, std::forward<decltype(allTuple)>(allTuple),
+      auto afterPos =
+          sub_tuple<pos, cv::plan::detail::operand_count<Args...>() - pos>(
+              argsTuple);
+      auto allTuple =
+          std::tuple_cat(beforePos, std::make_tuple(indexEdge), afterPos);
+      call(ctxCallback, name, fn, std::forward<decltype(allTuple)>(allTuple),
            std::make_index_sequence<
                std::tuple_size<decltype(allTuple)>::value>());
     } else if constexpr (pos < 0) {
-      call(ctxCallback, "gl-i", fn,
-           std::forward<decltype(argsTuple)>(argsTuple),
+      call(ctxCallback, name, fn, argsTuple,
            std::make_index_sequence<
-               std::tuple_size<decltype(argsTuple)>::value>());
+               cv::plan::detail::operand_count<Args...>()>());
     } else {
-      auto allTuple = std::make_tuple(indexEdge, args...);
-      call(ctxCallback, "gl-i", fn, std::forward<decltype(allTuple)>(allTuple),
+      auto allTuple = std::tuple_cat(std::make_tuple(indexEdge), argsTuple);
+      call(ctxCallback, name, fn, std::forward<decltype(allTuple)>(allTuple),
            std::make_index_sequence<
                std::tuple_size<decltype(allTuple)>::value>());
     }
@@ -743,11 +742,7 @@ public:
   typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value,
                           cv::Ptr<V4DPlan>>::type
   ext(Tfn fn, Args... args) {
-    auto argsTuple = std::make_tuple(args...);
-    call(runtime()->extCtx(-1), "ext", fn,
-         std::forward<decltype(argsTuple)>(argsTuple),
-         std::make_index_sequence<
-             std::tuple_size<decltype(argsTuple)>::value>());
+    callContext(runtime()->extCtx(-1), "ext", fn, args...);
     return self<V4DPlan>();
   }
 
@@ -759,22 +754,25 @@ public:
       Tedge copy = indexEdge;
       return runtime()->extCtx(copy.ref());
     };
-    auto argsTuple = std::make_tuple(args...);
+    auto [id, argsTuple] = cv::plan::detail::slice_node_args(args...);
+    const string name = id.empty() ? "ext-i" : id;
     if constexpr (pos > 0) {
       auto beforePos = sub_tuple<0, pos>(argsTuple);
-      auto afterPos = sub_tuple<pos, sizeof...(args) - pos>(argsTuple);
-      auto allTuple = std::tuple_cat(beforePos, indexEdge, afterPos);
-      call(ctxCallback, "ext-i", fn, std::forward<decltype(allTuple)>(allTuple),
+      auto afterPos =
+          sub_tuple<pos, cv::plan::detail::operand_count<Args...>() - pos>(
+              argsTuple);
+      auto allTuple =
+          std::tuple_cat(beforePos, std::make_tuple(indexEdge), afterPos);
+      call(ctxCallback, name, fn, std::forward<decltype(allTuple)>(allTuple),
            std::make_index_sequence<
                std::tuple_size<decltype(allTuple)>::value>());
     } else if constexpr (pos < 0) {
-      call(ctxCallback, "ext-i", fn,
-           std::forward<decltype(argsTuple)>(argsTuple),
+      call(ctxCallback, name, fn, argsTuple,
            std::make_index_sequence<
-               std::tuple_size<decltype(argsTuple)>::value>());
+               cv::plan::detail::operand_count<Args...>()>());
     } else {
-      auto allTuple = std::make_tuple(indexEdge, args...);
-      call(ctxCallback, "ext-i", fn, std::forward<decltype(allTuple)>(allTuple),
+      auto allTuple = std::tuple_cat(std::make_tuple(indexEdge), argsTuple);
+      call(ctxCallback, name, fn, std::forward<decltype(allTuple)>(allTuple),
            std::make_index_sequence<
                std::tuple_size<decltype(allTuple)>::value>());
     }
@@ -934,23 +932,13 @@ public:
 
   template <typename Tfn, typename... Args>
   cv::Ptr<V4DPlan> nvg(Tfn fn, Args... args) {
-    auto wrap = wrap_callable<typename Args::ref_t...>(fn);
-
-    const string id = make_id(this->space(), "nvg", fn, args...);
-    emit_access(id, R(*this));
-    (emit_access(id, args), ...);
-    add_transaction(runtime()->nvgCtx(), id, wrap, args...);
+    callContext(runtime()->nvgCtx(), "nvg", fn, args...);
     return self<V4DPlan>();
   }
 
   template <typename Tfn, typename... Args>
   cv::Ptr<V4DPlan> bgfx(Tfn fn, Args... args) {
-    auto wrap = wrap_callable<typename Args::ref_t...>(fn);
-
-    const string id = make_id(this->space(), "bgfx", fn, args...);
-    emit_access(id, R(*this));
-    (emit_access(id, args), ...);
-    add_transaction(runtime()->bgfxCtx(), id, wrap, args...);
+    callContext(runtime()->bgfxCtx(), "bgfx", fn, args...);
     return self<V4DPlan>();
   }
 
@@ -960,25 +948,28 @@ public:
     constexpr size_t idx = pos > 0 && isMemFn::value ? pos - 1 : pos;
     using Tfb = typename std::tuple_element<
         idx, typename function_traits<Tfn>::argument_types>::type;
-    auto argsTuple = std::make_tuple(args...);
+    auto [id, argsTuple] = cv::plan::detail::slice_node_args(args...);
+    const string name = id.empty() ? "fb" : id;
     if constexpr (pos > 0) {
       auto beforeFb = sub_tuple<0, pos>(argsTuple);
-      auto afterFb = sub_tuple<pos, sizeof...(args) - pos>(argsTuple);
+      auto afterFb =
+          sub_tuple<pos, cv::plan::detail::operand_count<Args...>() - pos>(
+              argsTuple);
       auto fbEdge = std::make_tuple(makeInternalEdge<std::is_const<Tfb>::value>(
           std::dynamic_pointer_cast<FrameBufferContext>(runtime()->fbCtx())
               ->fb()));
       auto allTuple = std::tuple_cat(beforeFb, fbEdge, afterFb);
-      call(runtime()->fbCtx(), "fb", fn,
+      call(runtime()->fbCtx(), name, fn,
            std::forward<decltype(allTuple)>(allTuple),
            std::make_index_sequence<
                std::tuple_size<decltype(allTuple)>::value>());
     } else {
-      auto allTuple = std::make_tuple(
-          makeInternalEdge<std::is_const<Tfb>::value>(
+      auto allTuple = std::tuple_cat(
+          std::make_tuple(makeInternalEdge<std::is_const<Tfb>::value>(
               std::dynamic_pointer_cast<FrameBufferContext>(runtime()->fbCtx())
-                  ->fb()),
-          args...);
-      call(runtime()->fbCtx(), "fb", fn,
+                  ->fb())),
+          argsTuple);
+      call(runtime()->fbCtx(), name, fn,
            std::forward<decltype(allTuple)>(allTuple),
            std::make_index_sequence<
                std::tuple_size<decltype(allTuple)>::value>());
@@ -986,13 +977,16 @@ public:
     return self<V4DPlan>();
   }
 
-  template <typename Tedge>
-  cv::Ptr<V4DPlan> set(const V4D::Keys::Enum &key, const Tedge &e) {
+  template <typename Tedge, typename... Args>
+  cv::Ptr<V4DPlan> set(const V4D::Keys::Enum &key, const Tedge &e,
+                       const Args &...args) {
     auto plan = self<V4DPlan>();
     using TE = std::remove_const_t<Tedge>;
     using ref_t = decltype(std::declval<TE>().ref());
     std::function<void(ref_t)> fn = [plan, key](ref_t v) { V4D::set(key, v); };
-    const string id = make_id(this->space(), "set-fn", fn, e);
+    const string name = cv::plan::detail::node_id(e, args...);
+    const string id =
+        make_id(this->space(), name.empty() ? "set-fn" : name, fn, e);
     emit_access(id, R(*this));
     emit_access(id, e);
     add_transaction(runtime()->plainCtx(), id, fn, e);
@@ -1005,9 +999,10 @@ public:
     return self<V4DPlan>();
   }
 
-  template <typename Tedge>
-  cv::Ptr<Plan> set(const GlobalState::Keys::Enum &key, const Tedge &e) {
-    return Plan::set(key, e);
+  template <typename Tedge, typename... Args>
+  cv::Ptr<Plan> set(const GlobalState::Keys::Enum &key, const Tedge &e,
+                    const Args &...args) {
+    return Plan::set(key, e, args...);
   }
 
   template <typename... Args>

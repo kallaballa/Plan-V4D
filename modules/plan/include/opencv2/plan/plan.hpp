@@ -23,7 +23,9 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <opencv2/core.hpp>
@@ -70,6 +72,69 @@ static std::size_t map_index(const std::thread::id id) {
   if (iter == s.ids.end())
     return s.ids[id] = s.nextindex++;
   return iter->second;
+}
+
+// A context call (gl, nvg, fb, bgfx, ext, plain, ...) may carry an optional,
+// trailing, human-readable node id:
+//
+//   gl([](const int &i) { /* ... */ }, R(i), "GL post processing");
+//
+// Everything that reaches a context as a value is wrapped in an edge
+// (V/R/RW/RS/RWS/CS, Property, Event, ...), so a plain string can only be
+// meant as that id. It replaces the context tag ("gl") at the front of the
+// composed node id, while the callable pointer, the operand ids, the thread
+// index and the '+' de-dup are still appended. The node therefore keeps its
+// uniqueness, and PlanSession::once() still finds the "- <thread index>"
+// suffix it cuts at. Omit it and the node id is exactly what it was before.
+template <typename T>
+struct is_node_id
+    : std::integral_constant<
+          bool,
+          !std::is_base_of<EdgeBase, typename std::decay<T>::type>::value &&
+              (std::is_convertible<T, const char *>::value ||
+               std::is_same<typename std::decay<T>::type, std::string>::value)> {
+};
+
+template <typename... Ts> struct last_t;
+template <typename T> struct last_t<T> {
+  using type = T;
+};
+template <typename T, typename... Ts> struct last_t<T, Ts...> {
+  using type = typename last_t<Ts...>::type;
+};
+
+// Whether an argument pack ends in an optional node id.
+template <typename... Args> struct has_node_id : std::false_type {};
+template <typename T, typename... Args>
+struct has_node_id<T, Args...> : is_node_id<typename last_t<T, Args...>::type> {
+};
+
+// The operand count of a context call: its arguments minus an optional
+// trailing node id.
+template <typename... Args> constexpr size_t operand_count() {
+  return sizeof...(Args) - (has_node_id<Args...>::value ? 1 : 0);
+}
+
+// Split a context call's arguments into its optional node id and its operands.
+template <typename... Args> auto slice_node_args(Args... args) {
+  if constexpr (has_node_id<Args...>::value) {
+    constexpr size_t n = operand_count<Args...>();
+    auto t = std::make_tuple(args...);
+    std::string id(std::get<n>(t));
+    return std::make_pair(std::move(id), sub_tuple<0, n>(std::move(t)));
+  } else {
+    return std::make_pair(std::string(), std::make_tuple(args...));
+  }
+}
+
+// The optional node id of a context call ("" when there is none) - for calls
+// whose operands come as a pack rather than as a tuple (set()).
+template <typename... Args> std::string node_id(const Args &...args) {
+  if constexpr (has_node_id<Args...>::value) {
+    return std::get<operand_count<Args...>()>(std::make_tuple(args...));
+  } else {
+    return std::string();
+  }
 }
 
 template <bool read, typename Tfn, typename... Args>
@@ -671,6 +736,22 @@ public:
     return self<Plan>();
   }
 
+  /*!
+   * \brief Record a context call, honouring an optional trailing node id.
+   *
+   * `tag` names the context ("gl", "nvg", "fb", "plain", ...) and becomes the
+   * node id unless the last of `args` is a plain string, in which case that
+   * string is used instead - see detail::is_node_id(). Either way the node id
+   * is composed by make_id(), so it stays unique.
+   */
+  template <typename Tctx, typename Tfn, typename... Args>
+  cv::Ptr<Plan> callContext(Tctx ctx, const string &tag, Tfn fn, Args... args) {
+    auto [id, operands] = detail::slice_node_args(args...);
+    call(ctx, id.empty() ? tag : id, fn, operands,
+         std::make_index_sequence<detail::operand_count<Args...>()>());
+    return self<Plan>();
+  }
+
   template <typename Tedge>
   typename std::enable_if<std::is_base_of_v<EdgeBase, Tedge>,
                           cv::Ptr<Plan>>::type
@@ -822,13 +903,30 @@ public:
         args))>::type::ref_t...>(fn);
   }
 
+  // The edge-only plain(...) form records a no-op whose signature is exactly
+  // the operands' reference types. Build it from a peeled operand tuple.
+  template <typename Tuple, size_t... idx>
+  static auto noopCallable(Tuple &ops, std::index_sequence<idx...>) {
+    return [](typename std::remove_reference<decltype(
+                  std::get<idx>(ops))>::type::ref_t...) {};
+  }
+
   template <typename... Args> cv::Ptr<Plan> plain(Args... args) {
-    auto fn = [](typename Args::ref_t...) {};
-    auto wrap = wrap_callable<typename Args::ref_t...>(fn);
-    const string id = make_id(this->space(), "plain", wrap, args...);
-    emit_access(id, R(*this));
-    (emit_access(id, args), ...);
-    add_transaction(runtime_->plainCtx(), id, wrap, args...);
+    if constexpr (detail::has_node_id<Args...>::value) {
+      auto [id, operands] = detail::slice_node_args(args...);
+      auto fn = noopCallable(
+          operands,
+          std::make_index_sequence<detail::operand_count<Args...>()>());
+      call(runtime_->plainCtx(), id.empty() ? "plain" : id, fn, operands,
+           std::make_index_sequence<detail::operand_count<Args...>()>());
+    } else {
+      auto fn = [](typename Args::ref_t...) {};
+      auto wrap = wrap_callable<typename Args::ref_t...>(fn);
+      const string id = make_id(this->space(), "plain", wrap, args...);
+      emit_access(id, R(*this));
+      (emit_access(id, args), ...);
+      add_transaction(runtime_->plainCtx(), id, wrap, args...);
+    }
     return self<Plan>();
   }
 
@@ -836,12 +934,7 @@ public:
   typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value,
                           cv::Ptr<Plan>>::type
   plain(Tfn fn, Args... args) {
-    auto wrap = wrap_callable<typename Args::ref_t...>(fn);
-
-    const string id = make_id(this->space(), "plain", fn, args...);
-    emit_access(id, R(*this));
-    (emit_access(id, args), ...);
-    add_transaction(runtime_->plainCtx(), id, wrap, args...);
+    callContext(runtime_->plainCtx(), "plain", fn, args...);
     return self<Plan>();
   }
 
@@ -1099,15 +1192,18 @@ public:
     GlobalState::shared_vars().registerSafe(val);
   }
 
-  template <typename Tedge>
-  cv::Ptr<Plan> set(const GlobalState::Keys::Enum &key, const Tedge &e) {
+  template <typename Tedge, typename... Args>
+  cv::Ptr<Plan> set(const GlobalState::Keys::Enum &key, const Tedge &e,
+                    const Args &...args) {
     auto plan = self<Plan>();
     using TE = std::remove_const_t<Tedge>;
     using ref_t = decltype(std::declval<TE>().ref());
     std::function<void(ref_t)> fn = [plan, key](ref_t v) {
       GlobalState::set(key, v);
     };
-    const string id = make_id(this->space(), "set-fn", fn, e);
+    const string name = detail::node_id(e, args...);
+    const string id =
+        make_id(this->space(), name.empty() ? "set-fn" : name, fn, e);
     emit_access(id, R(*this));
     emit_access(id, e);
     add_transaction(runtime()->plainCtx(), id, fn, e);

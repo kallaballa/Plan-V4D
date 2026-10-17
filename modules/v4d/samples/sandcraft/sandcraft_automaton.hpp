@@ -13,19 +13,26 @@
 //   * one automaton step -- every cell of the play area, scanline by scanline.
 //
 // The transcription is deliberate, including the naming (MOVED-prefixed types,
-// "virtual screen", the inert and floating bounds), so the two can be diffed
-// against each other. Where the transcription needed to depart from a literal
-// reading -- the original's `rand() >= RAND_MAX / 13` is a twelve-in-thirteen
-// gate and not the one-in-thirteen it looks like, and its odd-inert types are
-// exempt from the moved/unmoved settle -- the departure is called out at the
-// site with the reason, because both are silent when you get them wrong: one
-// makes the automaton an order of magnitude too slow to settle, the other
-// deletes half the materials.
+// "virtual screen", the inert and floating bounds) and the arithmetic quirks,
+// so the two can be diffed against each other. The gate `rand() >= RAND_MAX/13`
+// is kept verbatim against a full 32-bit draw (about 25-in-26, not the
+// twelve-in-thirteen its shape suggests, and drawn before the parity test), and
+// emit() keeps `rand() < (int)(float(RAND_MAX) * p)` (about p/2); both depend on
+// the original's rotate/cross-add RNG (sandcraft_sandbox.hpp) and are called out
+// at the site.
+//
+// The one departure that *cannot* be made bit-exact is the settle cadence:
+// upstream's Scene::draw() folds the odd flavours back only when a frame is
+// drawn (<=30 Hz), while Particles::logic() runs unbounded between draws, so
+// its sim-to-settle ratio is machine-speed dependent. The port runs exactly one
+// step per frame and settles at the end of each step (SandSimulationPlan::step),
+// the deterministic stand-in; it also re-settles on draw via collectRuns().
 #ifndef MODULES_V4D_SAMPLES_SANDCRAFT_AUTOMATON_HPP_
 #define MODULES_V4D_SAMPLES_SANDCRAFT_AUTOMATON_HPP_
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 #include "sandcraft_materials.hpp"
 #include "sandcraft_sandbox.hpp"
@@ -40,7 +47,10 @@ namespace sandcraft {
 // `p`.
 inline void emit(Sandbox &sb, int x, int width, ParticleType type, float p) {
   for (int i = x - width / 2; i < x + width / 2; ++i) {
-    if (float(sb.rand(1u << 20)) / float(1u << 20) < p)
+    // utils::rand() < (int)(float(RAND_MAX) * p). RAND_MAX is 2^31-1 while the
+    // generator yields a full 32-bit word, so the effective per-cell density is
+    // about p/2, not p -- the quirk is the source of truth and is kept.
+    if (sb.rand32() < unsigned(int(float(RAND_MAX) * p)))
       sb.put(i, 1, type);
   }
 }
@@ -77,11 +87,13 @@ inline void drawLine(Sandbox &sb, int newx, int newy, int oldx, int oldy,
 
 // Particles::doRandomLines: forty random strokes across the whole grid.
 inline void doRandomLines(Sandbox &sb, ParticleType type, int penSize) {
+  // The endpoints run to width_/height_ (one past the last cell) and are
+  // clipped by drawParticles(), exactly as Particles::doRandomLines() does.
   for (int i = 0; i < 20; ++i)
     drawLine(sb, int(sb.rand(unsigned(sb.width_))), 0,
-             int(sb.rand(unsigned(sb.width_))), sb.height_ - 1, type, penSize);
+             int(sb.rand(unsigned(sb.width_))), sb.height_, type, penSize);
   for (int i = 0; i < 20; ++i)
-    drawLine(sb, 0, int(sb.rand(unsigned(sb.height_))), sb.width_ - 1,
+    drawLine(sb, 0, int(sb.rand(unsigned(sb.height_))), sb.width_,
              int(sb.rand(unsigned(sb.height_))), type, penSize);
 }
 
@@ -508,32 +520,31 @@ inline void updateVirtualPixel(Sandbox &sb, int x, int y) {
     return;
   if (isInert(same)) {
     inertParticleLogic(sb, x, y, same);
-  } else if ((same % 2) == 0 && sb.rand(13) != 0) {
-    // The original's gate is `utils::rand() >= RAND_MAX / 13` over a full-range
-    // 32-bit draw, so a cell takes a movement step on about twelve frames out
-    // of thirteen. The fall looks uneven because of the odd one out, not
-    // because most cells stand still -- reading the expression as "one in
-    // thirteen" (which is its shape, not its meaning) makes the whole automaton
-    // an order of magnitude too slow to settle: the streams then fall at
-    // roughly the rate they are emitted, so material streams straight through
-    // the world and drains off the bottom instead of piling up. The even check
-    // is what keeps a cell from moving twice in one step.
+  } else if (sb.rand32() >= unsigned(RAND_MAX) / 13u && (same % 2) == 0) {
+    // Particles::updateVirtualPixel(): `utils::rand() >= RAND_MAX / 13 &&
+    // same % 2 == 0`. Two things about it are easy to get wrong and both are
+    // kept exactly:
+    //   * RAND_MAX/13 is 165191049, and the draw is a full 32-bit word, so the
+    //     gate passes about 25 times in 26 -- not the twelve-in-thirteen its
+    //     shape suggests; and
+    //   * the draw happens *first*, so the RNG advances for every non-inert
+    //     cell, odd (already-moved) ones included. Reordering it to test parity
+    //     first would desynchronise the stream.
+    // The even check is what keeps a cell from moving twice in one step.
     moveParticle(sb, x, y, same);
   }
 }
 
 // One automaton step: every cell of the play area, scanline by scanline.
 //
-// The original scans `y < height - dboard_height`, leaving the bottom
-// `dboard_height` rows (its dashboard strip) alone, and Particles::logic()
-// clears the last simulated row before stepping so that nothing can reach it.
-// Here the dashboard is the ImGui panel rather than part of the grid, so the
-// equivalent is two cleared rows -- row 0, where the emitters inject, and the
-// last one -- and the scan stops one short of the bottom. Stopping short is
-// what keeps every neighbour index moveParticle() computes (notably `below` at
-// the last row) inside the grid.
+// The original scans `y < height - dboard_height` and clears row 0 and the last
+// scanned row (height-dboard_height-1) in Particles::logic() before stepping;
+// the rows below the play area are its dashboard strip, never simulated. The
+// ImGui panel replaces the dashboard here, so the equivalent is one unscanned
+// scratch row at the very bottom (height-1) that keeps the `below` index of the
+// last scanned row in bounds, with row 0 and row height-2 cleared each step.
 inline void updateVirtualScreen(Sandbox &sb) {
-  const int bottom = sb.height_ - 1; // the cleared row, not scanned
+  const int bottom = sb.height_ - 1; // the last scanned row is bottom - 1
   for (int y = 0; y < bottom; ++y) {
     // Scanning left-to-right biases the automaton, so the direction is
     // redrawn per scanline.

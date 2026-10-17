@@ -1000,6 +1000,28 @@ Sources and sinks are handled automatically by the runtime. When a source is set
 
 Most context calls return `cv::Ptr<V4DPlan>` and can be chained. `imgui` is the exception: it returns `void` and installs a transaction for the ImGui frame instead.
 
+### Naming context nodes
+
+A context call names its node after the context (`plain`, `gl`, `nvg`, …) and then makes that name unique by appending the callable's address, the operand ids and the worker's thread index — unique and stable across frames, but hard to read:
+
+```text
+gl::BeautyDemo [0x5583c41f2a10] cv::UMat(0x7f2c0c0a2b40) - 2
+```
+
+Every context call also accepts an optional, **trailing** string: a node id. It replaces the context tag at the front of the name, while the callable, the operand ids and the thread index are still appended, so the node keeps its uniqueness:
+
+```cpp
+gl([](const int &i) { /* ... */ }, R(i), "GL post processing");
+```
+
+```text
+GL post processing::BeautyDemo [0x5583c41f2a10] cv::UMat(0x7f2c0c0a2b40) - 2
+```
+
+The id shows up in error messages (`Context failed while: …`), in the graph dump and in the time tracker. Two nodes that would otherwise be identical are still told apart, because the trailing `+` de-duplication applies to the id as a whole. Nodes are recorded per worker, so a node id appears once per worker.
+
+A trailing string is never an operand: values reach a context wrapped in an edge (`V`, `R`, `RW`, `RS`, `RWS`, `CS`, `Property`, …), so an operand that happens to be a `std::string` is still written `R(text_)`.
+
 A typical frame body looks like this:
 
 ```cpp

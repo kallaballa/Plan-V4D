@@ -101,12 +101,14 @@ inline bool isBurnable(ParticleType t) {
 inline bool burnsAsEmber(ParticleType t) { return t == PLANT; }
 
 // ---------------------------------------------------------------------------
-// The palette -- Palette.hpp, with SDL_MapRGB replaced by cv::Scalar
+// The palette -- Palette.hpp, re-tinted for the Van Gogh look
 // ---------------------------------------------------------------------------
 //
 // NanoVG's fill and stroke take BGRA, which is exactly cv::Scalar's channel
-// order, so the RGB triples are carried over unchanged and only the
-// interpretation of the four floats differs.
+// order, so SDL_MapRGB(r,g,b) becomes cv::Scalar(b,g,r,255). The triples are
+// *not* the original's, though: they are a warm, pigment-like retint chosen to
+// sit under the oil-paint post pass, so the port does not render the original's
+// exact colours. (Palette.hpp is the source of truth if that matters.)
 class Palette {
 public:
   cv::Scalar operator[](ParticleType t) const { return color_[t]; }

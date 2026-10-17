@@ -25,7 +25,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <random>
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -152,9 +152,32 @@ struct Sandbox {
   bool ctrlDown_ = false;
   bool altDown_ = false;
 
-  // The RNG. Upstream used utils::rand(), a std::mt19937 behind a singleton; a
-  // member keeps the port single-threaded and its state next to its user.
-  std::mt19937 rng_{std::random_device{}()};
+  // The RNG. Upstream's utils::rand() is a two-word rotate/cross-add generator
+  // (Utils.cpp), *not* the standard library's: every probability in the
+  // automaton is written as `rand() % n` or `rand() >= RAND_MAX / 13` against
+  // its full 32-bit output, so only the same generator reproduces the same
+  // stream. It is carried over verbatim below -- same algorithm, same unseeded
+  // initial words, same default time(0) seed -- so a fixed seed makes the port
+  // and the original produce identical sequences. A member keeps its state next
+  // to its user and single-threaded.
+  uint32_t s_rand_high_ = 1u;
+  uint32_t s_rand_low_ = 1u ^ 0x49616E42u;
+
+  void srand(uint32_t seed) {
+    s_rand_high_ = seed;
+    s_rand_low_ = seed ^ 0x49616E42u;
+  }
+  void srand() { srand(uint32_t(std::time(nullptr))); }
+
+  // utils::rand(): rotate both words by sizeof(int)/2, cross-add, advance the
+  // low word. Unsigned overflow wraps, exactly as in the original.
+  uint32_t rand32() {
+    const int shift = int(sizeof(int) / 2);
+    s_rand_high_ = (s_rand_high_ >> shift) + (s_rand_high_ << shift);
+    s_rand_high_ += s_rand_low_;
+    s_rand_low_ += s_rand_high_;
+    return s_rand_high_;
+  }
 
   size_t index(int x, int y) const {
     return size_t(y) * size_t(width_) + size_t(x);
@@ -170,10 +193,9 @@ struct Sandbox {
       cells_[index(x, y)] = t;
   }
 
-  // rand() % n, which is what every probability in the automaton is written in
-  // terms of. The modulo bias is irrelevant here, and the original had exactly
-  // the same distribution.
-  unsigned rand(unsigned n) { return n == 0 ? 0u : rng_() % n; }
+  // utils::rand() % n, with the zero guard the original lacked (no rule ever
+  // passes 0, but a stray call must not trap).
+  unsigned rand(unsigned n) { return n == 0 ? 0u : unsigned(rand32() % n); }
 
   void allocate(int w, int h) {
     width_ = w;

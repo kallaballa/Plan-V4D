@@ -497,6 +497,8 @@ int ImGuiContextImpl::execute(const cv::Rect &vp, std::function<void()> fn) {
     ImGui_ImplGlfw_NewFrame();
 #endif
     ImGui::NewFrame();
+    ImGuiStyle &style = ImGui::GetStyle();
+    style.FontScaleDpi = 2.0;
 #if defined(__ANDROID__)
     // Mobile has no physical keyboard to fall back on: io.WantTextInput is the
     // signal ImGui gives for "a text field is focused", so the on-screen

@@ -263,9 +263,11 @@ are recomputed locally per instance and MUST NOT be transmitted.
 
 ### 7.6 Determinism
 
-The automaton is **not reproducible** across instances: `Sandbox::rng_` is a `std::mt19937` seeded
-from `std::random_device`, and `rand()` is consulted pervasively inside a step. The design does not
-require determinism, because only the host steps. Consequences that MUST be respected:
+The automaton is **not reproducible** across instances unless both are given the same seed:
+`Sandbox` carries the original's rotate/cross-add RNG (`s_rand_high_`/`s_rand_low_`, see
+`sandcraft_sandbox.hpp`), seeded from `time(0)` by default, and `rand32()`/`rand()` is consulted
+pervasively inside a step. With a fixed seed the step *is* deterministic, but the design does not
+rely on it, because only the host steps. Consequences that MUST be respected:
 
 * No lockstep and no RNG-state synchronization.
 * Clients MUST NOT run the automaton on the replica.
@@ -1186,7 +1188,7 @@ Sandbox
 ├── world_        WorldState   (paused, particleSwaps, emitters[4], epoch)
 ├── local_        LocalState   (vanGogh, impasto, panelOpen, helpOpen, fps)   [never networked]
 ├── predicted_    std::vector<PredictedSegment>                               [client only]
-└── rng_          std::mt19937                                               [host only]
+└── s_rand_high_/s_rand_low_   uint32_t (rotate/cross-add RNG)               [host only]
 
 NetQueues (self-synchronised, _shared)
 ├── input     InputEnvelope[]    (host consumes; {player, InputEventWire})

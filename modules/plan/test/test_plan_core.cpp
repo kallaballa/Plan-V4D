@@ -674,6 +674,95 @@ TEST_F(PlanCoreTest, plain_lambda_with_rw_arg) {
   EXPECT_EQ(static_cast<P *>(plan.get())->dst_, 99);
 }
 
+TEST_F(PlanCoreTest, plain_lambda_with_node_id) {
+  struct P : TestedPlan {
+    int a_ = 42;
+    void infer() override {
+      plain([](const int &) { /* just read */ }, R(a_), "GL post processing");
+    }
+  };
+  auto plan = Plan::make<P>();
+  plan->infer();
+  plan->makeGraph();
+  ASSERT_EQ(plan->nodeCount(), 1u);
+  const std::string name = plan->currentNodes()[0]->name_;
+  const std::string id = "GL post processing";
+  EXPECT_EQ(name.substr(0, id.size()), id);
+  plan->runGraph();
+}
+
+TEST_F(PlanCoreTest, plain_node_id_is_optional) {
+  struct P : TestedPlan {
+    int a_ = 42;
+    void infer() override {
+      plain([](const int &) { /* just read */ }, R(a_));
+    }
+  };
+  auto plan = Plan::make<P>();
+  plan->infer();
+  plan->makeGraph();
+  ASSERT_EQ(plan->nodeCount(), 1u);
+  // Without a node id the context tag still names the node, exactly as before.
+  EXPECT_EQ(plan->currentNodes()[0]->name_.substr(0, 5), std::string("plain"));
+}
+
+TEST_F(PlanCoreTest, plain_node_id_is_not_an_operand) {
+  struct Named : TestedPlan {
+    int a_ = 42;
+    void infer() override {
+      plain([](const int &) {}, R(a_), "named node");
+    }
+  };
+  struct Tagged : TestedPlan {
+    int a_ = 42;
+    void infer() override { plain([](const int &) {}, R(a_)); }
+  };
+  auto named = Plan::make<Named>();
+  named->infer();
+  named->makeGraph();
+  auto tagged = Plan::make<Tagged>();
+  tagged->infer();
+  tagged->makeGraph();
+  ASSERT_EQ(named->nodeCount(), 1u);
+  ASSERT_EQ(tagged->nodeCount(), 1u);
+  // The id is not an edge: the node's dependencies are the same either way.
+  EXPECT_EQ(named->currentNodes()[0]->read_deps_.size(),
+            tagged->currentNodes()[0]->read_deps_.size());
+  EXPECT_EQ(named->currentNodes()[0]->write_deps_.size(),
+            tagged->currentNodes()[0]->write_deps_.size());
+  EXPECT_EQ(named->currentNodes()[0]->write_deps_.size(), 0u);
+}
+
+TEST_F(PlanCoreTest, plain_node_id_keeps_nodes_unique) {
+  struct P : TestedPlan {
+    void infer() override {
+      plain(myVoidFn, "dup");
+      plain(myVoidFn, "dup");
+    }
+  };
+  auto plan = Plan::make<P>();
+  plan->infer();
+  plan->makeGraph();
+  // Same callable, same id: make_id() still de-dupes with a '+' suffix, so
+  // both nodes exist and stay distinguishable.
+  ASSERT_EQ(plan->nodeCount(), 2u);
+  EXPECT_NE(plan->currentNodes()[0]->name_, plan->currentNodes()[1]->name_);
+}
+
+TEST_F(PlanCoreTest, plain_edges_only_with_node_id) {
+  struct P : TestedPlan {
+    int a_ = 42;
+    void infer() override { plain(R(a_), "edge only node"); }
+  };
+  auto plan = Plan::make<P>();
+  plan->infer();
+  plan->makeGraph();
+  ASSERT_EQ(plan->nodeCount(), 1u);
+  const std::string name = plan->currentNodes()[0]->name_;
+  EXPECT_EQ(name.substr(0, 14), std::string("edge only node"));
+  plan->runGraph();
+}
+
 // ---------- Chaining ----------
 
 TEST_F(PlanCoreTest, chaining_assignments) {

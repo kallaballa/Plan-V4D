@@ -1008,6 +1008,9 @@ gl(fn, args...)             // OpenGL   (gl<-1>(V(idx), fn, ...) selects context
 imgui(fn, args...)          // inside gui() only
 set(key, edge)              // property write node
 
+// Every context call takes an optional trailing string that names the node:
+//   gl(fn, R(i), "GL post processing")   // → "GL post processing::MyPlan [0x…] …"
+
 // ── Control flow ────────────────────────────────────────────────────────────
 branch(pred)->plain(a)->elseBranch()->plain(b)->endBranch();
 branch(BranchType::SINGLE, pred)   // at most one worker

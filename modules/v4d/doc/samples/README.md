@@ -134,6 +134,8 @@ If `Plan` is the blueprint, then `V4D` is the toolbox. The V4D runtime provides 
 - **`imgui`**: For creating user interfaces with Dear ImGui.
 - **`plain`**: For running general-purpose code, like standard OpenCV functions.
 
+Every one of these calls takes an optional, trailing string that names the node — `nvg(draw, R(text_), "title")` — which is what error messages, the graph dump and the time tracker show instead of the generated id. See [Naming context nodes](../../../plan/doc/plan-dsl-reference.markdown#naming-context-nodes).
+
 In addition, `V4D` provides a `Source` / `Sink` system. Sources and sinks are handled automatically by the runtime — when a source is set, its frame is loaded into the framebuffer before the plan runs; when a sink is set, the framebuffer content is written to it after the plan runs. Plans access the frame using `fb(...)`.
 
 ## Lifecycle of a `V4DPlan`

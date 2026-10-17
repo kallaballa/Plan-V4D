@@ -43,8 +43,17 @@ struct View {
 // apart, because the original subtracted 1 and 2 sixths from the centre rather
 // than stepping outwards from it.
 inline int emitterColumn(int gridWidth, size_t i) {
-  static const double kColumn[4] = {1.0 / 6.0, 2.0 / 6.0, 4.0 / 6.0, 5.0 / 6.0};
-  return int(gridWidth * kColumn[i % 4]);
+  // Integer arithmetic, exactly as Particles::logic(): width/2 -+ (width/6)*1
+  // and *2. Computing it in floating point moves the first two columns by one
+  // cell (e.g. 53/106 instead of 54/107 at width 320).
+  const int sixth = gridWidth / 6;
+  const int half = gridWidth / 2;
+  switch (i % 4) {
+  case 0: return half - sixth * 2;
+  case 1: return half - sixth;
+  case 2: return half + sixth;
+  default: return half + sixth * 2;
+  }
 }
 
 // Fit the grid into the viewport, keeping cells square, leaving a margin and
